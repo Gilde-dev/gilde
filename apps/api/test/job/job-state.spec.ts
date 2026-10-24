@@ -18,7 +18,7 @@ describe('job state machine', () => {
     });
 
     it('never leaves a terminal status', () => {
-        const events = ['fire', 'pr_activity', 'ci_passed', 'retry', 'park', 'merged', 'closed', 'cancel', 'manual_retry'] as const;
+        const events = ['fire', 'pr_activity', 'ci_passed', 'retry', 'park', 'merged', 'closed', 'cancel', 'manual_retry', 'enqueue', 'triage'] as const;
         for (const status of TERMINAL) for (const e of events) expect(nextStatus(status, e)).toBeNull();
     });
 
@@ -38,5 +38,21 @@ describe('job state machine', () => {
     it('parks when attempts are used up', () => {
         expect(retryOrPark(1, 3)).toBe('retry');
         expect(retryOrPark(3, 3)).toBe('park');
+    });
+
+    it('moves between triage and queued, and triage can be cancelled', () => {
+        expect(nextStatus('triage', 'enqueue')).toBe('queued');
+        expect(nextStatus('triage', 'cancel')).toBe('cancelled');
+        expect(nextStatus('queued', 'triage')).toBe('triage');
+    });
+
+    it('rejects every other transition into or out of triage', () => {
+        for (const e of ['fire', 'pr_activity', 'ci_passed', 'retry', 'park', 'merged', 'closed', 'manual_retry', 'triage'] as const) {
+            expect(nextStatus('triage', e)).toBeNull();
+        }
+        for (const s of JOB_STATUSES) {
+            if (s !== 'queued') expect(nextStatus(s, 'triage')).toBeNull();
+            if (s !== 'triage') expect(nextStatus(s, 'enqueue')).toBeNull();
+        }
     });
 });

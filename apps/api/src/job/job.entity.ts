@@ -40,9 +40,11 @@ export class Job {
     attempts: number;
 
     @Column({
-        name: 'queued_at'
+        name: 'queued_at',
+        type: 'datetime',
+        nullable: true
     })
-    queuedAt: Date;
+    queuedAt: Date | null;
 
     @Column({
         name: 'pr_number',

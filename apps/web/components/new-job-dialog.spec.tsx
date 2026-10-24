@@ -79,4 +79,21 @@ describe('NewJobDialog', () => {
     expect(await screen.findByRole('button', { name: 'Creating…' })).toBeDisabled();
     resolve({} as Job);
   });
+
+  it('creates in triage only when the toggle is on', async () => {
+    const create = vi.spyOn(api, 'createJob').mockResolvedValue({} as Job);
+    setup();
+    type('Title', 'A title');
+    type('Task', 'Do something useful');
+    fireEvent.click(screen.getByRole('button', { name: 'Create job' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
+    expect(create.mock.calls[0][1]).not.toHaveProperty('status');
+
+    fireEvent.click(screen.getByLabelText('Create in triage'));
+    type('Title', 'A title');
+    type('Task', 'Do something useful');
+    fireEvent.click(screen.getByRole('button', { name: 'Create job' }));
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2));
+    expect(create.mock.calls[1][1]).toMatchObject({ status: 'triage' });
+  });
 });

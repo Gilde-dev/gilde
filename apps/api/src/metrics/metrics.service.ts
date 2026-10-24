@@ -35,7 +35,9 @@ export class MetricsService {
         const where: FindOptionsWhere<Job> = { createdAt: MoreThanOrEqual(start) };
         if (q.projectId) where.projectId = q.projectId;
         if (q.repoId) where.repoId = q.repoId;
-        const jobs = await this.jobRepository.find({ where });
+        const all = await this.jobRepository.find({ where });
+        // Triage jobs are not work in flight yet: they only show up in countByStatus.
+        const jobs = all.filter((j) => j.status !== 'triage');
         const runs = await this.findRuns(jobs.map((j) => j.id));
 
         const lastRun = new Map<string, JobRun>();
@@ -45,7 +47,7 @@ export class MetricsService {
         }
 
         const countByStatus = Object.fromEntries(JOB_STATUSES.map((s) => [s, 0])) as MetricsResponseDto['jobs']['countByStatus'];
-        for (const j of jobs) countByStatus[j.status]++;
+        for (const j of all) countByStatus[j.status]++;
 
         const merged = jobs.filter((j) => j.status === 'merged');
         const decided = jobs.filter((j) => DECIDED.has(j.status));

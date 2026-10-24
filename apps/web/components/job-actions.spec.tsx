@@ -10,9 +10,11 @@ afterEach(() => vi.restoreAllMocks());
 describe('JobActions', () => {
   it.each(JOB_STATUSES)('shows the right buttons for %s', (status) => {
     render(<JobActions job={job(status)} onChanged={() => {}} />);
-    const cancel = ['queued', 'dispatched', 'parked'].includes(status);
+    const cancel = ['triage', 'queued', 'dispatched', 'parked'].includes(status);
     expect(!!screen.queryByRole('button', { name: 'Cancel' })).toBe(cancel);
     expect(!!screen.queryByRole('button', { name: 'Retry' })).toBe(status === 'parked');
+    expect(!!screen.queryByRole('button', { name: 'Queue' })).toBe(status === 'triage');
+    expect(!!screen.queryByRole('button', { name: 'Back to triage' })).toBe(status === 'queued');
   });
 
   it('asks for confirmation before cancelling, then refreshes', async () => {
@@ -41,5 +43,27 @@ describe('JobActions', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Job is not parked');
     expect(retry).toHaveBeenCalledWith('j1');
     expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('queues a triage job and reports dependency warnings', async () => {
+    const enqueue = vi.spyOn(api, 'enqueueJob').mockResolvedValue({
+      title: 'Job', warnings: [{ dependencyId: 'd', message: 'Depends on "X", which is still in triage' }],
+    } as never);
+    const onChanged = vi.fn();
+    const onEnqueued = vi.fn();
+    render(<JobActions job={job('triage')} onChanged={onChanged} onEnqueued={onEnqueued} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Queue' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(enqueue).toHaveBeenCalledWith('j1');
+    expect(onEnqueued).toHaveBeenCalledWith(['Job: Depends on "X", which is still in triage']);
+  });
+
+  it('sends a queued job back to triage', async () => {
+    const triage = vi.spyOn(api, 'triageJob').mockResolvedValue({} as Job);
+    const onChanged = vi.fn();
+    render(<JobActions job={job('queued')} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Back to triage' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(triage).toHaveBeenCalledWith('j1');
   });
 });

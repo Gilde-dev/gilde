@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
+import { BulkEnqueueSchema, UpdateJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type UpdateJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
 import { JobService } from './job.service.js';
 
 @Controller('/v1')
@@ -26,6 +26,32 @@ export class JobController {
     @Get('jobs/:id')
     getById(@Param('id', ParseUUIDPipe) id: string): Promise<JobDetailResponseDto> {
         return this.jobService.getDetail(id);
+    }
+
+    @Patch('jobs/:id')
+    update(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Body(new ZodValidationPipe(UpdateJobSchema)) dto: UpdateJobDto,
+    ): Promise<JobResponseDto> {
+        return this.jobService.update(id, dto);
+    }
+
+    @Post('jobs/enqueue')
+    @HttpCode(200)
+    enqueueMany(@Body(new ZodValidationPipe(BulkEnqueueSchema)) dto: BulkEnqueueDto): Promise<EnqueueResponseDto[]> {
+        return this.jobService.enqueueMany(dto.ids);
+    }
+
+    @Post('jobs/:id/enqueue')
+    @HttpCode(200)
+    enqueue(@Param('id', ParseUUIDPipe) id: string): Promise<EnqueueResponseDto> {
+        return this.jobService.enqueue(id);
+    }
+
+    @Post('jobs/:id/triage')
+    @HttpCode(200)
+    toTriage(@Param('id', ParseUUIDPipe) id: string): Promise<JobResponseDto> {
+        return this.jobService.toTriage(id);
     }
 
     @Put('jobs/:id/dependencies')

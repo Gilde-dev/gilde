@@ -1,6 +1,7 @@
 /** Response types mirror the DTOs in apps/api/src/**\/*.dto.ts. Dates are ISO strings. */
 
 export const JOB_STATUSES = [
+  'triage',
   'queued',
   'dispatched',
   'pr_open',
@@ -63,7 +64,8 @@ export interface Job {
   acceptanceCriteria: string[];
   status: JobStatus;
   attempts: number;
-  queuedAt: string;
+  /** Null while the job is in triage. */
+  queuedAt: string | null;
   prNumber: number | null;
   prUrl: string | null;
   branch: string | null;
@@ -196,6 +198,22 @@ export interface CreateJobInput {
   task: string;
   acceptanceCriteria: string[];
   dependsOn?: string[];
+  status?: 'triage' | 'queued';
+}
+
+export interface UpdateJobInput {
+  title?: string;
+  task?: string;
+  acceptanceCriteria?: string[];
+}
+
+export interface EnqueueWarning {
+  dependencyId: string;
+  message: string;
+}
+
+export interface EnqueueResult extends Job {
+  warnings: EnqueueWarning[];
 }
 
 export interface Metrics {
@@ -291,6 +309,10 @@ export const api = {
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   setJobDependencies: (jobId: string, dependsOn: string[]) =>
     request<Job>(`/v1/jobs/${id(jobId)}/dependencies`, 'PUT', { dependsOn }),
+  updateJob: (jobId: string, input: UpdateJobInput) => request<Job>(`/v1/jobs/${id(jobId)}`, 'PATCH', input),
+  enqueueJob: (jobId: string) => request<EnqueueResult>(`/v1/jobs/${id(jobId)}/enqueue`, 'POST'),
+  triageJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/triage`, 'POST'),
+  enqueueJobs: (ids: string[]) => request<EnqueueResult[]>('/v1/jobs/enqueue', 'POST', { ids }),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
   setRepoPaused: (repoId: string, paused: boolean) =>

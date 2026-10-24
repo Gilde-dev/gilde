@@ -9,6 +9,17 @@ export const CreateJobSchema = z.object({
     task: z.string().trim().min(10),
     acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
     dependsOn: z.array(z.string().uuid()).max(20).optional(),
+    status: z.enum(['triage', 'queued']).optional(),
+});
+
+export const UpdateJobSchema = z.object({
+    title: z.string().trim().min(3).max(200).optional(),
+    task: z.string().trim().min(10).optional(),
+    acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
+}).refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update' });
+
+export const BulkEnqueueSchema = z.object({
+    ids: z.array(z.string().uuid()).min(1).max(50),
 });
 
 export const SetDependenciesSchema = z.object({
@@ -38,7 +49,7 @@ export const JobResponseSchema = z.object({
     acceptanceCriteria: z.array(z.string()),
     status: z.enum(JOB_STATUSES),
     attempts: z.number().int(),
-    queuedAt: z.string().datetime(),
+    queuedAt: z.string().datetime().nullable(),
     prNumber: z.number().int().nullable(),
     prUrl: z.string().nullable(),
     branch: z.string().nullable(),
@@ -57,6 +68,19 @@ export const JobDetailResponseSchema = JobResponseSchema.extend({
     feedback: z.array(FeedbackResponseSchema),
 });
 
+export const EnqueueWarningSchema = z.object({
+    dependencyId: z.string().uuid(),
+    message: z.string(),
+});
+
+export const EnqueueResponseSchema = JobResponseSchema.extend({
+    warnings: z.array(EnqueueWarningSchema),
+});
+
+export type UpdateJobDto = z.infer<typeof UpdateJobSchema>;
+export type BulkEnqueueDto = z.infer<typeof BulkEnqueueSchema>;
+export type EnqueueWarningDto = z.infer<typeof EnqueueWarningSchema>;
+export type EnqueueResponseDto = z.infer<typeof EnqueueResponseSchema>;
 export type SetDependenciesDto = z.infer<typeof SetDependenciesSchema>;
 export type BlockingJobDto = z.infer<typeof BlockingJobSchema>;
 export type CreateJobDto = z.infer<typeof CreateJobSchema>;

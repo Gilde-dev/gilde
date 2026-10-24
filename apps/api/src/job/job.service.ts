@@ -8,7 +8,7 @@ import { FeedbackService } from '../feedback/feedback.service.js';
 import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
-import type { BlockingJobDto, CreateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
+import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
@@ -31,25 +31,72 @@ export class JobService {
         const repo = await this.repoService.getById(repoId); // 404 if unknown
         const dependsOn = dto.dependsOn ?? [];
         await this.validateDependencies(null, repo.projectId, dependsOn);
-        const { dependsOn: _ignored, ...fields } = dto;
+        const { dependsOn: _ignored, status: _status, ...fields } = dto;
+        const status = dto.status ?? 'queued';
         const entity = await this.jobRepository.save(
             this.jobRepository.create({
                 ...fields,
                 acceptanceCriteria: dto.acceptanceCriteria ?? [],
                 repoId,
                 projectId: repo.projectId,
-                status: 'queued',
-                queuedAt: new Date(),
+                status,
+                queuedAt: status === 'queued' ? new Date() : null,
             }),
         );
         await this.dependencyRepository.insert(dependsOn.map((dependsOnJobId) => ({ jobId: entity.id, dependsOnJobId })));
         return this.toDTO(entity);
     }
 
-    /** Replaces the dependency list of a queued job. */
+    /** Edits title, task and criteria; only while the job is in triage. */
+    async update(id: string, dto: UpdateJobDto): Promise<JobResponseDto> {
+        const job = await this.getOrFail(id);
+        if (job.status !== 'triage') throw new ConflictException(`Cannot edit a job that is ${job.status}`);
+        const result = await this.jobRepository.update({ id, status: 'triage' }, dto);
+        if (!result.affected) throw new ConflictException('Job changed in the meantime, try again');
+        return this.getById(id);
+    }
+
+    async enqueue(id: string): Promise<EnqueueResponseDto> {
+        return (await this.withWarnings([await this.apply(id, 'enqueue')]))[0];
+    }
+
+    toTriage(id: string): Promise<JobResponseDto> {
+        return this.apply(id, 'triage');
+    }
+
+    /** All-or-nothing: if any job is missing or not in triage nothing is queued. */
+    async enqueueMany(ids: string[]): Promise<EnqueueResponseDto[]> {
+        const unique = [...new Set(ids)];
+        await this.jobRepository.manager.transaction(async (m) => {
+            const found = await m.find(Job, { where: { id: In(unique) } });
+            const known = new Set(found.map((j) => j.id));
+            const missing = unique.filter((i) => !known.has(i));
+            if (missing.length) throw new NotFoundException({ message: `Jobs not found: ${missing.join(', ')}`, ids: missing });
+            const offending = found.filter((j) => nextStatus(j.status, 'enqueue') === null).map((j) => j.id);
+            if (offending.length) {
+                throw new ConflictException({ message: `Jobs not in triage: ${offending.join(', ')}`, ids: offending });
+            }
+            const result = await m.update(Job, { id: In(unique), status: 'triage' }, { status: 'queued', queuedAt: new Date() });
+            if (result.affected !== unique.length) throw new ConflictException('A job changed in the meantime, try again');
+        });
+        const entities = await this.jobRepository.find({ where: { id: In(unique) } });
+        return this.withWarnings(await this.toDTOs(entities));
+    }
+
+    /** Adds a warning per dependency that is still in triage, so it can never be merged without a human. */
+    private async withWarnings(jobs: JobResponseDto[]): Promise<EnqueueResponseDto[]> {
+        return jobs.map((j) => ({
+            ...j,
+            warnings: j.blockedBy
+                .filter((b) => b.status === 'triage')
+                .map((b) => ({ dependencyId: b.id, message: `Depends on "${b.title}", which is still in triage` })),
+        }));
+    }
+
+    /** Replaces the dependency list of a triage or queued job. */
     async setDependencies(id: string, dependsOn: string[]): Promise<JobResponseDto> {
         const job = await this.getOrFail(id);
-        if (job.status !== 'queued') throw new ConflictException(`Cannot edit dependencies of a job that is ${job.status}`);
+        if (job.status !== 'queued' && job.status !== 'triage') throw new ConflictException(`Cannot edit dependencies of a job that is ${job.status}`);
         await this.validateDependencies(job, job.projectId, dependsOn);
         await this.dependencyRepository.manager.transaction(async (m) => {
             await m.delete(JobDependency, { jobId: id });
@@ -146,6 +193,7 @@ export class JobService {
 
         const changes: Partial<Job> = { status: to };
         if (to === 'queued') changes.queuedAt = new Date();
+        if (to === 'triage') changes.queuedAt = null;
         if (reason) changes.lastReason = reason;
 
         const result = await this.jobRepository.update({ id, status: job.status }, changes);

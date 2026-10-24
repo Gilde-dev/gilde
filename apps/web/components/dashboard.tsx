@@ -20,6 +20,7 @@ export function Dashboard() {
   const params = useSearchParams();
   const [selected, setSelected] = useState<Job | null>(null);
   const [creating, setCreating] = useState(false);
+  const [warnings, setWarnings] = useState<string[]>([]);
 
   const projects = usePolling(api.listProjects, 30_000);
   const requested = params.get('project');
@@ -67,11 +68,29 @@ export function Dashboard() {
             </div>
           </header>
         )}
+        {warnings.length > 0 && (
+          <div role="status" className="m-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+            <ul className="list-disc pl-4">
+              {warnings.map((w, i) => (
+                <li key={i}>{w}</li>
+              ))}
+            </ul>
+            <button type="button" className="mt-1 underline" onClick={() => setWarnings([])}>
+              Dismiss
+            </button>
+          </div>
+        )}
         {projectId && (
-          <Board jobs={jobs.data ?? []} repos={repos.data ?? []} onOpen={setSelected} onChanged={jobs.refresh} />
+          <Board
+            jobs={jobs.data ?? []}
+            repos={repos.data ?? []}
+            onOpen={setSelected}
+            onChanged={jobs.refresh}
+            onEnqueued={setWarnings}
+          />
         )}
       </main>
-      <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={() => setSelected(null)} onChanged={jobs.refresh} />
+      <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={() => setSelected(null)} onChanged={jobs.refresh} onEnqueued={setWarnings} />
       <NewJobDialog
         open={creating}
         repos={repos.data ?? []}

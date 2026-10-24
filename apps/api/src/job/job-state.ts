@@ -1,4 +1,5 @@
 export const JOB_STATUSES = [
+    'triage',          // created but not queued yet; the dispatcher ignores it
     'queued',          // waiting for a free slot
     'dispatched',      // routine fired, waiting for a PR
     'pr_open',         // PR exists, CI running
@@ -11,6 +12,8 @@ export const JOB_STATUSES = [
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export type JobEvent =
+    | 'enqueue'      // triage → queued
+    | 'triage'       // queued → back to triage
     | 'fire'         // dispatcher fired a routine
     | 'pr_activity'  // PR opened, or agent pushed new commits
     | 'ci_passed'
@@ -22,7 +25,8 @@ export type JobEvent =
     | 'manual_retry'; // you requeue a parked job
 
 const TRANSITIONS: Record<JobStatus, Partial<Record<JobEvent, JobStatus>>> = {
-    queued: { fire: 'dispatched', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
+    triage: { enqueue: 'queued', cancel: 'cancelled' },
+    queued: { triage: 'triage', fire: 'dispatched', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
     dispatched: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
     pr_open: { pr_activity: 'pr_open', ci_passed: 'awaiting_review', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
     awaiting_review: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },

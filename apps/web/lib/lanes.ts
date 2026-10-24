@@ -8,6 +8,7 @@ export interface Lane {
 }
 
 export const LANES: Lane[] = [
+  { key: 'triage', title: 'Triage', statuses: ['triage'] },
   { key: 'queued', title: 'Queued', statuses: ['queued'] },
   { key: 'running', title: 'Running', statuses: ['dispatched'] },
   { key: 'pr_open', title: 'PR open', statuses: ['pr_open'] },
