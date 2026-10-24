@@ -19,6 +19,8 @@ const base: Job = {
   lastReason: null,
     needsApproval: false,
     approvalReason: null,
+    dependsOn: [],
+    blockedBy: [],
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };

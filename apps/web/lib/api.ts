@@ -70,8 +70,19 @@ export interface Job {
   lastReason: string | null;
   needsApproval: boolean;
   approvalReason: string | null;
+  dependsOn: string[];
+  /** Dependencies that are not merged yet. */
+  blockedBy: BlockingJob[];
+  /** Present (true) when any dependency is rejected, parked or cancelled. */
+  failedDependency?: boolean;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface BlockingJob {
+  id: string;
+  title: string;
+  status: JobStatus;
 }
 
 export interface RunResult {
@@ -146,7 +157,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' = 'GET', body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -184,6 +195,7 @@ export interface CreateJobInput {
   title: string;
   task: string;
   acceptanceCriteria: string[];
+  dependsOn?: string[];
 }
 
 export interface Metrics {
@@ -277,6 +289,8 @@ export const api = {
     request<Lesson>('/v1/lessons/merge', 'POST', { targetId, lessonIds }),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
+  setJobDependencies: (jobId: string, dependsOn: string[]) =>
+    request<Job>(`/v1/jobs/${id(jobId)}/dependencies`, 'PUT', { dependsOn }),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
   setRepoPaused: (repoId: string, paused: boolean) =>

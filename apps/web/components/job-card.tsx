@@ -2,6 +2,8 @@ import type { Job } from '@/lib/api';
 import { JobActions } from './job-actions';
 import { relativeTime } from '@/lib/time';
 
+const blockedTitles = (job: Job) => job.blockedBy.map((b) => `${b.title} (${b.status})`).join('\n');
+
 export function JobCard({
   job,
   repoName,
@@ -47,6 +49,23 @@ export function JobCard({
             <span>#{job.prNumber}</span>
           ))}
         <span>{relativeTime(job.updatedAt)}</span>
+        {job.failedDependency ? (
+          <span
+            className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-900"
+            title={blockedTitles(job)}
+          >
+            dependency failed
+          </span>
+        ) : (
+          job.blockedBy?.length > 0 && (
+            <span
+              className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-900"
+              title={blockedTitles(job)}
+            >
+              waiting on {job.blockedBy.length}
+            </span>
+          )
+        )}
         {job.needsApproval && (
           <span
             className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"

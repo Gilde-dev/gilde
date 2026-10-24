@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, ApiError, type ApiIssue, type Repo } from '@/lib/api';
+import { api, ApiError, type ApiIssue, type Job, type Repo } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -11,11 +11,14 @@ const inputClass = 'w-full rounded-md border border-border bg-background px-2 py
 export function NewJobDialog({
   open,
   repos,
+  jobs = [],
   onClose,
   onCreated,
 }: {
   open: boolean;
   repos: Repo[];
+  /** Jobs of the selected project; the open ones can be picked as dependencies. */
+  jobs?: Job[];
   onClose: () => void;
   onCreated: () => void | Promise<void>;
 }) {
@@ -23,6 +26,7 @@ export function NewJobDialog({
   const [title, setTitle] = useState('');
   const [task, setTask] = useState('');
   const [criteria, setCriteria] = useState<string[]>(['']);
+  const [dependsOn, setDependsOn] = useState<string[]>([]);
   const [issues, setIssues] = useState<ApiIssue[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -36,6 +40,7 @@ export function NewJobDialog({
     setTitle('');
     setTask('');
     setCriteria(['']);
+    setDependsOn([]);
     setIssues([]);
     setError(null);
   }
@@ -55,7 +60,9 @@ export function NewJobDialog({
     setIssues([]);
     setError(null);
     try {
-      await api.createJob(repoId, { title, task, acceptanceCriteria: sentRows.map((r) => r.text) });
+      await api.createJob(repoId, { title, task, acceptanceCriteria: sentRows.map((r) => r.text),
+        ...(dependsOn.length > 0 ? { dependsOn } : {}),
+      });
       await onCreated();
       reset();
       onClose();
@@ -73,6 +80,8 @@ export function NewJobDialog({
       setSaving(false);
     }
   }
+
+  const openJobs = jobs.filter((j) => !['merged', 'rejected', 'cancelled'].includes(j.status));
 
   const FieldErrors = ({ field }: { field: string }) => (
     <>
@@ -148,6 +157,27 @@ export function NewJobDialog({
               Add criterion
             </Button>
           </fieldset>
+          {openJobs.length > 0 && (
+            <div>
+              <label htmlFor="job-deps" className="text-sm font-medium">
+                Depends on
+              </label>
+              <select
+                id="job-deps"
+                multiple
+                className={inputClass}
+                value={dependsOn}
+                onChange={(e) => setDependsOn(Array.from(e.target.selectedOptions, (o) => o.value))}
+              >
+                {openJobs.map((j) => (
+                  <option key={j.id} value={j.id}>
+                    {j.title} ({j.status})
+                  </option>
+                ))}
+              </select>
+              <FieldErrors field="dependsOn" />
+            </div>
+          )}
           {error && (
             <p role="alert" className="text-sm text-red-800">
               {error}
