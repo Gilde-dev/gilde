@@ -17,6 +17,8 @@ const base: Job = {
   prUrl: 'https://github.com/o/r/pull/5',
   branch: 'claude/gilde-j1',
   lastReason: null,
+    needsApproval: false,
+    approvalReason: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };

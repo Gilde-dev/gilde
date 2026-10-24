@@ -36,6 +36,14 @@ export function JobCard({ job, repoName, onOpen }: { job: Job; repoName?: string
             <span>#{job.prNumber}</span>
           ))}
         <span>{relativeTime(job.updatedAt)}</span>
+        {job.needsApproval && (
+          <span
+            className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"
+            title={job.approvalReason ?? undefined}
+          >
+            Needs approval
+          </span>
+        )}
       </div>
       {job.status === 'parked' && job.lastReason && (
         <p className="mt-2 truncate text-xs text-red-800" title={job.lastReason}>

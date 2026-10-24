@@ -18,6 +18,8 @@ function job(status: JobStatus, extra: Partial<Job> = {}): Job {
     prUrl: null,
     branch: null,
     lastReason: null,
+    needsApproval: false,
+    approvalReason: null,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: new Date().toISOString(),
     ...extra,
@@ -61,5 +63,12 @@ describe('Board', () => {
     expect(screen.getByText('x'.repeat(300))).toHaveClass('truncate');
     fireEvent.click(screen.getByText('Job parked'));
     expect(onOpen).toHaveBeenCalledWith(parked);
+  });
+
+  it('shows a Needs approval badge with the reason only when flagged', () => {
+    const flagged = job('awaiting_review', { needsApproval: true, approvalReason: 'Protected paths changed' });
+    render(<Board jobs={[flagged, job('pr_open')]} repos={repos} onOpen={vi.fn()} />);
+    expect(screen.getAllByText('Needs approval')).toHaveLength(1);
+    expect(screen.getByText('Needs approval')).toHaveAttribute('title', 'Protected paths changed');
   });
 });

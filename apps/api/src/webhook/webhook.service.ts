@@ -44,10 +44,10 @@ interface WebhookPayload {
         original_line?: number | null;
     };
     issue?: { number: number; pull_request?: object };
-    check_suite?: {
+    workflow_run?: {
+        name?: string;
         conclusion: string | null;
         head_sha: string;
-        app?: { slug?: string };
         pull_requests?: { number: number }[];
     };
 }
@@ -55,13 +55,16 @@ interface WebhookPayload {
 // Reviewers whose feedback may send a job back to the agent.
 const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const HANDLED_EVENTS = new Set([
-    'pull_request', 'check_suite', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
+    'pull_request', 'check_suite', 'workflow_run', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
 ]);
+const APPROVAL_REASON = 'Protected paths changed; add the gilde:allow-protected label if intended';
 const CI_OK = new Set(['success', 'neutral', 'skipped']);
 
 @Injectable()
 export class WebhookService {
     private readonly logger = new Logger(WebhookService.name);
+    private readonly ciWorkflows = workflowNames(process.env.GILDE_CI_WORKFLOWS, 'CI');
+    private readonly gateWorkflows = workflowNames(process.env.GILDE_GATE_WORKFLOWS, 'Gates');
 
     constructor(
         private readonly repoService: RepoService,
@@ -79,7 +82,8 @@ export class WebhookService {
         const repo = await this.repoService.findByFullName(fullName);
         if (!repo) return `ignored: unknown repo ${fullName}`;
 
-        if (event === 'check_suite') return this.onCheckSuite(repo.id, payload!);
+        if (event === 'check_suite') return 'ignored: check_suite deliveries are not used; decisions come from workflow_run';
+        if (event === 'workflow_run') return this.onWorkflowRun(repo.id, payload!);
         if (event === 'pull_request_review') return this.onReview(repo.id, payload!);
         if (event === 'pull_request_review_comment') return this.onReviewComment(repo.id, payload!);
         if (event === 'issue_comment') return this.onIssueComment(repo.id, payload!);
@@ -251,32 +255,47 @@ export class WebhookService {
         return `job ${to} with PR #${pr.number}`;
     }
 
-    private async onCheckSuite(repoId: string, payload: WebhookPayload): Promise<string> {
-        const suite = payload.check_suite;
-        if (payload.action !== 'completed' || !suite) return `ignored: check_suite ${payload.action ?? '(no action)'}`;
-        if (suite.app?.slug !== 'github-actions') return `ignored: check_suite from ${suite.app?.slug ?? '(unknown app)'}`;
+    private async onWorkflowRun(repoId: string, payload: WebhookPayload): Promise<string> {
+        const run = payload.workflow_run;
+        if (payload.action !== 'completed' || !run) return `ignored: workflow_run ${payload.action ?? '(no action)'}`;
+        const name = run.name ?? '';
+        const isGate = this.gateWorkflows.has(name);
+        if (!isGate && !this.ciWorkflows.has(name)) return `ignored: workflow ${name || '(unnamed)'} is not configured`;
 
-        for (const { number } of suite.pull_requests ?? []) {
+        for (const { number } of run.pull_requests ?? []) {
             const job = await this.findJobByPr(repoId, number);
             if (!job) continue;
-            if (job.headSha !== suite.head_sha) {
-                return `ignored: stale check_suite ${short(suite.head_sha)} for PR #${number}`;
+            if (job.headSha !== run.head_sha) {
+                return `ignored: stale workflow_run ${short(run.head_sha)} for PR #${number}`;
             }
-            const conclusion = suite.conclusion ?? 'unknown';
+            const conclusion = run.conclusion ?? 'unknown';
             const passed = CI_OK.has(conclusion);
+            if (isGate) return this.onGateRun(job, number, passed);
+
             const to = passed
                 ? await this.transition(job, 'ci_passed', {})
                 : await this.retryOrParkJob(
                     job,
-                    `CI ${conclusion} on ${short(suite.head_sha)}. Fix the failing checks on the existing branch.`,
+                    `CI ${conclusion} on ${short(run.head_sha)}. Fix the failing checks on the existing branch.`,
                 );
             if (!to) return `ignored: job ${job.status} cannot take ${passed ? 'ci_passed' : 'retry'}`;
 
-            const run = await this.findRun(job.id, null);
-            if (run) await this.runs.update({ id: run.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
+            const jobRun = await this.findRun(job.id, null);
+            if (jobRun) await this.runs.update({ id: jobRun.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
             return `job ${to} with PR #${number}`;
         }
-        return 'ignored: check_suite has no known job PR';
+        return 'ignored: workflow_run has no known job PR';
+    }
+
+    /** Gates never retry or move the job; they only flag it for a human. */
+    private async onGateRun(job: Job, prNumber: number, passed: boolean): Promise<string> {
+        await this.jobs.update(
+            { id: job.id },
+            passed ? { needsApproval: false, approvalReason: null } : { needsApproval: true, approvalReason: APPROVAL_REASON },
+        );
+        return passed
+            ? `gate passed: approval cleared for PR #${prNumber}`
+            : `gate failed: job ${job.status} needs approval for PR #${prNumber}`;
     }
 
     /** Applies the event through the state machine; the update only lands if the status is still what we read. */
@@ -303,6 +322,9 @@ export class WebhookService {
         return this.runs.findOne({ where: { jobId }, order: { attempt: 'DESC' } });
     }
 }
+
+const workflowNames = (raw: string | undefined, fallback: string) =>
+    new Set((raw ?? fallback).split(',').map((n) => n.trim()).filter(Boolean));
 
 const short = (sha: string) => sha.slice(0, 7);
 

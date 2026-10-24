@@ -32,6 +32,8 @@ export const JobResponseSchema = z.object({
     prUrl: z.string().nullable(),
     branch: z.string().nullable(),
     lastReason: z.string().nullable(),
+    needsApproval: z.boolean(),
+    approvalReason: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });

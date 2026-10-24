@@ -68,6 +68,8 @@ export interface Job {
   prUrl: string | null;
   branch: string | null;
   lastReason: string | null;
+  needsApproval: boolean;
+  approvalReason: string | null;
   createdAt: string;
   updatedAt: string;
 }

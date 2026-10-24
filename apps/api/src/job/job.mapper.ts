@@ -21,6 +21,8 @@ export class JobMapper {
             prUrl: e.prUrl,
             branch: e.branch,
             lastReason: e.lastReason,
+            needsApproval: e.needsApproval,
+            approvalReason: e.approvalReason,
             createdAt: e.createdAt.toISOString(),
             updatedAt: e.updatedAt.toISOString(),
         };

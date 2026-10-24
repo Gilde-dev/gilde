@@ -90,13 +90,13 @@ function prPayload(action: string, over: Record<string, unknown> = {}, repoName 
     };
 }
 
-function suitePayload(over: Record<string, unknown> = {}) {
+function runPayload(over: Record<string, unknown> = {}) {
     return {
         action: 'completed',
         repository: { full_name: 'gilde-dev/gilde' },
-        check_suite: {
-            id: 1, status: 'completed', conclusion: 'success', head_sha: SHA1,
-            app: { slug: 'github-actions' }, pull_requests: [{ number: 12 }], ...over,
+        workflow_run: {
+            id: 1, name: 'CI', status: 'completed', conclusion: 'success', head_sha: SHA1,
+            pull_requests: [{ number: 12 }], ...over,
         },
     };
 }
@@ -171,7 +171,7 @@ describe('WebhookService', () => {
             const run = await seedRun(job);
             const payload = prPayload('opened', { body: body(job, run) });
             await service.handle('pull_request', payload);
-            await service.handle('check_suite', suitePayload());
+            await service.handle('workflow_run', runPayload());
             expect((await reload(job.id)).status).toBe('awaiting_review');
 
             expect(await service.handle('pull_request', payload)).toBe('unchanged: job awaiting_review with PR #12');
@@ -235,11 +235,11 @@ describe('WebhookService', () => {
         });
     });
 
-    describe('check_suite', () => {
+    describe('workflow_run', () => {
         it.each(['success', 'neutral', 'skipped'])('moves the job to awaiting_review on %s', async (conclusion) => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
             const run = await seedRun(job);
-            const res = await service.handle('check_suite', suitePayload({ conclusion }));
+            const res = await service.handle('workflow_run', runPayload({ conclusion }));
             expect(res).toBe('job awaiting_review with PR #12');
             expect(await reload(job.id)).toMatchObject({ status: 'awaiting_review' });
             expect(await reloadRun(run.id)).toMatchObject({ status: 'ci_passed', ciConclusion: conclusion });
@@ -248,7 +248,7 @@ describe('WebhookService', () => {
         it('requeues the job on failure when attempts are left, keeping the PR', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, branch: 'claude/x', headSha: SHA1 });
             const run = await seedRun(job);
-            await service.handle('check_suite', suitePayload({ conclusion: 'failure' }));
+            await service.handle('workflow_run', runPayload({ conclusion: 'failure' }));
             expect(await reload(job.id)).toMatchObject({
                 status: 'queued', prNumber: 12, branch: 'claude/x', headSha: SHA1,
                 lastReason: 'CI failure on a1b2c3d. Fix the failing checks on the existing branch.',
@@ -258,24 +258,25 @@ describe('WebhookService', () => {
 
         it('parks the job on failure when no attempts are left', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1, attempts: 3 });
-            await service.handle('check_suite', suitePayload({ conclusion: 'failure' }));
+            await service.handle('workflow_run', runPayload({ conclusion: 'failure' }));
             expect(await reload(job.id)).toMatchObject({
                 status: 'parked', lastReason: 'CI failure on a1b2c3d. Fix the failing checks on the existing branch.',
             });
         });
 
-        it('ignores a stale check suite', async () => {
+        it('ignores a stale workflow run', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA2 });
-            const res = await service.handle('check_suite', suitePayload({ conclusion: 'failure' }));
-            expect(res).toBe('ignored: stale check_suite a1b2c3d for PR #12');
+            const res = await service.handle('workflow_run', runPayload({ conclusion: 'failure' }));
+            expect(res).toBe('ignored: stale workflow_run a1b2c3d for PR #12');
             expect((await reload(job.id)).status).toBe('pr_open');
         });
 
-        it('ignores other apps, unfinished suites and unknown PRs', async () => {
+        it('ignores unknown workflow names, unfinished runs and unknown PRs', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
-            expect(await service.handle('check_suite', suitePayload({ app: { slug: 'circleci' } }))).toContain('ignored');
-            expect(await service.handle('check_suite', { ...suitePayload(), action: 'requested' })).toContain('ignored');
-            expect(await service.handle('check_suite', suitePayload({ pull_requests: [{ number: 99 }] }))).toContain('ignored');
+            expect(await service.handle('workflow_run', runPayload({ name: 'Other', conclusion: 'failure' })))
+                .toBe('ignored: workflow Other is not configured');
+            expect(await service.handle('workflow_run', { ...runPayload(), action: 'requested' })).toContain('ignored');
+            expect(await service.handle('workflow_run', runPayload({ pull_requests: [{ number: 99 }] }))).toContain('ignored');
             expect((await reload(job.id)).status).toBe('pr_open');
         });
 
@@ -291,10 +292,47 @@ describe('WebhookService', () => {
             expect((await reloadRun(old.id)).status).toBe('ci_failed');
         });
 
+        it('ignores check_suite deliveries', async () => {
+            const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+            const res = await service.handle('check_suite', {
+                action: 'completed', repository: { full_name: 'gilde-dev/gilde' },
+                check_suite: { conclusion: 'failure', head_sha: SHA1, pull_requests: [{ number: 12 }] },
+            } as never);
+            expect(res).toBe('ignored: check_suite deliveries are not used; decisions come from workflow_run');
+            expect((await reload(job.id)).status).toBe('pr_open');
+        });
+
+        describe('Gates', () => {
+            const REASON = 'Protected paths changed; add the gilde:allow-protected label if intended';
+
+            it('flags a failing gate without requeueing or consuming an attempt', async () => {
+                const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+                const run = await seedRun(job);
+                const res = await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'failure' }));
+                expect(res).toBe('gate failed: job pr_open needs approval for PR #12');
+                expect(await reload(job.id)).toMatchObject({
+                    status: 'pr_open', attempts: 1, needsApproval: true, approvalReason: REASON, lastReason: null,
+                });
+                expect((await reloadRun(run.id)).status).toBe('fired');
+            });
+
+            it('clears the flag on a passing gate', async () => {
+                const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1, needsApproval: true, approvalReason: REASON });
+                await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'success' }));
+                expect(await reload(job.id)).toMatchObject({ status: 'awaiting_review', needsApproval: false, approvalReason: null });
+            });
+
+            it('ignores a stale gate run', async () => {
+                const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA2 });
+                await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'failure' }));
+                expect((await reload(job.id)).needsApproval).toBe(false);
+            });
+        });
+
         it('is harmless when redelivered', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
-            await service.handle('check_suite', suitePayload());
-            expect(await service.handle('check_suite', suitePayload()))
+            await service.handle('workflow_run', runPayload());
+            expect(await service.handle('workflow_run', runPayload()))
                 .toBe('ignored: job awaiting_review cannot take ci_passed');
             expect((await reload(job.id)).status).toBe('awaiting_review');
         });
