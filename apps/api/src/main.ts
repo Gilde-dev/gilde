@@ -10,6 +10,7 @@ async function bootstrap() {
   });
 
   app.setGlobalPrefix('/api');
+  app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000' });
 
   await app.listen(port);
   console.log(`Now listening on *:${port}`)

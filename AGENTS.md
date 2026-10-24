@@ -11,6 +11,10 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - `src/main.ts` — bootstrap; global prefix `/api`
   - `src/app.module.ts` — root module, TypeORM config (better-sqlite3 locally)
   - `test/` — e2e tests (`*.e2e-spec.ts`)
+- `apps/web/` — the Next.js (App Router) web UI (`@gilde/web`), Tailwind + shadcn-style components in `components/ui`
+  - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); base URL from `NEXT_PUBLIC_GILDE_API` (default `http://localhost:4100/api`)
+  - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
+  - read-only job board for now; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `packages/` — shared packages (none yet)
 
 ## Commands
@@ -20,6 +24,8 @@ Run from the repo root unless noted.
 - Build everything: `pnpm build`
 - API only: `pnpm --filter @gilde/api test` · `... build` · `... lint` (oxlint) · `... test:e2e`
 - Run the API locally: `pnpm dev` (port 4100 by default)
+- Web only: `pnpm --filter @gilde/web dev` (port 3000) · `... build` · `... test`
+- The API allows CORS from `WEB_ORIGIN` (default `http://localhost:3000`)
 
 ## API domains (`apps/api/src/`)
 One NestJS module per domain:
