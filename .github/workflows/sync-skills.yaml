@@ -1,0 +1,43 @@
+# Syncs managed skills from Gilde-dev/gildeboek into .claude/skills/ (template: gildeboek/templates/sync-skills.yaml).
+# Requires: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+name: Sync Gilde skills
+on:
+  schedule: [{ cron: '17 6 * * *' }]   # daily
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    env:
+      STACK: nestjs                     # this repo's stack, see registry.yaml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/checkout@v4
+        with:
+          repository: Gilde-dev/gildeboek
+          path: .gildeboek
+
+      - name: Copy matching skills
+        run: |
+          names=$(yq -r ".skills[] | select(.scope == \"global\" or ((.stacks // []) | any_c(. == \"$STACK\"))) | .name" .gildeboek/registry.yaml)
+          mkdir -p .claude/skills
+          for name in $names; do
+            rm -rf ".claude/skills/$name"
+            cp -r ".gildeboek/skills/$name" ".claude/skills/$name"
+          done
+          git -C .gildeboek rev-parse HEAD > .claude/skills/.gildeboek-version
+          rm -rf .gildeboek
+
+      - uses: peter-evans/create-pull-request@v7
+        with:
+          branch: gilde/sync-skills
+          title: "Sync skills from gildeboek"
+          commit-message: "chore: sync skills from gildeboek"
+          body: |
+            Updates managed skills from Gilde-dev/gildeboek for stack `${{ env.STACK }}`.
+            Review the diff before merging. Don't edit synced skills in this repo; change them in gildeboek.
