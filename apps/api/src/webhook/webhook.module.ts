@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { Job } from '../job/job.entity.js';
+import { FeedbackModule } from '../feedback/feedback.module.js';
 import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { JobRun } from '../run/run.entity.js';
@@ -13,6 +14,7 @@ import { WebhookService } from './webhook.service.js';
     imports: [
         TypeOrmModule.forFeature([Job, JobRun, Project]),
         RepoModule,
+        FeedbackModule,
     ],
     controllers: [WebhookController],
     providers: [WebhookService],

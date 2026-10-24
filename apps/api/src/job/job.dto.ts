@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { FeedbackResponseSchema } from '../feedback/feedback.dto.js';
 import { RunResponseSchema } from '../run/run.dto.js';
 import { JOB_STATUSES } from './job-state.js';
 
@@ -37,6 +38,7 @@ export const JobResponseSchema = z.object({
 
 export const JobDetailResponseSchema = JobResponseSchema.extend({
     runs: z.array(RunResponseSchema),
+    feedback: z.array(FeedbackResponseSchema),
 });
 
 export type CreateJobDto = z.infer<typeof CreateJobSchema>;
