@@ -3,7 +3,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 
 import { RepoService } from '../repo/repo.service.js';
-import type { CreateJobDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
+import { RunService } from '../run/run.service.js';
+import type { CreateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
 import { nextStatus, type JobEvent } from './job-state.js';
@@ -14,6 +15,7 @@ export class JobService {
     constructor(
         private readonly jobMapper: JobMapper,
         private readonly repoService: RepoService,
+        private readonly runService: RunService,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
     ) { }
 
@@ -43,6 +45,11 @@ export class JobService {
 
     async getById(id: string): Promise<JobResponseDto> {
         return this.jobMapper.toDTO(await this.getOrFail(id));
+    }
+
+    async getDetail(id: string): Promise<JobDetailResponseDto> {
+        const job = await this.getById(id);
+        return { ...job, runs: await this.runService.listForJob(id) };
     }
 
     cancel(id: string): Promise<JobResponseDto> {
