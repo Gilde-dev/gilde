@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { api, JOB_STATUSES, type Job, type JobStatus, type Repo } from '@/lib/api';
+import { api, JOB_STATUSES, type Feature, type Job, type JobStatus, type Repo } from '@/lib/api';
 import { Board } from './board';
 
 function job(status: JobStatus, extra: Partial<Job> = {}): Job {
@@ -8,6 +8,7 @@ function job(status: JobStatus, extra: Partial<Job> = {}): Job {
     id: `id-${status}`,
     projectId: 'p',
     repoId: 'r',
+    featureId: null,
     title: `Job ${status}`,
     task: 't',
     acceptanceCriteria: [],
@@ -107,5 +108,19 @@ describe('Board', () => {
   it('has no selection boxes outside the Triage lane', () => {
     render(<Board jobs={[job('queued')]} repos={repos} onOpen={() => {}} />);
     expect(screen.queryByLabelText(/^Select /)).not.toBeInTheDocument();
+  });
+
+  it('filters by feature and shows the feature chip', () => {
+    const inFeature = [job('queued', { id: 'a', title: 'In feature', featureId: 'f1' }), job('queued', { id: 'b', title: 'Loose' })];
+    const features = [{ id: 'f1', title: 'Checkout flow' } as Feature];
+    const { rerender } = render(<Board jobs={inFeature} repos={repos} features={features} onOpen={() => {}} />);
+    expect(screen.getByText('Checkout flow')).toBeInTheDocument();
+    expect(screen.getByText('Loose')).toBeInTheDocument();
+    rerender(<Board jobs={inFeature} repos={repos} features={features} featureFilter="f1" onOpen={() => {}} />);
+    expect(screen.queryByText('Loose')).toBeNull();
+    expect(screen.getByText('In feature')).toBeInTheDocument();
+    rerender(<Board jobs={inFeature} repos={repos} features={features} featureFilter="none" onOpen={() => {}} />);
+    expect(screen.queryByText('In feature')).toBeNull();
+    expect(screen.getByText('Loose')).toBeInTheDocument();
   });
 });

@@ -12,6 +12,8 @@ export function NewJobDialog({
   open,
   repos,
   jobs = [],
+  featureId,
+  featureTitle,
   onClose,
   onCreated,
 }: {
@@ -19,6 +21,9 @@ export function NewJobDialog({
   repos: Repo[];
   /** Jobs of the selected project; the open ones can be picked as dependencies. */
   jobs?: Job[];
+  /** Feature the new job is added to; the dialog shows it as preselected. */
+  featureId?: string;
+  featureTitle?: string;
   onClose: () => void;
   onCreated: () => void | Promise<void>;
 }) {
@@ -65,6 +70,7 @@ export function NewJobDialog({
       await api.createJob(repoId, { title, task, acceptanceCriteria: sentRows.map((r) => r.text),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
         ...(triage ? { status: 'triage' as const } : {}),
+        ...(featureId ? { featureId } : {}),
       });
       await onCreated();
       reset();
@@ -102,6 +108,11 @@ export function NewJobDialog({
         <DialogTitle className="text-lg font-semibold">New job</DialogTitle>
         <DialogDescription className="sr-only">Create a job in a repo of the selected project</DialogDescription>
         <form onSubmit={submit} className="mt-4 space-y-4">
+          {featureId && (
+            <p className="text-sm">
+              Feature: <span className="font-medium">{featureTitle ?? featureId}</span>
+            </p>
+          )}
           <div>
             <label htmlFor="job-repo" className="text-sm font-medium">
               Repo

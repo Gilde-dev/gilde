@@ -13,6 +13,7 @@ export class JobMapper {
             id: e.id,
             projectId: e.projectId,
             repoId: e.repoId,
+            featureId: e.featureId,
             title: e.title,
             task: e.task,
             acceptanceCriteria: e.acceptanceCriteria,

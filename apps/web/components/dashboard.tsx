@@ -21,6 +21,7 @@ export function Dashboard() {
   const [selected, setSelected] = useState<Job | null>(null);
   const [creating, setCreating] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const [featureFilter, setFeatureFilter] = useState('');
 
   const projects = usePolling(api.listProjects, 30_000);
   const requested = params.get('project');
@@ -29,7 +30,9 @@ export function Dashboard() {
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([])), [projectId]);
   const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId) : Promise.resolve([])), [projectId]);
+  const fetchFeatures = useCallback(() => (projectId ? api.listFeatures(projectId) : Promise.resolve([])), [projectId]);
   const repos = usePolling(fetchRepos, POLL_MS);
+  const features = usePolling(fetchFeatures, POLL_MS);
   const jobs = usePolling(fetchJobs, POLL_MS);
 
   const project = projects.data?.find((p) => p.id === projectId);
@@ -37,7 +40,10 @@ export function Dashboard() {
     await Promise.all([projects.refresh(), repos.refresh(), jobs.refresh()]);
   };
 
-  const selectProject = (id: string) => router.replace(`${pathname}?project=${encodeURIComponent(id)}`);
+  const selectProject = (id: string) => {
+    setFeatureFilter('');
+    router.replace(`${pathname}?project=${encodeURIComponent(id)}`);
+  };
 
   return (
     <div className="flex min-h-screen">
@@ -64,6 +70,20 @@ export function Dashboard() {
                 toggle={(paused) => api.setProjectPaused(project.id, paused)}
                 onChanged={refreshAll}
               />
+              <select
+                aria-label="Feature filter"
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                value={featureFilter}
+                onChange={(e) => setFeatureFilter(e.target.value)}
+              >
+                <option value="">All features</option>
+                <option value="none">No feature</option>
+                {features.data?.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.title}
+                  </option>
+                ))}
+              </select>
               <Button onClick={() => setCreating(true)}>New job</Button>
             </div>
           </header>
@@ -84,6 +104,8 @@ export function Dashboard() {
           <Board
             jobs={jobs.data ?? []}
             repos={repos.data ?? []}
+            features={features.data ?? []}
+            featureFilter={featureFilter}
             onOpen={setSelected}
             onChanged={jobs.refresh}
             onEnqueued={setWarnings}

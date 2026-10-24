@@ -10,12 +10,14 @@ export const CreateJobSchema = z.object({
     acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
     dependsOn: z.array(z.string().uuid()).max(20).optional(),
     status: z.enum(['triage', 'queued']).optional(),
+    featureId: z.string().uuid().optional(),
 });
 
 export const UpdateJobSchema = z.object({
     title: z.string().trim().min(3).max(200).optional(),
     task: z.string().trim().min(10).optional(),
     acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
+    featureId: z.string().uuid().nullable().optional(),
 }).refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update' });
 
 export const BulkEnqueueSchema = z.object({
@@ -30,6 +32,7 @@ export const SetDependenciesSchema = z.object({
 export const ListJobsQuerySchema = z.object({
     projectId: z.string().uuid().optional(),
     repoId: z.string().uuid().optional(),
+    featureId: z.string().uuid().optional(),
     status: z.enum(JOB_STATUSES).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
 });
@@ -44,6 +47,7 @@ export const JobResponseSchema = z.object({
     id: z.string().uuid(),
     projectId: z.string().uuid(),
     repoId: z.string().uuid(),
+    featureId: z.string().uuid().nullable(),
     title: z.string(),
     task: z.string(),
     acceptanceCriteria: z.array(z.string()),
