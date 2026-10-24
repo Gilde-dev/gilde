@@ -1,6 +1,7 @@
 ---
 name: write-agents-md
 description: Use when creating or updating a repository's AGENTS.md (the guide coding agents read first), e.g. when onboarding a new or existing repo into Gilde. Builds it from the shared templates and verifies every statement against the actual code.
+managed-by: gildeboek@d1ce079
 ---
 
 # Writing AGENTS.md

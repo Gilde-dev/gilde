@@ -1,6 +1,7 @@
 ---
 name: typeorm-snake-case-columns
-description: Use when writing or changing TypeORM entities or raw SQL: database tables and columns are snake_case, TypeScript fields stay camelCase.
+description: "Use when writing or changing TypeORM entities or raw SQL: database tables and columns are snake_case, TypeScript fields stay camelCase."
+managed-by: gildeboek@ea1386d
 ---
 
 # TypeORM naming: snake_case in the database, camelCase in TypeScript
