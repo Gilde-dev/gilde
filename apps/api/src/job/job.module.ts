@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { Feature } from '../feature/feature.entity.js';
 import { FeedbackModule } from '../feedback/feedback.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { RunModule } from '../run/run.module.js';
@@ -16,7 +17,8 @@ import { JobController } from './job.controller.js';
     imports: [
         TypeOrmModule.forFeature([
             Job,
-            JobDependency
+            JobDependency,
+            Feature
         ]),
         RepoModule,
         RunModule,

@@ -4,7 +4,7 @@ import type { Job } from '@/lib/api';
 import { JobCard } from './job-card';
 
 const base = {
-  id: 'j', projectId: 'p', repoId: 'r', title: 'Job', task: 't', acceptanceCriteria: [], status: 'queued',
+  id: 'j', projectId: 'p', repoId: 'r', featureId: null, title: 'Job', task: 't', acceptanceCriteria: [], status: 'queued',
   attempts: 0, queuedAt: '2026-01-01T00:00:00.000Z', prNumber: null, prUrl: null, branch: null, lastReason: null,
   needsApproval: false, approvalReason: null, dependsOn: [], blockedBy: [],
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
@@ -26,5 +26,17 @@ describe('JobCard dependencies', () => {
   it('shows no badge without dependencies', () => {
     render(<JobCard job={base} onOpen={() => {}} />);
     expect(screen.queryByText(/waiting on/)).toBeNull();
+  });
+});
+
+describe('JobCard feature chip', () => {
+  it('shows the feature title when the job has a feature', () => {
+    render(<JobCard job={{ ...base, featureId: 'f1' }} featureTitle="Checkout flow" onOpen={() => {}} />);
+    expect(screen.getByText('Checkout flow')).toBeInTheDocument();
+  });
+
+  it('shows no chip without a feature', () => {
+    render(<JobCard job={base} featureTitle="Checkout flow" onOpen={() => {}} />);
+    expect(screen.queryByText('Checkout flow')).toBeNull();
   });
 });

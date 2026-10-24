@@ -6,7 +6,7 @@ import { JobModal } from './job-modal';
 const base: Job = {
   id: 'j1',
   projectId: 'p',
-  repoId: 'r',
+  repoId: 'r', featureId: null,
   title: 'Add thing',
   task: 'Do the thing',
   acceptanceCriteria: ['It works', 'It is tested'],

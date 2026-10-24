@@ -7,6 +7,7 @@ const blockedTitles = (job: Job) => job.blockedBy.map((b) => `${b.title} (${b.st
 export function JobCard({
   job,
   repoName,
+  featureTitle,
   onOpen,
   onChanged,
   onEnqueued,
@@ -15,6 +16,8 @@ export function JobCard({
 }: {
   job: Job;
   repoName?: string;
+  /** Title of the job's feature; shown as a chip. */
+  featureTitle?: string;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -85,6 +88,14 @@ export function JobCard({
               waiting on {job.blockedBy.length}
             </span>
           )
+        )}
+        {job.featureId && (
+          <span
+            className="max-w-full truncate rounded bg-indigo-100 px-1.5 py-0.5 font-medium text-indigo-900"
+            title={`Feature: ${featureTitle ?? job.featureId}`}
+          >
+            {featureTitle ?? 'feature'}
+          </span>
         )}
         {job.needsApproval && (
           <span
