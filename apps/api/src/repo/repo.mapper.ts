@@ -17,6 +17,7 @@ export class RepoMapper {
             routineTokenEnv: entity.routineTokenEnv,
             maxConcurrentJobs: entity.maxConcurrentJobs,
             paused: entity.paused,
+            pausedReason: entity.pausedReason ?? null,
             createdAt: entity.createdAt.toISOString(),
             updatedAt: entity.updatedAt.toISOString(),
         };

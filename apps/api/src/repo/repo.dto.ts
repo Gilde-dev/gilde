@@ -35,6 +35,7 @@ export const RepoResponseSchema = z.object({
     routineTokenEnv: z.string().nullable(),
     maxConcurrentJobs: z.number().int(),
     paused: z.boolean(),
+    pausedReason: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });
