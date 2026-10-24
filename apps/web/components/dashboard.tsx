@@ -71,10 +71,11 @@ export function Dashboard() {
           <Board jobs={jobs.data ?? []} repos={repos.data ?? []} onOpen={setSelected} onChanged={jobs.refresh} />
         )}
       </main>
-      <JobModal job={selected} onClose={() => setSelected(null)} onChanged={jobs.refresh} />
+      <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={() => setSelected(null)} onChanged={jobs.refresh} />
       <NewJobDialog
         open={creating}
         repos={repos.data ?? []}
+        jobs={jobs.data ?? []}
         onClose={() => setCreating(false)}
         onCreated={jobs.refresh}
       />

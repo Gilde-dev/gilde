@@ -1,8 +1,8 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { CreateJobSchema, ListJobsQuerySchema, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
+import { CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
 import { JobService } from './job.service.js';
 
 @Controller('/v1')
@@ -26,6 +26,14 @@ export class JobController {
     @Get('jobs/:id')
     getById(@Param('id', ParseUUIDPipe) id: string): Promise<JobDetailResponseDto> {
         return this.jobService.getDetail(id);
+    }
+
+    @Put('jobs/:id/dependencies')
+    setDependencies(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Body(new ZodValidationPipe(SetDependenciesSchema)) dto: SetDependenciesDto,
+    ): Promise<JobResponseDto> {
+        return this.jobService.setDependencies(id, dto.dependsOn);
     }
 
     @Post('jobs/:id/cancel')

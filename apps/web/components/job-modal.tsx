@@ -1,9 +1,11 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { api, type Job, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { JobActions } from './job-actions';
+import { errorText } from '@/lib/job-actions';
+import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -39,12 +41,112 @@ function RunRow({ run }: { run: Run }) {
   );
 }
 
+function Dependencies({
+  job,
+  candidates,
+  onChanged,
+}: {
+  job: Job;
+  candidates: Job[];
+  onChanged: () => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const titles = new Map(candidates.map((c) => [c.id, c]));
+  const blocked = new Map(job.blockedBy.map((b) => [b.id, b]));
+  const options = candidates.filter(
+    (c) => c.id !== job.id && (!['merged', 'rejected', 'cancelled'].includes(c.status) || job.dependsOn.includes(c.id)),
+  );
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.setJobDependencies(job.id, selected);
+      setEditing(false);
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (job.dependsOn.length === 0 && job.status !== 'queued') return null;
+  return (
+    <section>
+      <h3 className="text-sm font-semibold">Dependencies</h3>
+      {job.dependsOn.length === 0 && <p className="mt-1 text-sm text-muted-foreground">None</p>}
+      <ul className="mt-1 space-y-1 text-sm">
+        {job.dependsOn.map((depId) => {
+          const dep = blocked.get(depId) ?? titles.get(depId);
+          return (
+            <li key={depId} className="flex items-center gap-2">
+              <span>{dep?.title ?? depId}</span>
+              <Badge variant={blocked.has(depId) ? 'warning' : 'success'}>{dep?.status ?? 'merged'}</Badge>
+            </li>
+          );
+        })}
+      </ul>
+      {job.status === 'queued' && !editing && (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          className="mt-2"
+          onClick={() => {
+            setSelected(job.dependsOn);
+            setEditing(true);
+          }}
+        >
+          Edit dependencies
+        </Button>
+      )}
+      {editing && (
+        <div className="mt-2 space-y-2">
+          <select
+            multiple
+            aria-label="Dependencies"
+            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            value={selected}
+            onChange={(e) => setSelected(Array.from(e.target.selectedOptions, (o) => o.value))}
+          >
+            {options.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.title} ({o.status})
+              </option>
+            ))}
+          </select>
+          {error && (
+            <p role="alert" className="text-sm text-red-800">
+              {error}
+            </p>
+          )}
+          <div className="flex gap-2">
+            <Button type="button" size="sm" disabled={saving} onClick={save}>
+              {saving ? 'Saving…' : 'Save'}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={() => setEditing(false)}>
+              Cancel
+            </Button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function JobModal({
   job,
+  projectJobs = [],
   onClose,
   onChanged,
 }: {
   job: Job | null;
+  /** Jobs of the same project, to pick dependencies from. */
+  projectJobs?: Job[];
   onClose: () => void;
   onChanged?: () => void | Promise<void>;
 }) {
@@ -85,6 +187,15 @@ export function JobModal({
               <h3 className="text-sm font-semibold">Task</h3>
               <p className="mt-1 whitespace-pre-wrap text-sm">{shown.task}</p>
             </section>
+
+            <Dependencies
+              key={shown.id}
+              job={shown}
+              candidates={projectJobs}
+              onChanged={async () => {
+                await Promise.all([refresh(), onChanged?.()]);
+              }}
+            />
 
             {shown.acceptanceCriteria.length > 0 && (
               <section>

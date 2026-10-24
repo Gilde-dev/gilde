@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExecutionError } from '../execution/execution.error.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import type { JobStatus } from '../job/job-state.js';
+import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { RepoMapper } from '../repo/repo.mapper.js';
@@ -28,7 +29,7 @@ beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
-        entities: [Project, Repo, Job, JobRun],
+        entities: [Project, Repo, Job, JobRun, JobDependency],
         synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
@@ -69,6 +70,40 @@ async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<J
 const reload = (id: string) => jobs.findOneByOrFail({ id });
 
 describe('DispatcherService', () => {
+    describe('dependencies', () => {
+        const link = (job: Job, dep: Job) => ds.getRepository(JobDependency).save({ jobId: job.id, dependsOnJobId: dep.id });
+
+        it('does not fire a job with an unmerged dependency, and fires it once merged', async () => {
+            const repo = await seedRepo(await seedProject());
+            const dep = await seedJob(repo, 'pr_open');
+            const job = await seedJob(repo);
+            await link(job, dep);
+
+            expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+            expect(fire).not.toHaveBeenCalled();
+
+            await jobs.update({ id: dep.id }, { status: 'merged' });
+            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            expect((await reload(job.id)).status).toBe('dispatched');
+        });
+
+        it('lets a newer unblocked job fire past an older blocked one, and logs the waiting count', async () => {
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
+            const dep = await seedJob(repo, 'pr_open', { queuedAt: new Date(Date.UTC(2025, 0, 1)) });
+            const blocked = await seedJob(repo);
+            const free = await seedJob(repo);
+            await link(blocked, dep);
+            // dep is pr_open (active) but repo has 2 slots worth of room only if we raise it
+            await repos.update({ id: repo.id }, { maxConcurrentJobs: 2 });
+            const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+
+            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            expect((await reload(free.id)).status).toBe('dispatched');
+            expect((await reload(blocked.id)).status).toBe('queued');
+            expect(log).toHaveBeenCalledWith(`${repo.fullName}: 1 queued job(s) waiting on dependencies`);
+        });
+    });
+
     it('fires a queued job with the full payload and records the run', async () => {
         const repo = await seedRepo(await seedProject());
         const job = await seedJob(repo);

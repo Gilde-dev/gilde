@@ -1,11 +1,12 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, MoreThanOrEqual, Repository } from 'typeorm';
+import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeorm';
 
 import { ExecutionError } from '../execution/execution.error.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
+import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -67,16 +68,33 @@ export class DispatcherService {
             const project = await this.projectRepository.findOneBy({ id: repo.projectId });
             if (!project || project.paused) continue;
 
+            // Jobs with an unmerged dependency are excluded in the query, so they take no slot and block nobody.
+            const unmerged = (qb: SelectQueryBuilder<Job>) => qb.subQuery()
+                .select('1')
+                .from(JobDependency, 'd')
+                .innerJoin(Job, 'dep', 'dep.id = d.dependsOnJobId')
+                .where('d.jobId = job.id')
+                .andWhere("dep.status <> 'merged'")
+                .getQuery();
+            const waiting = await this.jobRepository.createQueryBuilder('job')
+                .where('job.repoId = :repoId', { repoId })
+                .andWhere("job.status = 'queued'")
+                .andWhere((qb) => `EXISTS ${unmerged(qb)}`)
+                .getCount();
+            if (waiting > 0) this.logger.log(`${repo.fullName}: ${waiting} queued job(s) waiting on dependencies`);
+
             if (!budgets.has(project.id)) budgets.set(project.id, await this.dailyBudget(project));
             const active = await this.jobRepository.count({ where: { repoId, status: In(ACTIVE) } });
             const slots = Math.min(repo.maxConcurrentJobs - active, budgets.get(project.id)!);
             if (slots <= 0) continue;
 
-            const jobs = await this.jobRepository.find({
-                where: { repoId, status: 'queued' },
-                order: { queuedAt: 'ASC' },
-                take: slots,
-            });
+            const jobs = await this.jobRepository.createQueryBuilder('job')
+                .where('job.repoId = :repoId', { repoId })
+                .andWhere("job.status = 'queued'")
+                .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
+                .orderBy('job.queuedAt', 'ASC')
+                .limit(slots)
+                .getMany();
             for (const job of jobs) {
                 try {
                     const outcome = await this.fireJob(job.id, repo, project);
