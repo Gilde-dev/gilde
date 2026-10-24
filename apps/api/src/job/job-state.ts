@@ -22,8 +22,8 @@ export type JobEvent =
     | 'manual_retry'; // you requeue a parked job
 
 const TRANSITIONS: Record<JobStatus, Partial<Record<JobEvent, JobStatus>>> = {
-    queued: { fire: 'dispatched', cancel: 'cancelled' },
-    dispatched: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', cancel: 'cancelled' },
+    queued: { fire: 'dispatched', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
+    dispatched: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
     pr_open: { pr_activity: 'pr_open', ci_passed: 'awaiting_review', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
     awaiting_review: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
     parked: { manual_retry: 'queued', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },

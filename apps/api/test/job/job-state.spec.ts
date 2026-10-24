@@ -22,6 +22,13 @@ describe('job state machine', () => {
         for (const status of TERMINAL) for (const e of events) expect(nextStatus(status, e)).toBeNull();
     });
 
+    it('ends the job when the PR is merged or closed, even while queued or dispatched', () => {
+        for (const s of ['queued', 'dispatched'] as const) {
+            expect(nextStatus(s, 'merged')).toBe('merged');
+            expect(nextStatus(s, 'closed')).toBe('rejected');
+        }
+    });
+
     it('only parked jobs can be retried manually', () => {
         for (const s of JOB_STATUSES) {
             expect(nextStatus(s, 'manual_retry')).toBe(s === 'parked' ? 'queued' : null);

@@ -237,8 +237,17 @@ export class WebhookService {
         const job = await this.findJobByPr(repoId, pr.number);
         if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
         const event: JobEvent = pr.merged ? 'merged' : 'closed';
+        const wasPending = job.status === 'queued' || job.status === 'dispatched';
         const to = await this.transition(job, event, {});
         if (!to) return `ignored: job ${job.status} cannot take ${event}`;
+        if (wasPending) {
+            // The PR ended while a retry was queued or running: that run's work is moot.
+            const run = await this.findRun(job.id, null);
+            if (run) {
+                const res = await this.runs.update({ id: run.id, status: In(['firing', 'fired']) }, { status: 'superseded' });
+                if (res.affected === 1) this.logger.log(`Run ${run.id} of job ${job.id} superseded: PR #${pr.number} ${event} while job was ${job.status}`);
+            }
+        }
         return `job ${to} with PR #${pr.number}`;
     }
 
