@@ -202,6 +202,32 @@ describe('WebhookService', () => {
                 result: { summary: 'edited summary' }, retro: '- What I changed: stuff',
             });
         });
+
+        it('links an unlinked PR once the marker is added', async () => {
+            const job = await seedJob();
+            const run = await seedRun(job);
+            expect(await service.handle('pull_request', prPayload('opened'))).toBe('ignored: PR #12 has no gilde-job marker');
+            const res = await service.handle('pull_request', prPayload('edited', { body: body(job, run) }));
+            expect(res).toBe('job pr_open with PR #12');
+            expect(await reload(job.id)).toMatchObject({ status: 'pr_open', prNumber: 12, headSha: SHA1 });
+            expect(await reloadRun(run.id)).toMatchObject({ status: 'pr_opened', result: { outcome: 'done' } });
+        });
+
+        it('only updates the run result on an already-linked PR', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            const run = await seedRun(job);
+            const res = await service.handle('pull_request', prPayload('edited', { body: body(job, run) }));
+            expect(res).toBe('updated result of run 1 for PR #12');
+            expect(await reload(job.id)).toMatchObject({ status: 'awaiting_review' });
+            expect(await reloadRun(run.id)).toMatchObject({ result: { outcome: 'done' } });
+        });
+
+        it('ignores an unlinked PR whose job is terminal', async () => {
+            const job = await seedJob('merged');
+            const res = await service.handle('pull_request', prPayload('edited', { body: body(job, null) }));
+            expect(res).toBe('ignored: job is merged');
+            expect(await reload(job.id)).toMatchObject({ status: 'merged', prNumber: null });
+        });
     });
 
     describe('check_suite', () => {

@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { UnauthorizedException } from '@nestjs/common';
+import { Logger, UnauthorizedException } from '@nestjs/common';
 import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest';
 
 import type { WebhookService } from './webhook.service.js';
@@ -28,6 +28,13 @@ describe('WebhookController', () => {
     it('delegates other events to the service', async () => {
         expect(await controller.github(req, sig, 'push', 'd2', { a: 1 })).toEqual({ result: 'ignored: event push' });
         expect(handle).toHaveBeenCalledWith('push', { a: 1 });
+    });
+
+    it('logs delivery id, event.action and result', async () => {
+        const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+        await controller.github(req, sig, 'pull_request', 'd9', { action: 'edited' });
+        expect(log).toHaveBeenCalledWith('Delivery d9 pull_request.edited: ignored: event push');
+        log.mockRestore();
     });
 
     it('rejects a missing signature', async () => {

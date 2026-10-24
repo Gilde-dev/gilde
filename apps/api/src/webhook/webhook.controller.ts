@@ -27,7 +27,15 @@ export class WebhookController {
 
         this.logger.log(`Delivery ${delivery ?? '(no id)'} event ${event ?? '(none)'}`);
 
-        if (event === 'ping') return { result: 'pong' };
-        return { result: await this.webhookService.handle(event, payload as Parameters<WebhookService['handle']>[1]) };
+        const id = delivery ?? '(no id)';
+        if (event === 'ping') {
+            this.logger.log(`Delivery ${id} ping: pong`);
+            return { result: 'pong' };
+        }
+        const typed = payload as Parameters<WebhookService['handle']>[1];
+        const result = await this.webhookService.handle(event, typed);
+        const name = typed?.action ? `${event ?? '(none)'}.${typed.action}` : (event ?? '(none)');
+        this.logger.log(`Delivery ${id} ${name}: ${result}`);
+        return { result };
     }
 }
