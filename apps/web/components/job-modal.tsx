@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { api, type Job, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
+import { JobActions } from './job-actions';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -38,10 +39,18 @@ function RunRow({ run }: { run: Run }) {
   );
 }
 
-export function JobModal({ job, onClose }: { job: Job | null; onClose: () => void }) {
+export function JobModal({
+  job,
+  onClose,
+  onChanged,
+}: {
+  job: Job | null;
+  onClose: () => void;
+  onChanged?: () => void | Promise<void>;
+}) {
   const jobId = job?.id;
   const fetchDetail = useCallback(() => (jobId ? api.getJob(jobId) : Promise.resolve(undefined)), [jobId]);
-  const { data, error } = usePolling(fetchDetail, 5000);
+  const { data, error, refresh } = usePolling(fetchDetail, 5000);
   // The board's copy is available immediately; the detail adds runs.
   const shown = data ?? job;
 
@@ -64,6 +73,13 @@ export function JobModal({ job, onClose }: { job: Job | null; onClose: () => voi
                 </div>
               </DialogDescription>
             </div>
+
+            <JobActions
+              job={shown}
+              onChanged={async () => {
+                await Promise.all([refresh(), onChanged?.()]);
+              }}
+            />
 
             <section>
               <h3 className="text-sm font-semibold">Task</h3>

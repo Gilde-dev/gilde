@@ -1,7 +1,18 @@
 import type { Job } from '@/lib/api';
+import { JobActions } from './job-actions';
 import { relativeTime } from '@/lib/time';
 
-export function JobCard({ job, repoName, onOpen }: { job: Job; repoName?: string; onOpen: (job: Job) => void }) {
+export function JobCard({
+  job,
+  repoName,
+  onOpen,
+  onChanged,
+}: {
+  job: Job;
+  repoName?: string;
+  onOpen: (job: Job) => void;
+  onChanged?: () => void | Promise<void>;
+}) {
   return (
     <div
       role="button"
@@ -50,6 +61,9 @@ export function JobCard({ job, repoName, onOpen }: { job: Job; repoName?: string
           {job.lastReason}
         </p>
       )}
+      <div className="mt-2">
+        <JobActions job={job} onChanged={onChanged ?? (() => {})} />
+      </div>
     </div>
   );
 }

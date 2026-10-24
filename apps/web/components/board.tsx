@@ -5,7 +5,19 @@ import type { Job, Repo } from '@/lib/api';
 import { LANES, type Lane } from '@/lib/lanes';
 import { JobCard } from './job-card';
 
-function LaneColumn({ lane, jobs, repos, onOpen }: { lane: Lane; jobs: Job[]; repos: Map<string, Repo>; onOpen: (job: Job) => void }) {
+function LaneColumn({
+  lane,
+  jobs,
+  repos,
+  onOpen,
+  onChanged,
+}: {
+  lane: Lane;
+  jobs: Job[];
+  repos: Map<string, Repo>;
+  onOpen: (job: Job) => void;
+  onChanged?: () => void | Promise<void>;
+}) {
   const [collapsed, setCollapsed] = useState(lane.collapsedByDefault ?? false);
   return (
     <section aria-label={lane.title} className="flex w-64 shrink-0 flex-col rounded-lg bg-muted/60 p-2">
@@ -29,7 +41,7 @@ function LaneColumn({ lane, jobs, repos, onOpen }: { lane: Lane; jobs: Job[]; re
         <div className="mt-1 flex flex-col gap-2">
           {jobs.length === 0 && <p className="px-1 text-xs text-muted-foreground">Nothing here</p>}
           {jobs.map((job) => (
-            <JobCard key={job.id} job={job} repoName={repos.get(job.repoId)?.fullName} onOpen={onOpen} />
+            <JobCard key={job.id} job={job} repoName={repos.get(job.repoId)?.fullName} onOpen={onOpen} onChanged={onChanged} />
           ))}
         </div>
       )}
@@ -37,7 +49,17 @@ function LaneColumn({ lane, jobs, repos, onOpen }: { lane: Lane; jobs: Job[]; re
   );
 }
 
-export function Board({ jobs, repos, onOpen }: { jobs: Job[]; repos: Repo[]; onOpen: (job: Job) => void }) {
+export function Board({
+  jobs,
+  repos,
+  onOpen,
+  onChanged,
+}: {
+  jobs: Job[];
+  repos: Repo[];
+  onOpen: (job: Job) => void;
+  onChanged?: () => void | Promise<void>;
+}) {
   const repoById = new Map(repos.map((r) => [r.id, r]));
   return (
     <div className="flex items-start gap-3 overflow-x-auto p-4">
@@ -48,6 +70,7 @@ export function Board({ jobs, repos, onOpen }: { jobs: Job[]; repos: Repo[]; onO
           jobs={jobs.filter((j) => lane.statuses.includes(j.status))}
           repos={repoById}
           onOpen={onOpen}
+          onChanged={onChanged}
         />
       ))}
     </div>

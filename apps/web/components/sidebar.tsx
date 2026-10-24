@@ -1,6 +1,7 @@
 'use client';
 
-import type { Project, Repo } from '@/lib/api';
+import { api, type Project, type Repo } from '@/lib/api';
+import { PauseToggle } from './pause-toggle';
 import { Badge } from './ui/badge';
 
 export function Sidebar({
@@ -9,12 +10,14 @@ export function Sidebar({
   repos,
   reposError,
   onSelectProject,
+  onChanged,
 }: {
   projects: Project[];
   projectId: string | null;
   repos: Repo[] | undefined;
   reposError?: Error | null;
   onSelectProject: (id: string) => void;
+  onChanged?: () => void | Promise<void>;
 }) {
   return (
     <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
@@ -47,6 +50,14 @@ export function Sidebar({
                 {r.paused && <Badge variant="warning">paused</Badge>}
               </div>
               {r.paused && r.pausedReason && <p className="text-xs text-muted-foreground">{r.pausedReason}</p>}
+              <div className="mt-1">
+                <PauseToggle
+                  paused={r.paused}
+                  label={r.fullName}
+                  toggle={(paused) => api.setRepoPaused(r.id, paused)}
+                  onChanged={onChanged ?? (() => {})}
+                />
+              </div>
             </li>
           ))}
           {repos?.length === 0 && <li className="text-xs text-muted-foreground">No repos</li>}
