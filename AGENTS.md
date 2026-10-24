@@ -16,7 +16,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
   - pages: job board (`/`), `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `packages/` — shared packages (none yet)
-- `.gilde.json` — Gilde manifest: stacks, test command, and which gildeboek skills this repo gets
+- `.gilde.json` — Gilde manifest: stacks, test commands, and which gildeboek skills this repo gets
 
 ## Commands
 Run from the repo root unless noted.
