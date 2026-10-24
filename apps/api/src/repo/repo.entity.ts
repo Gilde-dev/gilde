@@ -58,6 +58,9 @@ export class Repo {
     @Column({ default: false })
     paused: boolean;
 
+    @Column({ name: 'paused_reason', type: 'text', nullable: true })
+    pausedReason: string | null;
+
     @CreateDateColumn({
         name: 'created_at'
     })

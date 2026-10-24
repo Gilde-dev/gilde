@@ -56,6 +56,11 @@ export class RepoService {
         return this.setPaused(id, false);
     }
 
+    /** Pauses a repo and records why (e.g. a configuration error found by the dispatcher). */
+    pauseWithReason(id: string, reason: string): Promise<RepoResponseDto> {
+        return this.setPaused(id, true, reason);
+    }
+
     findByFullName(fullName: string): Promise<Repo | null> {
         return this.repoRepository.findOne({
             where: { fullName: fullName.toLowerCase() },
@@ -63,9 +68,10 @@ export class RepoService {
         });
     }
 
-    private async setPaused(id: string, paused: boolean): Promise<RepoResponseDto> {
+    private async setPaused(id: string, paused: boolean, reason: string | null = null): Promise<RepoResponseDto> {
         const entity = await this.getOrFail(id);
         entity.paused = paused;
+        entity.pausedReason = paused ? reason : null;
         return this.repoMapper.toDTO(await this.repoRepository.save(entity));
     }
 

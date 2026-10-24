@@ -69,6 +69,7 @@ describe('RoutineExecutionAdapter', () => {
 
     it('rejects a repo without routine config (not retryable)', async () => {
         const err = await failure(adapter.fire({ ...repo, routineFireUrl: null }, payload));
+        expect(err.kind).toBe('config');
         expect(err.retryable).toBe(false);
         expect(fetchMock).not.toHaveBeenCalled();
     });
@@ -76,18 +77,21 @@ describe('RoutineExecutionAdapter', () => {
     it('rejects a missing env var (not retryable)', async () => {
         delete process.env.TEST_ROUTINE_TOKEN;
         const err = await failure(adapter.fire(repo, payload));
+        expect(err.kind).toBe('config');
         expect(err.retryable).toBe(false);
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it.each([400, 401, 403, 404])('treats HTTP %i as not retryable', async (status) => {
         fetchMock.mockResolvedValue(new Response('nope', { status }));
-        expect((await failure(adapter.fire(repo, payload))).retryable).toBe(false);
+        expect((await failure(adapter.fire(repo, payload))).kind).toBe('config');
     });
 
     it.each([429, 500, 503])('treats HTTP %i as retryable', async (status) => {
         fetchMock.mockResolvedValue(new Response('later', { status }));
-        expect((await failure(adapter.fire(repo, payload))).retryable).toBe(true);
+        const err = await failure(adapter.fire(repo, payload));
+        expect(err.kind).toBe('transient');
+        expect(err.retryable).toBe(true);
     });
 
     it('treats network errors as retryable', async () => {
@@ -102,6 +106,6 @@ describe('RoutineExecutionAdapter', () => {
 
     it('rejects an invalid response shape', async () => {
         fetchMock.mockResolvedValue(jsonResponse({ type: 'other' }));
-        expect((await failure(adapter.fire(repo, payload))).retryable).toBe(false);
+        expect((await failure(adapter.fire(repo, payload))).kind).toBe('invalid_response');
     });
 });

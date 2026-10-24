@@ -9,6 +9,7 @@ import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
+import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { RunService } from '../run/run.service.js';
 
@@ -24,6 +25,7 @@ export class DispatcherService {
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @InjectRepository(Project) private readonly projectRepository: Repository<Project>,
         @InjectRepository(JobRun) private readonly runRepository: Repository<JobRun>,
+        private readonly repoService: RepoService,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -82,6 +84,8 @@ export class DispatcherService {
                     if (outcome === 'fired') fired++;
                     else failed++;
                     budgets.set(project.id, budgets.get(project.id)! - 1);
+                    // The repo is now paused; don't fire its remaining jobs this pass.
+                    if (outcome === 'config_error') break;
                 } catch (e) {
                     this.logger.error(`Job ${job.id}: ${errorMessage(e)}`);
                 }
@@ -99,7 +103,7 @@ export class DispatcherService {
         return project.dailyRunLimit - used;
     }
 
-    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped'> {
+    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped' | 'config_error'> {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
@@ -115,10 +119,7 @@ export class DispatcherService {
         let runId: string | undefined;
         let session: ExecutionResult;
         try {
-            const run = await this.runService.create({
-                jobId, projectId: project.id, repoId: repo.id, attempt: job.attempts,
-            });
-            runId = run.id;
+            runId = await this.startRun(job, project.id, repo.id);
             session = await this.execution.fire(
                 { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
                 {
@@ -136,6 +137,13 @@ export class DispatcherService {
             );
         } catch (e) {
             const message = errorMessage(e);
+            if (e instanceof ExecutionError && e.kind === 'config') {
+                if (runId) await this.runService.markFailed(runId, message);
+                await this.requeueWithoutAttempt(jobId, message);
+                await this.repoService.pauseWithReason(repo.id, message);
+                this.logger.warn(`Repo ${repo.fullName} paused: ${message}`);
+                return 'config_error';
+            }
             let event: 'retry' | 'park' = 'park';
             if (runId) await this.runService.markFailed(runId, message);
             if (e instanceof ExecutionError && e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
@@ -145,6 +153,33 @@ export class DispatcherService {
         // Outside the try: a bookkeeping failure must not park a job that did fire.
         await this.runService.markFired(runId, session);
         return 'fired';
+    }
+
+    /**
+     * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
+     * the earlier fire_failed run (runs are unique per job and attempt) instead of creating a new one.
+     */
+    private async startRun(job: Job, projectId: string, repoId: string): Promise<string> {
+        const previous = await this.runRepository.findOneBy({ jobId: job.id, attempt: job.attempts, status: 'fire_failed' });
+        if (previous) {
+            await this.runRepository.update(
+                { id: previous.id },
+                { status: 'firing', error: null, finishedAt: null },
+            );
+            return previous.id;
+        }
+        const run = await this.runService.create({ jobId: job.id, projectId, repoId, attempt: job.attempts });
+        return run.id;
+    }
+
+    /** A config error says nothing about the job: back to the queue, and the claim's attempt is given back. */
+    private async requeueWithoutAttempt(jobId: string, reason: string): Promise<void> {
+        const to = nextStatus('dispatched', 'retry');
+        if (!to) throw new Error('Job state machine does not allow retry from dispatched');
+        await this.jobRepository.update(
+            { id: jobId, status: 'dispatched' },
+            { status: to, lastReason: reason, attempts: () => 'attempts - 1' },
+        );
     }
 
     private async failJob(jobId: string, event: 'retry' | 'park', reason: string): Promise<void> {

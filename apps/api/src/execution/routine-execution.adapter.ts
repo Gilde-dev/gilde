@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 
-import { ExecutionError } from './execution.error.js';
+import { ExecutionError, type ExecutionErrorKind } from './execution.error.js';
 import {
     JobPayloadSchema,
     type ExecutionPort,
@@ -18,17 +18,23 @@ const FireResponseSchema = z.object({
     claude_code_session_url: z.string(),
 });
 
+function httpErrorKind(status: number): ExecutionErrorKind {
+    if ([400, 401, 403, 404].includes(status)) return 'config';
+    if (status === 429 || status >= 500) return 'transient';
+    return 'invalid_response';
+}
+
 @Injectable()
 export class RoutineExecutionAdapter implements ExecutionPort {
     async fire(repo: ExecutionRepo, payload: JobPayload): Promise<ExecutionResult> {
         if (!repo.routineFireUrl || !repo.routineTokenEnv) {
-            throw new ExecutionError(`Repo ${repo.fullName} has no routine configured`, false);
+            throw new ExecutionError(`Repo ${repo.fullName} has no routine configured`, 'config');
         }
         const token = process.env[repo.routineTokenEnv];
         if (!token) {
             throw new ExecutionError(
                 `Environment variable ${repo.routineTokenEnv} is not set for repo ${repo.fullName}`,
-                false,
+                'config',
             );
         }
 
@@ -53,14 +59,13 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         } catch (err) {
             // Only the error name is reported; messages could echo request details.
             const name = err instanceof Error ? err.name : 'Error';
-            throw new ExecutionError(`Routine fire request failed for ${repo.fullName}: ${name}`, true);
+            throw new ExecutionError(`Routine fire request failed for ${repo.fullName}: ${name}`, 'transient');
         }
 
         if (!res.ok) {
-            const retryable = res.status === 429 || res.status >= 500;
             throw new ExecutionError(
                 `Routine fire for ${repo.fullName} failed with HTTP ${res.status}`,
-                retryable,
+                httpErrorKind(res.status),
             );
         }
 
@@ -68,11 +73,11 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         try {
             body = await res.json();
         } catch {
-            throw new ExecutionError(`Routine fire for ${repo.fullName} returned invalid JSON`, false);
+            throw new ExecutionError(`Routine fire for ${repo.fullName} returned invalid JSON`, 'invalid_response');
         }
         const result = FireResponseSchema.safeParse(body);
         if (!result.success) {
-            throw new ExecutionError(`Routine fire for ${repo.fullName} returned an unexpected response`, false);
+            throw new ExecutionError(`Routine fire for ${repo.fullName} returned an unexpected response`, 'invalid_response');
         }
         return {
             sessionId: result.data.claude_code_session_id,

@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -6,7 +7,9 @@ import type { ExecutionPort } from '../execution/execution.port.js';
 import type { JobStatus } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
+import { RepoMapper } from '../repo/repo.mapper.js';
 import { Repo } from '../repo/repo.entity.js';
+import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { RunMapper } from '../run/run.mapper.js';
 import { RunService } from '../run/run.service.js';
@@ -19,6 +22,7 @@ let projects: Repository<Project>;
 let repos: Repository<Repo>;
 let jobs: Repository<Job>;
 let runs: Repository<JobRun>;
+let repoService: RepoService;
 
 beforeEach(async () => {
     ds = await new DataSource({
@@ -33,7 +37,8 @@ beforeEach(async () => {
     runs = ds.getRepository(JobRun);
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> };
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs);
+    repoService = new RepoService(new RepoMapper(), {} as never, repos);
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService);
 });
 
 afterEach(() => ds.destroy());
@@ -145,7 +150,7 @@ describe('DispatcherService', () => {
     it('requeues a retryable failure until maxAttempts, then parks', async () => {
         const repo = await seedRepo(await seedProject({ maxAttempts: 2 }));
         const job = await seedJob(repo);
-        fire.mockRejectedValue(new ExecutionError('boom', true));
+        fire.mockRejectedValue(new ExecutionError('boom', 'transient'));
 
         await dispatcher.dispatch();
         expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 1, lastReason: 'boom' });
@@ -156,14 +161,14 @@ describe('DispatcherService', () => {
         expect(await runs.count()).toBe(2);
     });
 
-    it('parks immediately on a non-retryable ExecutionError', async () => {
+    it('parks immediately on a invalid_response ExecutionError', async () => {
         const job = await seedJob(await seedRepo(await seedProject()));
-        fire.mockRejectedValue(new ExecutionError('bad token', false));
+        fire.mockRejectedValue(new ExecutionError('bad response', 'invalid_response'));
 
         await dispatcher.dispatch();
 
-        expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1, lastReason: 'bad token' });
-        expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: 'bad token' });
+        expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1, lastReason: 'bad response' });
+        expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: 'bad response' });
     });
 
     it('parks immediately on an unknown error', async () => {
@@ -210,5 +215,61 @@ describe('DispatcherService', () => {
         vi.spyOn(jobs, 'find').mockRejectedValueOnce(new Error('db down'));
         await expect(dispatcher.dispatch()).rejects.toThrow('db down');
         expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+    });
+
+    describe('configuration errors', () => {
+        it('pauses the repo, requeues the job and leaves attempts unchanged on a 401', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            const message = 'Routine fire for o/r failed with HTTP 401';
+            fire.mockRejectedValue(new ExecutionError(message, 'config'));
+            const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+
+            expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 1 });
+
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0, lastReason: message });
+            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: true, pausedReason: message });
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: message });
+            expect(warn).toHaveBeenCalledOnce();
+            expect(warn.mock.calls[0]![0]).toContain(repo.fullName);
+            expect(warn.mock.calls[0]![0]).toContain(message);
+        });
+
+        it('does not fire other queued jobs of the paused repo', async () => {
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+            const first = await seedJob(repo);
+            const second = await seedJob(repo);
+            fire.mockRejectedValueOnce(new ExecutionError('HTTP 401', 'config'));
+
+            await dispatcher.dispatch();
+            await dispatcher.dispatch();
+
+            expect(fire).toHaveBeenCalledOnce();
+            expect((await reload(first.id)).status).toBe('queued');
+            expect((await reload(second.id)).status).toBe('queued');
+        });
+
+        it('fires the queued job after the repo is resumed, clearing pausedReason', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            fire.mockRejectedValueOnce(new ExecutionError('HTTP 401', 'config'));
+            await dispatcher.dispatch();
+
+            const resumed = await repoService.resume(repo.id);
+            expect(resumed).toMatchObject({ paused: false, pausedReason: null });
+
+            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+        });
+
+        it('does not pause the repo on transient errors', async () => {
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            fire.mockRejectedValue(new ExecutionError('later', 'transient'));
+
+            await dispatcher.dispatch();
+
+            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false, pausedReason: null });
+        });
     });
 });
