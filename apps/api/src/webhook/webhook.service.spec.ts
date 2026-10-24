@@ -475,6 +475,20 @@ describe('WebhookService', () => {
             expect((await reload(job.id)).status).toBe('merged');
         });
 
+        it('sets finished_at on the last run when the PR is merged', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            const run = await seedRun(job);
+            await service.handle('pull_request', prPayload('closed', { merged: true }));
+            expect((await reloadRun(run.id)).finishedAt).toBeInstanceOf(Date);
+        });
+
+        it('sets finished_at on the last run when the PR is closed unmerged', async () => {
+            const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+            const run = await seedRun(job);
+            await service.handle('pull_request', prPayload('closed'));
+            expect((await reloadRun(run.id)).finishedAt).toBeInstanceOf(Date);
+        });
+
         it('moves an unmerged close to rejected', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
             await service.handle('pull_request', prPayload('closed'));
