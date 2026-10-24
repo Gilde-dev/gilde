@@ -279,6 +279,18 @@ describe('WebhookService', () => {
             expect((await reload(job.id)).status).toBe('pr_open');
         });
 
+        it('ends a job mid-retry as merged and supersedes the active run', async () => {
+            const job = await seedJob('dispatched', { prNumber: 12, headSha: SHA1, attempts: 2 });
+            const old = await seedRun(job, 1);
+            await runs.update({ id: old.id }, { status: 'ci_failed' });
+            const active = await seedRun(job, 2);
+            const res = await service.handle('pull_request', prPayload('closed', { merged: true }));
+            expect(res).toBe('job merged with PR #12');
+            expect((await reload(job.id)).status).toBe('merged');
+            expect((await reloadRun(active.id)).status).toBe('superseded');
+            expect((await reloadRun(old.id)).status).toBe('ci_failed');
+        });
+
         it('is harmless when redelivered', async () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
             await service.handle('check_suite', suitePayload());
@@ -429,6 +441,18 @@ describe('WebhookService', () => {
             const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
             await service.handle('pull_request', prPayload('closed'));
             expect((await reload(job.id)).status).toBe('rejected');
+        });
+
+        it('ends a job mid-retry as merged and supersedes the active run', async () => {
+            const job = await seedJob('dispatched', { prNumber: 12, headSha: SHA1, attempts: 2 });
+            const old = await seedRun(job, 1);
+            await runs.update({ id: old.id }, { status: 'ci_failed' });
+            const active = await seedRun(job, 2);
+            const res = await service.handle('pull_request', prPayload('closed', { merged: true }));
+            expect(res).toBe('job merged with PR #12');
+            expect((await reload(job.id)).status).toBe('merged');
+            expect((await reloadRun(active.id)).status).toBe('superseded');
+            expect((await reloadRun(old.id)).status).toBe('ci_failed');
         });
 
         it('is harmless when redelivered', async () => {
