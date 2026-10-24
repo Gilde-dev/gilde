@@ -159,6 +159,7 @@ describe('ReconcilerService', () => {
         const failing = await prJob('pr_open', { prNumber: 13 });
         const gated = await prJob('pr_open', { prNumber: 14 });
         github.recent = [pull({ body: `gilde-job: ${opened.id}` })];
+        github.pulls.set(12, pull());
         github.pulls.set(13, pull({ number: 13 }));
         github.pulls.set(14, pull({ number: 14 }));
         github.workflows = [completed('Gates', 'failure'), completed('CI', 'failure')];
