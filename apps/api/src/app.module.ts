@@ -12,6 +12,7 @@ import { RunModule } from './run/run.module.js';
 import { DispatchModule } from './dispatch/dispatch.module.js';
 import { FeedbackModule } from './feedback/feedback.module.js';
 import { WebhookModule } from './webhook/webhook.module.js';
+import { ReconcileModule } from './reconcile/reconcile.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -33,6 +34,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     DispatchModule,
     FeedbackModule,
     WebhookModule,
+    ReconcileModule,
   ],
 })
 export class AppModule { }
