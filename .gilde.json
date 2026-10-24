@@ -1,0 +1,9 @@
+{
+  "name": "gilde",
+  "stacks": ["nestjs", "nextjs"],
+  "testCommand": "pnpm test",
+  "skills": {
+    "include": [],
+    "exclude": []
+  }
+}

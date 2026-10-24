@@ -14,8 +14,9 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
 - `apps/web/` — the Next.js (App Router) web UI (`@gilde/web`), Tailwind + shadcn-style components in `components/ui`
   - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); base URL from `NEXT_PUBLIC_GILDE_API` (default `http://localhost:4100/api`)
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
-  - read-only job board for now; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
+  - pages: job board (`/`), `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `packages/` — shared packages (none yet)
+- `.gilde.json` — Gilde manifest: stacks, test command, and which gildeboek skills this repo gets
 
 ## Commands
 Run from the repo root unless noted.
@@ -59,7 +60,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Make the smallest change that satisfies the task and its acceptance criteria.
 - If the task conflicts with existing code or is ambiguous, don't guess: report it as `blocked` and explain.
 - Add or update tests for behaviour you change.
-- Do not modify `.github/`, `.claude/`, `AGENTS.md`, `CLAUDE.md`, or existing migrations unless the task says so.
-- Skills in `.claude/skills/` are synced from Gilde-dev/gildeboek; never edit them here.
+- Do not modify `.github/`, `.claude/`, `.gilde.json`, `AGENTS.md`, `CLAUDE.md`, or existing migrations unless the task says so.
+- Skills in `.claude/skills/` with a `managed-by: gildeboek@…` frontmatter line are synced from Gilde-dev/gildeboek; never edit them here. Skills without that line belong to this repo.
 - Do not add dependencies unless the task needs them; mention any new one in the PR.
 - Never commit secrets or `.env` files.
