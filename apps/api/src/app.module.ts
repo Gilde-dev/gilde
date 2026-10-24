@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { createObserveModule } from '@nestjs/observe';
+import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { HealthModule } from './health/health.module.js';
@@ -7,6 +8,7 @@ import { ProjectModule } from './project/project.module.js';
 import { RepoModule } from './repo/repo.module.js';
 import { JobModule } from './job/job.module.js';
 import { RunModule } from './run/run.module.js';
+import { DispatchModule } from './dispatch/dispatch.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -24,11 +26,13 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       autoLoadEntities: true,
       synchronize: true,
     }),
+    ScheduleModule.forRoot(),
     HealthModule,
     ProjectModule,
     RepoModule,
     RunModule,
-    JobModule
+    JobModule,
+    DispatchModule,
   ],
 })
 export class AppModule { }

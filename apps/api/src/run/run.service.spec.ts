@@ -30,6 +30,7 @@ function setup() {
         create: vi.fn((x: Partial<JobRun>) => Object.assign(entity(x.attempt ?? 1), x)),
         save: vi.fn((x: JobRun) => Promise.resolve(x)),
         find: vi.fn(),
+        update: vi.fn(() => Promise.resolve()),
     };
     const service = new RunService(new RunMapper(), repo as unknown as Repository<JobRun>);
     return { repo, service };
@@ -61,5 +62,23 @@ describe('RunService', () => {
         const runs = await service.listForJob(JOB_ID);
         expect(repo.find).toHaveBeenCalledWith({ where: { jobId: JOB_ID }, order: { attempt: 'ASC' } });
         expect(runs.map((r) => r.attempt)).toEqual([1, 2]);
+    });
+
+    it('marks a run fired with its session', async () => {
+        const { service, repo } = setup();
+        await service.markFired('run-1', { sessionId: 's1', sessionUrl: 'https://x/s1' });
+        expect(repo.update).toHaveBeenCalledWith(
+            { id: 'run-1' },
+            expect.objectContaining({ status: 'fired', sessionId: 's1', sessionUrl: 'https://x/s1', firedAt: expect.any(Date) }),
+        );
+    });
+
+    it('marks a run fire_failed with the error', async () => {
+        const { service, repo } = setup();
+        await service.markFailed('run-1', 'nope');
+        expect(repo.update).toHaveBeenCalledWith(
+            { id: 'run-1' },
+            expect.objectContaining({ status: 'fire_failed', error: 'nope', finishedAt: expect.any(Date) }),
+        );
     });
 });
