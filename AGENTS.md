@@ -44,6 +44,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Import zod-inferred types with `import type`; import injected classes normally (DI needs them).
 - Services return DTOs via the mapper, never entities, except methods documented as internal.
 - Entity column types must work on both SQLite and Postgres: `simple-json`, `simple-enum`, no `jsonb`/`timestamptz`.
+- Entities follow the `typeorm-snake-case-columns` skill (`.claude/skills/`): snake_case table and column names, camelCase TypeScript fields.
 - No `.default()` in schemas that get `.partial()`; rely on entity defaults.
 - Throw Nest HTTP exceptions (`NotFoundException`, `ConflictException`), never let TypeORM errors leak.
 - Job status changes only through the state machine in `job/job-state.ts`.
@@ -52,6 +53,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Make the smallest change that satisfies the task and its acceptance criteria.
 - If the task conflicts with existing code or is ambiguous, don't guess: report it as `blocked` and explain.
 - Add or update tests for behaviour you change.
-- Do not modify `.github/`, `AGENTS.md`, `CLAUDE.md`, or existing migrations unless the task says so.
+- Do not modify `.github/`, `.claude/`, `AGENTS.md`, `CLAUDE.md`, or existing migrations unless the task says so.
+- Skills in `.claude/skills/` are synced from Gilde-dev/gildeboek; never edit them here.
 - Do not add dependencies unless the task needs them; mention any new one in the PR.
 - Never commit secrets or `.env` files.
