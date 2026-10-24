@@ -1,9 +1,12 @@
 # Syncs managed skills from Gilde-dev/gildeboek into .claude/skills/ (template: gildeboek/templates/sync-skills.yaml).
-# Requires: Settings → Actions → General → "Allow GitHub Actions to create and approve pull requests".
+# Which skills this repo gets is configured in .gilde.json.
 name: Sync Gilde skills
 on:
   schedule: [{ cron: '17 6 * * *' }]   # daily
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [.gilde.json]
 
 permissions:
   contents: write
@@ -12,8 +15,6 @@ permissions:
 jobs:
   sync:
     runs-on: ubuntu-latest
-    env:
-      STACK: nestjs                     # this repo's stack, see registry.yaml
     steps:
       - uses: actions/checkout@v4
 
@@ -21,16 +22,11 @@ jobs:
         with:
           repository: Gilde-dev/gildeboek
           path: .gildeboek
+          fetch-depth: 0
 
-      - name: Copy matching skills
+      - name: Sync managed skills
         run: |
-          names=$(yq -r ".skills[] | select(.scope == \"global\" or ((.stacks // []) | any_c(. == \"$STACK\"))) | .name" .gildeboek/registry.yaml)
-          mkdir -p .claude/skills
-          for name in $names; do
-            rm -rf ".claude/skills/$name"
-            cp -r ".gildeboek/skills/$name" ".claude/skills/$name"
-          done
-          git -C .gildeboek rev-parse HEAD > .claude/skills/.gildeboek-version
+          bash .gildeboek/scripts/sync.sh .gildeboek .
           rm -rf .gildeboek
 
       - uses: peter-evans/create-pull-request@v7
@@ -39,5 +35,6 @@ jobs:
           title: "Sync skills from gildeboek"
           commit-message: "chore: sync skills from gildeboek"
           body: |
-            Updates managed skills from Gilde-dev/gildeboek for stack `${{ env.STACK }}`.
-            Review the diff before merging. Don't edit synced skills in this repo; change them in gildeboek.
+            Updates managed skills from Gilde-dev/gildeboek, as configured in `.gilde.json`.
+            Managed skills have a `managed-by: gildeboek@<sha>` line in their frontmatter; change those in gildeboek, not here.
+            Skills without that line belong to this repo and are never touched by the sync.
