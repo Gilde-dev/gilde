@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Repository } from 'typeorm';
+import { Repository } from 'typeorm';
 
-import { TERMINAL, nextStatus, retryOrPark, type JobEvent } from '../job/job-state.js';
+import { JobEventsService, type PullInfo } from '../job/job-events.service.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
@@ -57,21 +57,18 @@ const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const HANDLED_EVENTS = new Set([
     'pull_request', 'check_suite', 'workflow_run', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
 ]);
-const APPROVAL_REASON = 'Protected paths changed; add the gilde:allow-protected label if intended';
-const CI_OK = new Set(['success', 'neutral', 'skipped']);
 
 @Injectable()
 export class WebhookService {
     private readonly logger = new Logger(WebhookService.name);
-    private readonly ciWorkflows = workflowNames(process.env.GILDE_CI_WORKFLOWS, 'CI');
-    private readonly gateWorkflows = workflowNames(process.env.GILDE_GATE_WORKFLOWS, 'Gates');
 
     constructor(
         private readonly repoService: RepoService,
         private readonly feedback: FeedbackService,
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
-        @InjectRepository(Project) private readonly projects: Repository<Project>,
+        @InjectRepository(Project) projects: Repository<Project>,
+        private readonly events: JobEventsService = new JobEventsService(jobs, runs, projects),
     ) { }
 
     async handle(event: string | undefined, payload: WebhookPayload | undefined): Promise<string> {
@@ -114,7 +111,7 @@ export class WebhookService {
             const inline = await this.feedback.findReviewComments(job.id, String(review.id));
             for (const c of inline) reason += `\n- ${c.path}:${c.line} ${c.body}`;
         }
-        const result = await this.retryOrParkJob(job, reason);
+        const result = await this.events.retryOrParkJob(job, reason);
         if (!result) return `ignored: job ${job.status} cannot take retry`;
         return `job ${result} with PR #${pr.number}`;
     }
@@ -151,18 +148,6 @@ export class WebhookService {
         return stored ? `stored comment for PR #${issue.number}` : `unchanged: comment ${comment.id} already stored`;
     }
 
-    /** Requeues the job on the existing PR while attempts are left, else parks it. PR, branch and head sha are kept. */
-    private async retryOrParkJob(job: Job, reason: string): Promise<Job['status'] | null> {
-        const project = await this.projects.findOneBy({ id: job.projectId });
-        const event = retryOrPark(job.attempts, project?.maxAttempts ?? job.attempts);
-        const to = await this.transition(job, event, {
-            lastReason: reason,
-            ...(event === 'retry' ? { queuedAt: new Date() } : {}),
-        });
-        if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
-        return to;
-    }
-
     private async onPullRequest(repoId: string, payload: WebhookPayload): Promise<string> {
         const pr = payload.pull_request;
         if (!pr) return 'ignored: no pull_request in payload';
@@ -182,52 +167,21 @@ export class WebhookService {
         }
     }
 
-    private async onOpened(repoId: string, pr: PullRequestPayload): Promise<string> {
-        const parsed = parsePrBody(pr.body);
-        if (!parsed.jobId) return `ignored: PR #${pr.number} has no gilde-job marker`;
-        const job = await this.jobs.findOneBy({ id: parsed.jobId, repoId });
-        if (!job) return `ignored: PR #${pr.number} references unknown job`;
-        if (TERMINAL.has(job.status)) return `ignored: job is ${job.status}`;
-        if (job.prNumber !== null && job.prNumber !== pr.number) {
-            return `ignored: job already has PR #${job.prNumber}`;
-        }
-        // Redelivery (or reopen without new commits): don't pull a job back from awaiting_review.
-        if (job.prNumber === pr.number && job.headSha === pr.head.sha) {
-            return `unchanged: job ${job.status} with PR #${pr.number}`;
-        }
-
-        const to = await this.transition(job, 'pr_activity', {
-            prNumber: pr.number,
-            prUrl: pr.html_url,
-            branch: pr.head.ref,
-            headSha: pr.head.sha,
-        });
-        if (!to) return `ignored: job ${job.status} cannot take pr_activity`;
-
-        const run = await this.findRun(job.id, parsed.runId);
-        if (run) {
-            await this.runs.update(
-                { id: run.id, status: In(['firing', 'fired', 'pr_opened']) },
-                { status: 'pr_opened', result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
-            );
-        }
-        return `job ${to} with PR #${pr.number}`;
+    private onOpened(repoId: string, pr: PullRequestPayload): Promise<string> {
+        return this.events.linkPr(repoId, toPullInfo(pr));
     }
 
     private async onSynchronize(repoId: string, pr: PullRequestPayload): Promise<string> {
         const job = await this.findJobByPr(repoId, pr.number);
         if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
-        if (job.headSha === pr.head.sha) return `unchanged: job ${job.status} already at ${short(pr.head.sha)}`;
-        const to = await this.transition(job, 'pr_activity', { headSha: pr.head.sha });
-        if (!to) return `ignored: job ${job.status} cannot take pr_activity`;
-        return `job ${to} with PR #${pr.number}`;
+        return this.events.prUpdated(job, pr.number, pr.head.sha);
     }
 
     private async onEdited(repoId: string, pr: PullRequestPayload): Promise<string> {
         const job = await this.findJobByPr(repoId, pr.number);
         // Not linked yet (e.g. opened before the gilde-job marker was added): link it like opened does.
         if (!job) return this.onOpened(repoId, pr);
-        const run = await this.findRun(job.id, null);
+        const run = await this.events.findRun(job.id, null);
         if (!run) return `ignored: job has no run`;
         const parsed = parsePrBody(pr.body);
         await this.runs.update(
@@ -240,92 +194,30 @@ export class WebhookService {
     private async onClosed(repoId: string, pr: PullRequestPayload): Promise<string> {
         const job = await this.findJobByPr(repoId, pr.number);
         if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
-        const event: JobEvent = pr.merged ? 'merged' : 'closed';
-        const wasPending = job.status === 'queued' || job.status === 'dispatched';
-        const to = await this.transition(job, event, {});
-        if (!to) return `ignored: job ${job.status} cannot take ${event}`;
-        if (wasPending) {
-            // The PR ended while a retry was queued or running: that run's work is moot.
-            const run = await this.findRun(job.id, null);
-            if (run) {
-                const res = await this.runs.update({ id: run.id, status: In(['firing', 'fired']) }, { status: 'superseded' });
-                if (res.affected === 1) this.logger.log(`Run ${run.id} of job ${job.id} superseded: PR #${pr.number} ${event} while job was ${job.status}`);
-            }
-        }
-        return `job ${to} with PR #${pr.number}`;
+        return this.events.prClosed(job, pr.number, pr.merged === true);
     }
 
     private async onWorkflowRun(repoId: string, payload: WebhookPayload): Promise<string> {
         const run = payload.workflow_run;
         if (payload.action !== 'completed' || !run) return `ignored: workflow_run ${payload.action ?? '(no action)'}`;
         const name = run.name ?? '';
-        const isGate = this.gateWorkflows.has(name);
-        if (!isGate && !this.ciWorkflows.has(name)) return `ignored: workflow ${name || '(unnamed)'} is not configured`;
+        if (!this.events.isTrackedWorkflow(name)) return `ignored: workflow ${name || '(unnamed)'} is not configured`;
 
         for (const { number } of run.pull_requests ?? []) {
             const job = await this.findJobByPr(repoId, number);
             if (!job) continue;
-            if (job.headSha !== run.head_sha) {
-                return `ignored: stale workflow_run ${short(run.head_sha)} for PR #${number}`;
-            }
-            const conclusion = run.conclusion ?? 'unknown';
-            const passed = CI_OK.has(conclusion);
-            if (isGate) return this.onGateRun(job, number, passed);
-
-            const to = passed
-                ? await this.transition(job, 'ci_passed', {})
-                : await this.retryOrParkJob(
-                    job,
-                    `CI ${conclusion} on ${short(run.head_sha)}. Fix the failing checks on the existing branch.`,
-                );
-            if (!to) return `ignored: job ${job.status} cannot take ${passed ? 'ci_passed' : 'retry'}`;
-
-            const jobRun = await this.findRun(job.id, null);
-            if (jobRun) await this.runs.update({ id: jobRun.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
-            return `job ${to} with PR #${number}`;
+            return this.events.workflowCompleted(job, number, { name, conclusion: run.conclusion, headSha: run.head_sha });
         }
         return 'ignored: workflow_run has no known job PR';
-    }
-
-    /** Gates never retry or move the job; they only flag it for a human. */
-    private async onGateRun(job: Job, prNumber: number, passed: boolean): Promise<string> {
-        await this.jobs.update(
-            { id: job.id },
-            passed ? { needsApproval: false, approvalReason: null } : { needsApproval: true, approvalReason: APPROVAL_REASON },
-        );
-        return passed
-            ? `gate passed: approval cleared for PR #${prNumber}`
-            : `gate failed: job ${job.status} needs approval for PR #${prNumber}`;
-    }
-
-    /** Applies the event through the state machine; the update only lands if the status is still what we read. */
-    private async transition(job: Job, event: JobEvent, changes: Partial<Job>): Promise<Job['status'] | null> {
-        const to = nextStatus(job.status, event);
-        if (!to) return null;
-        const res = await this.jobs.update({ id: job.id, status: job.status }, { ...changes, status: to });
-        if (res.affected !== 1) {
-            this.logger.warn(`Job ${job.id} changed concurrently; ignoring ${event}`);
-            return null;
-        }
-        return to;
     }
 
     private findJobByPr(repoId: string, prNumber: number): Promise<Job | null> {
         return this.jobs.findOneBy({ repoId, prNumber });
     }
-
-    private async findRun(jobId: string, runId: string | null): Promise<JobRun | null> {
-        if (runId) {
-            const run = await this.runs.findOneBy({ id: runId, jobId });
-            if (run) return run;
-        }
-        return this.runs.findOne({ where: { jobId }, order: { attempt: 'DESC' } });
-    }
 }
 
-const workflowNames = (raw: string | undefined, fallback: string) =>
-    new Set((raw ?? fallback).split(',').map((n) => n.trim()).filter(Boolean));
-
-const short = (sha: string) => sha.slice(0, 7);
+const toPullInfo = (pr: PullRequestPayload): PullInfo => ({
+    number: pr.number, htmlUrl: pr.html_url, body: pr.body, headRef: pr.head.ref, headSha: pr.head.sha,
+});
 
 const toDate = (iso: string | null | undefined) => (iso ? new Date(iso) : new Date());
