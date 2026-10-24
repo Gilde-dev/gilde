@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { api, type Job, type Run } from '@/lib/api';
+import { api, type Job, type JobStatus, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { JobActions } from './job-actions';
 import { errorText } from '@/lib/job-actions';
@@ -41,6 +41,60 @@ function RunRow({ run }: { run: Run }) {
   );
 }
 
+const EDITABLE_DEPS: JobStatus[] = ['triage', 'queued'];
+
+/** Title, task and criteria of a triage job; the only status in which they can change. */
+function TriageEditor({ job, onChanged }: { job: Job; onChanged: () => void | Promise<void> }) {
+  const [title, setTitle] = useState(job.title);
+  const [task, setTask] = useState(job.task);
+  const [criteria, setCriteria] = useState(job.acceptanceCriteria.join('\n'));
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const inputClass = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground';
+
+  async function save() {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.updateJob(job.id, {
+        title,
+        task,
+        acceptanceCriteria: criteria.split('\n').map((c) => c.trim()).filter(Boolean),
+      });
+      await onChanged();
+    } catch (err) {
+      setError(errorText(err));
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="space-y-2">
+      <div>
+        <label htmlFor="triage-title" className="text-sm font-semibold">Title</label>
+        <input id="triage-title" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} />
+      </div>
+      <div>
+        <label htmlFor="triage-task" className="text-sm font-semibold">Task</label>
+        <textarea id="triage-task" rows={5} className={inputClass} value={task} onChange={(e) => setTask(e.target.value)} />
+      </div>
+      <div>
+        <label htmlFor="triage-criteria" className="text-sm font-semibold">Acceptance criteria (one per line)</label>
+        <textarea id="triage-criteria" rows={3} className={inputClass} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
+      </div>
+      {error && (
+        <p role="alert" className="text-sm text-red-800">
+          {error}
+        </p>
+      )}
+      <Button type="button" size="sm" disabled={saving} onClick={() => void save()}>
+        {saving ? 'Saving…' : 'Save changes'}
+      </Button>
+    </section>
+  );
+}
+
 function Dependencies({
   job,
   candidates,
@@ -74,7 +128,7 @@ function Dependencies({
     }
   }
 
-  if (job.dependsOn.length === 0 && job.status !== 'queued') return null;
+  if (job.dependsOn.length === 0 && !EDITABLE_DEPS.includes(job.status)) return null;
   return (
     <section>
       <h3 className="text-sm font-semibold">Dependencies</h3>
@@ -90,7 +144,7 @@ function Dependencies({
           );
         })}
       </ul>
-      {job.status === 'queued' && !editing && (
+      {EDITABLE_DEPS.includes(job.status) && !editing && (
         <Button
           type="button"
           size="sm"
@@ -143,12 +197,14 @@ export function JobModal({
   projectJobs = [],
   onClose,
   onChanged,
+  onEnqueued,
 }: {
   job: Job | null;
   /** Jobs of the same project, to pick dependencies from. */
   projectJobs?: Job[];
   onClose: () => void;
   onChanged?: () => void | Promise<void>;
+  onEnqueued?: (warnings: string[]) => void;
 }) {
   const jobId = job?.id;
   const fetchDetail = useCallback(() => (jobId ? api.getJob(jobId) : Promise.resolve(undefined)), [jobId]);
@@ -181,12 +237,23 @@ export function JobModal({
               onChanged={async () => {
                 await Promise.all([refresh(), onChanged?.()]);
               }}
+              onEnqueued={onEnqueued}
             />
 
-            <section>
-              <h3 className="text-sm font-semibold">Task</h3>
-              <p className="mt-1 whitespace-pre-wrap text-sm">{shown.task}</p>
-            </section>
+            {shown.status === 'triage' ? (
+              <TriageEditor
+                key={shown.id}
+                job={shown}
+                onChanged={async () => {
+                  await Promise.all([refresh(), onChanged?.()]);
+                }}
+              />
+            ) : (
+              <section>
+                <h3 className="text-sm font-semibold">Task</h3>
+                <p className="mt-1 whitespace-pre-wrap text-sm">{shown.task}</p>
+              </section>
+            )}
 
             <Dependencies
               key={shown.id}
@@ -197,7 +264,7 @@ export function JobModal({
               }}
             />
 
-            {shown.acceptanceCriteria.length > 0 && (
+            {shown.status !== 'triage' && shown.acceptanceCriteria.length > 0 && (
               <section>
                 <h3 className="text-sm font-semibold">Acceptance criteria</h3>
                 <ul className="mt-1 space-y-1 text-sm">

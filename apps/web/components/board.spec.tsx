@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import { JOB_STATUSES, type Job, type JobStatus, type Repo } from '@/lib/api';
+import { api, JOB_STATUSES, type Job, type JobStatus, type Repo } from '@/lib/api';
 import { Board } from './board';
 
 function job(status: JobStatus, extra: Partial<Job> = {}): Job {
@@ -35,6 +35,7 @@ describe('Board', () => {
   it('places each status in its lane', () => {
     render(<Board jobs={jobs} repos={repos} onOpen={() => {}} />);
     const expected: Record<string, string> = {
+      Triage: 'Job triage',
       Queued: 'Job queued',
       Running: 'Job dispatched',
       'PR open': 'Job pr_open',
@@ -72,5 +73,39 @@ describe('Board', () => {
     render(<Board jobs={[flagged, job('pr_open')]} repos={repos} onOpen={vi.fn()} />);
     expect(screen.getAllByText('Needs approval')).toHaveLength(1);
     expect(screen.getByText('Needs approval')).toHaveAttribute('title', 'Protected paths changed');
+  });
+
+  it('queues the selected triage jobs through the bulk endpoint and shows warnings', async () => {
+    const a = job('triage', { id: 'a', title: 'A' });
+    const b = job('triage', { id: 'b', title: 'B' });
+    const enqueueJobs = vi.spyOn(api, 'enqueueJobs').mockResolvedValue([
+      { ...a, warnings: [{ dependencyId: 'x', message: 'still in triage' }] },
+      { ...b, warnings: [] },
+    ] as never);
+    const onEnqueued = vi.fn();
+    const onChanged = vi.fn();
+    render(<Board jobs={[a, b]} repos={repos} onOpen={() => {}} onChanged={onChanged} onEnqueued={onEnqueued} />);
+    const lane = screen.getByRole('region', { name: 'Triage' });
+    expect(within(lane).getByRole('button', { name: 'Queue selected' })).toBeDisabled();
+    fireEvent.click(within(lane).getByLabelText('Select A'));
+    fireEvent.click(within(lane).getByLabelText('Select B'));
+    fireEvent.click(within(lane).getByRole('button', { name: 'Queue selected (2)' }));
+    await waitFor(() => expect(onEnqueued).toHaveBeenCalledWith(['A: still in triage']));
+    expect(enqueueJobs).toHaveBeenCalledWith(['a', 'b']);
+    expect(onChanged).toHaveBeenCalled();
+  });
+
+  it('shows the API error when the bulk queue is rejected', async () => {
+    const a = job('triage', { id: 'a', title: 'A' });
+    vi.spyOn(api, 'enqueueJobs').mockRejectedValue(Object.assign(new Error('x'), { detail: 'Jobs not in triage: a' }));
+    render(<Board jobs={[a]} repos={repos} onOpen={() => {}} />);
+    fireEvent.click(screen.getByLabelText('Select A'));
+    fireEvent.click(screen.getByRole('button', { name: 'Queue selected (1)' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Jobs not in triage: a');
+  });
+
+  it('has no selection boxes outside the Triage lane', () => {
+    render(<Board jobs={[job('queued')]} repos={repos} onOpen={() => {}} />);
+    expect(screen.queryByLabelText(/^Select /)).not.toBeInTheDocument();
   });
 });

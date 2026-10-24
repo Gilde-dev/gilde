@@ -27,6 +27,7 @@ export function NewJobDialog({
   const [task, setTask] = useState('');
   const [criteria, setCriteria] = useState<string[]>(['']);
   const [dependsOn, setDependsOn] = useState<string[]>([]);
+  const [triage, setTriage] = useState(false);
   const [issues, setIssues] = useState<ApiIssue[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -41,6 +42,7 @@ export function NewJobDialog({
     setTask('');
     setCriteria(['']);
     setDependsOn([]);
+    setTriage(false);
     setIssues([]);
     setError(null);
   }
@@ -62,6 +64,7 @@ export function NewJobDialog({
     try {
       await api.createJob(repoId, { title, task, acceptanceCriteria: sentRows.map((r) => r.text),
         ...(dependsOn.length > 0 ? { dependsOn } : {}),
+        ...(triage ? { status: 'triage' as const } : {}),
       });
       await onCreated();
       reset();
@@ -178,6 +181,10 @@ export function NewJobDialog({
               <FieldErrors field="dependsOn" />
             </div>
           )}
+          <label className="flex items-center gap-2 text-sm font-medium">
+            <input type="checkbox" checked={triage} onChange={(e) => setTriage(e.target.checked)} />
+            Create in triage
+          </label>
           {error && (
             <p role="alert" className="text-sm text-red-800">
               {error}

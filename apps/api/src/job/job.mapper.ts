@@ -18,7 +18,7 @@ export class JobMapper {
             acceptanceCriteria: e.acceptanceCriteria,
             status: e.status,
             attempts: e.attempts,
-            queuedAt: e.queuedAt.toISOString(),
+            queuedAt: e.queuedAt?.toISOString() ?? null,
             prNumber: e.prNumber,
             prUrl: e.prUrl,
             branch: e.branch,

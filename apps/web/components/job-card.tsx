@@ -9,11 +9,18 @@ export function JobCard({
   repoName,
   onOpen,
   onChanged,
+  onEnqueued,
+  selected,
+  onSelect,
 }: {
   job: Job;
   repoName?: string;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
+  onEnqueued?: (warnings: string[]) => void;
+  /** Set on triage cards, which can be picked for a bulk queue. */
+  selected?: boolean;
+  onSelect?: (selected: boolean) => void;
 }) {
   return (
     <div
@@ -28,7 +35,20 @@ export function JobCard({
       }}
       className="cursor-pointer rounded-md border border-border bg-card p-3 text-left text-sm shadow-sm hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
     >
-      <div className="font-medium leading-snug">{job.title}</div>
+      <div className="flex items-start gap-2">
+        {onSelect && (
+          <input
+            type="checkbox"
+            aria-label={`Select ${job.title}`}
+            className="mt-1"
+            checked={selected ?? false}
+            onChange={(e) => onSelect(e.target.checked)}
+            onClick={(e) => e.stopPropagation()}
+            onKeyDown={(e) => e.stopPropagation()}
+          />
+        )}
+        <div className="font-medium leading-snug">{job.title}</div>
+      </div>
       <div className="mt-1 truncate text-xs text-muted-foreground">{repoName ?? job.repoId}</div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>
@@ -81,7 +101,7 @@ export function JobCard({
         </p>
       )}
       <div className="mt-2">
-        <JobActions job={job} onChanged={onChanged ?? (() => {})} />
+        <JobActions job={job} onChanged={onChanged ?? (() => {})} onEnqueued={onEnqueued} />
       </div>
     </div>
   );

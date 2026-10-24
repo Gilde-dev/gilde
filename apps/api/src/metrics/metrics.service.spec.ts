@@ -59,6 +59,16 @@ async function seedRun(job: Job, attempt: number, over: Partial<JobRun> = {}) {
 }
 
 describe('MetricsService', () => {
+    it('counts triage jobs only in countByStatus', async () => {
+        await seedJob('triage', '2026-03-09T10:00:00Z');
+        await seedJob('merged', '2026-03-09T10:00:00Z', { attempts: 1 });
+        const m = await service.get({ days: 7 }, NOW);
+        expect(m.jobs.countByStatus.triage).toBe(1);
+        expect(m.jobs.total).toBe(1);
+        expect(m.daily.find((d) => d.date === '2026-03-09')!.created).toBe(1);
+        expect(m.mergeRate).toBe(1);
+    });
+
     it('returns zeros, nulls and a full zero-filled daily series for an empty database', async () => {
         const m = await service.get({ days: 7 }, NOW);
         expect(m.jobs.total).toBe(0);

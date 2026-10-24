@@ -70,6 +70,14 @@ async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<J
 const reload = (id: string) => jobs.findOneByOrFail({ id });
 
 describe('DispatcherService', () => {
+    it('never fires triage jobs', async () => {
+        const repo = await seedRepo(await seedProject());
+        const triage = await seedJob(repo, 'triage', { queuedAt: null });
+        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(fire).not.toHaveBeenCalled();
+        expect((await reload(triage.id)).status).toBe('triage');
+    });
+
     describe('dependencies', () => {
         const link = (job: Job, dep: Job) => ds.getRepository(JobDependency).save({ jobId: job.id, dependsOnJobId: dep.id });
 
