@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { RunResponseSchema } from '../run/run.dto.js';
 import { JOB_STATUSES } from './job-state.js';
 
 export const CreateJobSchema = z.object({
@@ -34,6 +35,12 @@ export const JobResponseSchema = z.object({
     updatedAt: z.string().datetime(),
 });
 
+/** GET /v1/jobs/:id — the job plus its runs, ordered by attempt. */
+export const JobDetailResponseSchema = JobResponseSchema.extend({
+    runs: z.array(RunResponseSchema),
+});
+
 export type CreateJobDto = z.infer<typeof CreateJobSchema>;
 export type ListJobsQuery = z.infer<typeof ListJobsQuerySchema>;
 export type JobResponseDto = z.infer<typeof JobResponseSchema>;
+export type JobDetailResponseDto = z.infer<typeof JobDetailResponseSchema>;

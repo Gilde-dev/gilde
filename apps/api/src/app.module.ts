@@ -6,6 +6,7 @@ import { HealthModule } from './health/health.module.js';
 import { ProjectModule } from './project/project.module.js';
 import { RepoModule } from './repo/repo.module.js';
 import { JobModule } from './job/job.module.js';
+import { RunModule } from './run/run.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -26,7 +27,8 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     HealthModule,
     ProjectModule,
     RepoModule,
-    JobModule
+    JobModule,
+    RunModule
   ],
 })
 export class AppModule { }
