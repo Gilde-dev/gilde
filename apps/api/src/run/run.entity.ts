@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
+import type { GildeResult } from '../webhook/pr-body.js';
 import { RUN_STATUSES, type RunStatus } from './run-status.js';
 
 @Entity({ name: 'job_runs' })
@@ -46,6 +47,27 @@ export class JobRun {
 
     @Column({ type: 'text', nullable: true })
     error: string | null;
+
+    @Column({ type: 'simple-json', nullable: true })
+    result: GildeResult | null;
+
+    @Column({
+        name: 'result_error',
+        type: 'text',
+        nullable: true
+    })
+    resultError: string | null;
+
+    @Column({ type: 'text', nullable: true })
+    retro: string | null;
+
+    @Column({
+        name: 'ci_conclusion',
+        type: 'varchar',
+        length: 32,
+        nullable: true
+    })
+    ciConclusion: string | null;
 
     @Column({
         name: 'fired_at',

@@ -62,6 +62,14 @@ export class Job {
     branch: string | null;
 
     @Column({
+        name: 'head_sha',
+        type: 'varchar',
+        length: 64,
+        nullable: true
+    })
+    headSha: string | null;
+
+    @Column({
         name: 'last_reason',
         type: 'text',
         nullable: true
