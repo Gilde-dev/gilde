@@ -146,7 +146,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' = 'GET', body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -209,6 +209,46 @@ export interface MetricsFilter {
   days: number;
 }
 
+export const LESSON_STATUSES = ['candidate', 'approved', 'rejected'] as const;
+export type LessonStatus = (typeof LESSON_STATUSES)[number];
+
+export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'routine_prompt', 'other'] as const;
+export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number];
+
+export interface LessonSource {
+  id: string;
+  kind: 'suggested_lesson' | 'retro' | 'feedback';
+  jobId: string;
+  runId: string | null;
+  feedbackId: string | null;
+  excerpt: string;
+  /** PR of the source job, if it has one. */
+  prUrl: string | null;
+  createdAt: string;
+}
+
+export interface Lesson {
+  id: string;
+  projectId: string;
+  text: string;
+  status: LessonStatus;
+  targetKind: LessonTargetKind | null;
+  targetRepoId: string | null;
+  note: string | null;
+  sources: LessonSource[];
+  /** Number of distinct jobs among the sources. */
+  sourceCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UpdateLessonInput {
+  text?: string;
+  targetKind?: LessonTargetKind | null;
+  targetRepoId?: string | null;
+  note?: string | null;
+}
+
 const id = encodeURIComponent;
 
 export const api = {
@@ -221,6 +261,14 @@ export const api = {
     if (repoId) q.set('repoId', repoId);
     return request<Metrics>(`/v1/metrics?${q}`);
   },
+  listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
+  collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),
+  updateLesson: (lessonId: string, input: UpdateLessonInput) =>
+    request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PATCH', input),
+  setLessonStatus: (lessonId: string, action: 'approve' | 'reject' | 'reopen') =>
+    request<Lesson>(`/v1/lessons/${id(lessonId)}/${action}`, 'POST'),
+  mergeLessons: (targetId: string, lessonIds: string[]) =>
+    request<Lesson>('/v1/lessons/merge', 'POST', { targetId, lessonIds }),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),

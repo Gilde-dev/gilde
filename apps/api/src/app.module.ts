@@ -14,6 +14,7 @@ import { FeedbackModule } from './feedback/feedback.module.js';
 import { WebhookModule } from './webhook/webhook.module.js';
 import { ReconcileModule } from './reconcile/reconcile.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
+import { LessonModule } from './lesson/lesson.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -37,6 +38,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     WebhookModule,
     ReconcileModule,
     MetricsModule,
+    LessonModule,
   ],
 })
 export class AppModule { }

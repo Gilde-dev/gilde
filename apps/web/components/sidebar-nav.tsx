@@ -3,9 +3,10 @@ import Link from 'next/link';
 const LINKS = [
   { href: '/', label: 'Board' },
   { href: '/metrics', label: 'Metrics' },
+  { href: '/lessons', label: 'Lessons' },
 ];
 
-export function SidebarNav({ current }: { current: '/' | '/metrics' }) {
+export function SidebarNav({ current }: { current: '/' | '/metrics' | '/lessons' }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-1 text-sm">
       {LINKS.map((l) => (
