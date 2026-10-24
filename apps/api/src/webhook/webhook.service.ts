@@ -2,8 +2,9 @@ import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
-import { TERMINAL, nextStatus, type JobEvent } from '../job/job-state.js';
+import { TERMINAL, nextStatus, retryOrPark, type JobEvent } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
+import { Project } from '../project/project.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { parsePrBody } from './pr-body.js';
@@ -20,6 +21,12 @@ interface WebhookPayload {
     action?: string;
     repository?: { full_name?: string };
     pull_request?: PullRequestPayload;
+    review?: {
+        state?: string;
+        body?: string | null;
+        author_association?: string;
+        user?: { login?: string };
+    };
     check_suite?: {
         conclusion: string | null;
         head_sha: string;
@@ -28,6 +35,8 @@ interface WebhookPayload {
     };
 }
 
+// Reviewers whose feedback may send a job back to the agent.
+const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const CI_OK = new Set(['success', 'neutral', 'skipped']);
 
 @Injectable()
@@ -38,10 +47,11 @@ export class WebhookService {
         private readonly repoService: RepoService,
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
+        @InjectRepository(Project) private readonly projects: Repository<Project>,
     ) { }
 
     async handle(event: string | undefined, payload: WebhookPayload | undefined): Promise<string> {
-        if (event !== 'pull_request' && event !== 'check_suite') return `ignored: event ${event ?? '(none)'}`;
+        if (event !== 'pull_request' && event !== 'check_suite' && event !== 'pull_request_review') return `ignored: event ${event ?? '(none)'}`;
 
         const fullName = payload?.repository?.full_name;
         if (!fullName) return 'ignored: no repository in payload';
@@ -49,7 +59,35 @@ export class WebhookService {
         if (!repo) return `ignored: unknown repo ${fullName}`;
 
         if (event === 'check_suite') return this.onCheckSuite(repo.id, payload!);
+        if (event === 'pull_request_review') return this.onReview(repo.id, payload!);
         return this.onPullRequest(repo.id, payload!);
+    }
+
+    private async onReview(repoId: string, payload: WebhookPayload): Promise<string> {
+        const { pull_request: pr, review } = payload;
+        if (payload.action !== 'submitted' || !pr || !review) return `ignored: pull_request_review ${payload.action ?? '(no action)'}`;
+        if (review.state?.toLowerCase() !== 'changes_requested') return `ignored: review ${review.state ?? '(no state)'}`;
+        const job = await this.findJobByPr(repoId, pr.number);
+        if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
+        if (!review.author_association || !TRUSTED_REVIEWERS.has(review.author_association)) {
+            return `ignored: review by ${review.author_association ?? 'unknown'} reviewer`;
+        }
+        const reason = `Changes requested by @${review.user?.login ?? 'unknown'} on PR #${pr.number}:\n${review.body ?? ''}`;
+        const result = await this.retryOrParkJob(job, reason);
+        if (!result) return `ignored: job ${job.status} cannot take retry`;
+        return `job ${result} with PR #${pr.number}`;
+    }
+
+    /** Requeues the job on the existing PR while attempts are left, else parks it. PR, branch and head sha are kept. */
+    private async retryOrParkJob(job: Job, reason: string): Promise<Job['status'] | null> {
+        const project = await this.projects.findOneBy({ id: job.projectId });
+        const event = retryOrPark(job.attempts, project?.maxAttempts ?? job.attempts);
+        const to = await this.transition(job, event, {
+            lastReason: reason,
+            ...(event === 'retry' ? { queuedAt: new Date() } : {}),
+        });
+        if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
+        return to;
     }
 
     private async onPullRequest(repoId: string, payload: WebhookPayload): Promise<string> {
@@ -150,8 +188,11 @@ export class WebhookService {
             const passed = CI_OK.has(conclusion);
             const to = passed
                 ? await this.transition(job, 'ci_passed', {})
-                : await this.transition(job, 'park', { lastReason: `CI ${conclusion} on ${short(suite.head_sha)}` });
-            if (!to) return `ignored: job ${job.status} cannot take ${passed ? 'ci_passed' : 'park'}`;
+                : await this.retryOrParkJob(
+                    job,
+                    `CI ${conclusion} on ${short(suite.head_sha)}. Fix the failing checks on the existing branch.`,
+                );
+            if (!to) return `ignored: job ${job.status} cannot take ${passed ? 'ci_passed' : 'retry'}`;
 
             const run = await this.findRun(job.id, null);
             if (run) await this.runs.update({ id: run.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
