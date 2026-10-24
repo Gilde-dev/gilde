@@ -1,8 +1,10 @@
 import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 
 import { FeedbackService } from '../feedback/feedback.service.js';
+import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
 import type { CreateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
@@ -19,6 +21,7 @@ export class JobService {
         private readonly runService: RunService,
         private readonly feedbackService: FeedbackService,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
+        private readonly moduleRef?: ModuleRef,
     ) { }
 
     async create(repoId: string, dto: CreateJobDto): Promise<JobResponseDto> {
@@ -58,8 +61,11 @@ export class JobService {
         };
     }
 
-    cancel(id: string): Promise<JobResponseDto> {
-        return this.apply(id, 'cancel');
+    async cancel(id: string): Promise<JobResponseDto> {
+        const job = await this.apply(id, 'cancel');
+        // Resolved lazily: LessonModule imports this module, so injecting it would be a cycle.
+        await this.moduleRef?.get<LessonJobHook>(LESSON_JOB_HOOK, { strict: false })?.onJobEnded(id, 'cancelled');
+        return job;
     }
 
     retry(id: string): Promise<JobResponseDto> {

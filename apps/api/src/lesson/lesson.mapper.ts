@@ -20,7 +20,7 @@ export class LessonMapper {
         };
     }
 
-    toDTO(e: Lesson, sources: LessonSourceResponseDto[]): LessonResponseDto {
+    toDTO(e: Lesson, sources: LessonSourceResponseDto[], appliedJobPrUrl: string | null = null): LessonResponseDto {
         return {
             id: e.id,
             projectId: e.projectId,
@@ -29,6 +29,9 @@ export class LessonMapper {
             targetKind: e.targetKind,
             targetRepoId: e.targetRepoId,
             note: e.note,
+            appliedJobId: e.appliedJobId,
+            appliedJobPrUrl,
+            appliedAt: e.appliedAt?.toISOString() ?? null,
             sources,
             sourceCount: new Set(sources.map((s) => s.jobId)).size,
             createdAt: e.createdAt.toISOString(),

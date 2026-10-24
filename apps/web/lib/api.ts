@@ -209,7 +209,7 @@ export interface MetricsFilter {
   days: number;
 }
 
-export const LESSON_STATUSES = ['candidate', 'approved', 'rejected'] as const;
+export const LESSON_STATUSES = ['candidate', 'approved', 'applying', 'applied', 'rejected'] as const;
 export type LessonStatus = (typeof LESSON_STATUSES)[number];
 
 export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'routine_prompt', 'other'] as const;
@@ -235,6 +235,10 @@ export interface Lesson {
   targetKind: LessonTargetKind | null;
   targetRepoId: string | null;
   note: string | null;
+  appliedJobId: string | null;
+  /** PR of the job applying the lesson, if it has one. */
+  appliedJobPrUrl: string | null;
+  appliedAt: string | null;
   sources: LessonSource[];
   /** Number of distinct jobs among the sources. */
   sourceCount: number;
@@ -267,6 +271,8 @@ export const api = {
     request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PATCH', input),
   setLessonStatus: (lessonId: string, action: 'approve' | 'reject' | 'reopen') =>
     request<Lesson>(`/v1/lessons/${id(lessonId)}/${action}`, 'POST'),
+  applyLesson: (lessonId: string) => request<Lesson>(`/v1/lessons/${id(lessonId)}/apply`, 'POST'),
+  markLessonApplied: (lessonId: string) => request<Lesson>(`/v1/lessons/${id(lessonId)}/mark-applied`, 'POST'),
   mergeLessons: (targetId: string, lessonIds: string[]) =>
     request<Lesson>('/v1/lessons/merge', 'POST', { targetId, lessonIds }),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),

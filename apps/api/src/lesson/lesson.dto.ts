@@ -41,6 +41,10 @@ export const LessonResponseSchema = z.object({
     targetKind: z.enum(LESSON_TARGET_KINDS).nullable(),
     targetRepoId: z.string().nullable(),
     note: z.string().nullable(),
+    appliedJobId: z.string().nullable(),
+    /** PR of the job that applies the lesson, if it has one. */
+    appliedJobPrUrl: z.string().nullable(),
+    appliedAt: z.string().datetime().nullable(),
     sources: z.array(LessonSourceResponseSchema),
     /** Number of distinct jobs among the sources. */
     sourceCount: z.number().int(),

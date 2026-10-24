@@ -30,6 +30,12 @@ export class Lesson {
     @Column({ type: 'text', nullable: true })
     note: string | null;
 
+    @Column({ name: 'applied_job_id', type: 'varchar', nullable: true })
+    appliedJobId: string | null;
+
+    @Column({ name: 'applied_at', type: Date, nullable: true })
+    appliedAt: Date | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

@@ -3,15 +3,18 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository, type FindOptionsWhere } from 'typeorm';
 
 import { Job } from '../job/job.entity.js';
+import type { JobStatus } from '../job/job-state.js';
+import { JobService } from '../job/job.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import type { LessonResponseDto, ListLessonsQuery, MergeLessonsDto, UpdateLessonDto } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
 import { LessonSource } from './lesson-source.entity.js';
+import type { LessonJobHook } from './lesson-hook.js';
 import { nextLessonStatus, type LessonEvent } from './lesson-state.js';
 
 @Injectable()
-export class LessonService {
+export class LessonService implements LessonJobHook {
 
     constructor(
         private readonly lessonMapper: LessonMapper,
@@ -19,6 +22,7 @@ export class LessonService {
         @InjectRepository(LessonSource) private readonly sources: Repository<LessonSource>,
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(Repo) private readonly repos: Repository<Repo>,
+        private readonly jobService: JobService,
     ) { }
 
     async list(q: ListLessonsQuery): Promise<LessonResponseDto[]> {
@@ -56,6 +60,63 @@ export class LessonService {
         return this.transition(id, 'reopen');
     }
 
+    /** Creates a job on the target repo that applies the lesson; the lesson is `applying` until that job ends. */
+    async apply(id: string): Promise<LessonResponseDto> {
+        const lesson = await this.getOrFail(id);
+        if (nextLessonStatus(lesson.status, 'apply') === null) throw new ConflictException(`Cannot apply a ${lesson.status} lesson`);
+        if (lesson.targetKind !== 'skill' && lesson.targetKind !== 'agents_md') {
+            throw new BadRequestException('Only skill and agents_md lessons can be applied as a job; use mark-applied for the rest');
+        }
+        if (!lesson.targetRepoId) throw new BadRequestException('targetRepoId is required to apply a lesson');
+        const repo = await this.repos.findOneBy({ id: lesson.targetRepoId });
+        if (!repo || repo.projectId !== lesson.projectId) {
+            throw new BadRequestException(`Repo ${lesson.targetRepoId} is not in the lesson's project`);
+        }
+
+        const sources = await this.sources.find({ where: { lessonId: id }, order: { createdAt: 'ASC' }, take: MAX_EVIDENCE });
+        const prUrls = await this.prUrls(sources.map((s) => s.jobId));
+        const job = await this.jobService.create(repo.id, {
+            title: `Apply lesson: ${lesson.text.slice(0, 60)}`,
+            task: applyTask(lesson, sources, prUrls),
+            acceptanceCriteria: [
+                'The change is minimal and consistent with the existing content',
+                `The PR body cites the lesson id ${lesson.id}`,
+            ],
+        });
+
+        const res = await this.lessons.update({ id, status: 'approved' }, { status: 'applying', appliedJobId: job.id, appliedAt: null });
+        if (res.affected !== 1) throw new ConflictException('Lesson changed in the meantime, try again');
+        return this.getById(id);
+    }
+
+    /** For lessons applied by hand. */
+    async markApplied(id: string): Promise<LessonResponseDto> {
+        const lesson = await this.getOrFail(id);
+        const next = nextLessonStatus(lesson.status, 'mark_applied');
+        if (!next) throw new ConflictException(`Cannot mark a ${lesson.status} lesson as applied`);
+        lesson.status = next;
+        lesson.appliedAt = new Date();
+        await this.lessons.save(lesson);
+        return this.getById(id);
+    }
+
+    /** A job reached an end state: finish the lesson it was applying, if any. No-op for other jobs and statuses. */
+    async onJobEnded(jobId: string, status: JobStatus, reason?: string): Promise<void> {
+        const lesson = await this.lessons.findOneBy({ appliedJobId: jobId, status: 'applying' });
+        if (!lesson) return;
+        if (status === 'merged') {
+            lesson.status = nextLessonStatus('applying', 'job_merged')!;
+            lesson.appliedAt = new Date();
+        } else if (status === 'rejected' || status === 'parked' || status === 'cancelled') {
+            lesson.status = nextLessonStatus('applying', 'job_failed')!;
+            const why = `Apply job ${jobId} ${status}${reason ? `: ${reason}` : ''}`;
+            lesson.note = lesson.note ? `${lesson.note}\n${why}` : why;
+        } else {
+            return;
+        }
+        await this.lessons.save(lesson);
+    }
+
     /** Moves the sources of `lessonIds` onto `targetId` and deletes those lessons. */
     async merge(dto: MergeLessonsDto): Promise<LessonResponseDto> {
         const ids = [...new Set(dto.lessonIds)];
@@ -65,6 +126,7 @@ export class LessonService {
         if (merged.length !== ids.length) throw new NotFoundException('One or more lessons not found');
         for (const l of [target, ...merged]) {
             if (l.projectId !== target.projectId) throw new ConflictException('Lessons belong to different projects');
+            if (l.status === 'applying' || l.status === 'applied') throw new ConflictException(`Lesson ${l.id} is ${l.status}`);
             if (l.status === 'rejected') throw new ConflictException(`Lesson ${l.id} is rejected`);
         }
         await this.lessons.manager.transaction(async (m) => {
@@ -94,11 +156,36 @@ export class LessonService {
     private async toDTOs(lessons: Lesson[]): Promise<LessonResponseDto[]> {
         if (lessons.length === 0) return [];
         const sources = await this.sources.find({ where: { lessonId: In(lessons.map((l) => l.id)) }, order: { createdAt: 'ASC' } });
-        const jobs = await this.jobs.find({ where: { id: In([...new Set(sources.map((s) => s.jobId))]) }, select: { id: true, prUrl: true } });
-        const prUrls = new Map(jobs.map((j) => [j.id, j.prUrl]));
+        const prUrls = await this.prUrls([...sources.map((s) => s.jobId), ...lessons.flatMap((l) => (l.appliedJobId ? [l.appliedJobId] : []))]);
         return lessons.map((l) => this.lessonMapper.toDTO(
             l,
             sources.filter((s) => s.lessonId === l.id).map((s) => this.lessonMapper.toSourceDTO(s, prUrls.get(s.jobId) ?? null)),
+            l.appliedJobId ? prUrls.get(l.appliedJobId) ?? null : null,
         ));
     }
+
+    private async prUrls(jobIds: string[]): Promise<Map<string, string | null>> {
+        const jobs = await this.jobs.find({ where: { id: In([...new Set(jobIds)]) }, select: { id: true, prUrl: true } });
+        return new Map(jobs.map((j) => [j.id, j.prUrl]));
+    }
+}
+
+const MAX_EVIDENCE = 5;
+
+const INSTRUCTIONS = {
+    skill: 'Add or update the most fitting skill in this repo (under `.claude/skills/`), following its existing structure and registry.',
+    agents_md: 'Update AGENTS.md with the smallest change that captures the lesson. This task explicitly allows changing AGENTS.md.',
+} as const;
+
+function applyTask(lesson: Lesson, sources: LessonSource[], prUrls: Map<string, string | null>): string {
+    const evidence = sources
+        .map((s) => `- "${s.excerpt}" (${prUrls.get(s.jobId) ?? 'no PR'})`)
+        .join('\n');
+    return [
+        `Lesson (id ${lesson.id}):`,
+        lesson.text,
+        INSTRUCTIONS[lesson.targetKind as 'skill' | 'agents_md'],
+        evidence && `Evidence from earlier jobs:\n${evidence}`,
+        'Verify the lesson against the current code first. If it does not hold or is already covered, report outcome blocked and explain instead of changing anything.',
+    ].filter(Boolean).join('\n\n');
 }
