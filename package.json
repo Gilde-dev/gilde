@@ -4,6 +4,7 @@
   "private": true,
   "description": "",
   "keywords": [],
-  "author": "",
-  "license": "ISC"
+  "author": "Pascal Wilbrink<pascal.wilbrink@gmail.com>",
+  "license": "ISC",
+  "packageManager": "pnpm@8.6.2"
 }
