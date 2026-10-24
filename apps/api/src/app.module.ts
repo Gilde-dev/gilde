@@ -10,6 +10,7 @@ import { RepoModule } from './repo/repo.module.js';
 import { JobModule } from './job/job.module.js';
 import { RunModule } from './run/run.module.js';
 import { DispatchModule } from './dispatch/dispatch.module.js';
+import { WebhookModule } from './webhook/webhook.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -29,6 +30,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RunModule,
     JobModule,
     DispatchModule,
+    WebhookModule,
   ],
 })
 export class AppModule { }

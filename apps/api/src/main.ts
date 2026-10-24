@@ -6,6 +6,7 @@ const port = process.env.PORT ?? 4100;
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, {
     instrument: ObserveInstrument,
+    rawBody: true,
   });
 
   app.setGlobalPrefix('/api');
