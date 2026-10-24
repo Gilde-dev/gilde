@@ -2,7 +2,7 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } fr
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { CreateJobSchema, ListJobsQuerySchema, type CreateJobDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
+import { CreateJobSchema, ListJobsQuerySchema, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
 import { JobService } from './job.service.js';
 
 @Controller('/v1')
@@ -24,8 +24,8 @@ export class JobController {
     }
 
     @Get('jobs/:id')
-    getById(@Param('id', ParseUUIDPipe) id: string): Promise<JobResponseDto> {
-        return this.jobService.getById(id);
+    getById(@Param('id', ParseUUIDPipe) id: string): Promise<JobDetailResponseDto> {
+        return this.jobService.getDetail(id);
     }
 
     @Post('jobs/:id/cancel')

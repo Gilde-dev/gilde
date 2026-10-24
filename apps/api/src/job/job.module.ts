@@ -3,6 +3,7 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { RepoModule } from '../repo/repo.module.js';
+import { RunModule } from '../run/run.module.js';
 
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
@@ -14,7 +15,8 @@ import { JobController } from './job.controller.js';
         TypeOrmModule.forFeature([
             Job
         ]),
-        RepoModule
+        RepoModule,
+        RunModule
     ],
     controllers: [
         JobController
