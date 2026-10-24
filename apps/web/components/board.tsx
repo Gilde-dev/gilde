@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { api, type Job, type Repo } from '@/lib/api';
+import { api, type Feature, type Job, type Repo } from '@/lib/api';
 import { errorText, warningLines } from '@/lib/job-actions';
 import { LANES, type Lane } from '@/lib/lanes';
 import { JobCard } from './job-card';
@@ -11,6 +11,7 @@ function LaneColumn({
   lane,
   jobs,
   repos,
+  features,
   onOpen,
   onChanged,
   onEnqueued,
@@ -18,6 +19,7 @@ function LaneColumn({
   lane: Lane;
   jobs: Job[];
   repos: Map<string, Repo>;
+  features: Map<string, Feature>;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -82,6 +84,7 @@ function LaneColumn({
               key={job.id}
               job={job}
               repoName={repos.get(job.repoId)?.fullName}
+              featureTitle={job.featureId ? features.get(job.featureId)?.title : undefined}
               onOpen={onOpen}
               onChanged={onChanged}
               onEnqueued={onEnqueued}
@@ -102,25 +105,33 @@ function LaneColumn({
 export function Board({
   jobs,
   repos,
+  features = [],
+  featureFilter = '',
   onOpen,
   onChanged,
   onEnqueued,
 }: {
   jobs: Job[];
   repos: Repo[];
+  features?: Feature[];
+  /** Feature id to show jobs of; '' shows all, 'none' the jobs without a feature. */
+  featureFilter?: string;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
 }) {
   const repoById = new Map(repos.map((r) => [r.id, r]));
+  const featureById = new Map(features.map((f) => [f.id, f]));
+  const shown = jobs.filter((j) => (featureFilter === '' ? true : featureFilter === 'none' ? !j.featureId : j.featureId === featureFilter));
   return (
     <div className="flex items-start gap-3 overflow-x-auto p-4">
       {LANES.map((lane) => (
         <LaneColumn
           key={lane.key}
           lane={lane}
-          jobs={jobs.filter((j) => lane.statuses.includes(j.status))}
+          jobs={shown.filter((j) => lane.statuses.includes(j.status))}
           repos={repoById}
+          features={featureById}
           onOpen={onOpen}
           onChanged={onChanged}
           onEnqueued={onEnqueued}

@@ -2,6 +2,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
+import { Feature } from '../feature/feature.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobDependency } from './job-dependency.entity.js';
@@ -19,7 +20,7 @@ let other: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobDependency], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobDependency, Feature], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     const projects = ds.getRepository(Project);
@@ -32,7 +33,7 @@ beforeEach(async () => {
     other = await mk(p2, 'c');
     const repoService = { getById: (id: string) => repos.findOneByOrFail({ id }) };
     service = new JobService(
-        new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency),
+        new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency), ds.getRepository(Feature),
     );
 });
 

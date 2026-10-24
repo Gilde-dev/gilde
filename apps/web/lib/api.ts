@@ -59,6 +59,8 @@ export interface Job {
   id: string;
   projectId: string;
   repoId: string;
+  /** The feature this job belongs to, if any. */
+  featureId: string | null;
   title: string;
   task: string;
   acceptanceCriteria: string[];
@@ -80,6 +82,62 @@ export interface Job {
   createdAt: string;
   updatedAt: string;
 }
+
+export const FEATURE_STATUSES = ['draft', 'active', 'done', 'cancelled'] as const;
+export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
+
+export interface FeatureProgress {
+  /** Jobs excluding cancelled ones. */
+  total: number;
+  countByStatus: Record<JobStatus, number>;
+  merged: number;
+  /** Active, has jobs, and every non-cancelled job is merged. */
+  readyToClose: boolean;
+  attempts: number;
+  /** Minutes from start to done (or to now while active); null before start. */
+  leadTimeMinutes: number | null;
+}
+
+export interface Feature {
+  id: string;
+  projectId: string;
+  title: string;
+  spec: string;
+  acceptanceCriteria: string[];
+  status: FeatureStatus;
+  startedAt: string | null;
+  doneAt: string | null;
+  progress: FeatureProgress;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface FeatureDetail extends Feature {
+  jobs: Job[];
+}
+
+export interface FeatureJobRef {
+  id: string;
+  title: string;
+  status: JobStatus;
+}
+
+export interface FeatureStartResult extends Feature {
+  warnings: EnqueueWarning[];
+}
+
+export interface FeatureDoneResult extends Feature {
+  /** Jobs that are not merged, rejected or cancelled. */
+  openJobs: FeatureJobRef[];
+}
+
+export interface FeatureCancelResult extends Feature {
+  cancelledJobs: FeatureJobRef[];
+  /** Jobs left alone: in flight or parked. */
+  activeJobs: FeatureJobRef[];
+}
+
+export type FeatureActionResult = FeatureStartResult | FeatureDoneResult | FeatureCancelResult | Feature;
 
 export interface BlockingJob {
   id: string;
@@ -199,11 +257,25 @@ export interface CreateJobInput {
   acceptanceCriteria: string[];
   dependsOn?: string[];
   status?: 'triage' | 'queued';
+  featureId?: string;
 }
 
 export interface UpdateJobInput {
   title?: string;
   task?: string;
+  acceptanceCriteria?: string[];
+  featureId?: string | null;
+}
+
+export interface CreateFeatureInput {
+  title: string;
+  spec?: string;
+  acceptanceCriteria?: string[];
+}
+
+export interface UpdateFeatureInput {
+  title?: string;
+  spec?: string;
   acceptanceCriteria?: string[];
 }
 
@@ -305,6 +377,17 @@ export const api = {
   markLessonApplied: (lessonId: string) => request<Lesson>(`/v1/lessons/${id(lessonId)}/mark-applied`, 'POST'),
   mergeLessons: (targetId: string, lessonIds: string[]) =>
     request<Lesson>('/v1/lessons/merge', 'POST', { targetId, lessonIds }),
+  listFeatures: (projectId: string, status?: FeatureStatus) =>
+    request<Feature[]>(`/v1/projects/${id(projectId)}/features${status ? `?status=${status}` : ''}`),
+  createFeature: (projectId: string, input: CreateFeatureInput) =>
+    request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
+  getFeature: (featureId: string) => request<FeatureDetail>(`/v1/features/${id(featureId)}`),
+  updateFeature: (featureId: string, input: UpdateFeatureInput) =>
+    request<Feature>(`/v1/features/${id(featureId)}`, 'PATCH', input),
+  startFeature: (featureId: string) => request<FeatureStartResult>(`/v1/features/${id(featureId)}/start`, 'POST'),
+  doneFeature: (featureId: string) => request<FeatureDoneResult>(`/v1/features/${id(featureId)}/done`, 'POST'),
+  cancelFeature: (featureId: string) => request<FeatureCancelResult>(`/v1/features/${id(featureId)}/cancel`, 'POST'),
+  reopenFeature: (featureId: string) => request<Feature>(`/v1/features/${id(featureId)}/reopen`, 'POST'),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   setJobDependencies: (jobId: string, dependsOn: string[]) =>

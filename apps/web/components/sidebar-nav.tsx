@@ -2,11 +2,12 @@ import Link from 'next/link';
 
 const LINKS = [
   { href: '/', label: 'Board' },
+  { href: '/features', label: 'Features' },
   { href: '/metrics', label: 'Metrics' },
   { href: '/lessons', label: 'Lessons' },
 ];
 
-export function SidebarNav({ current }: { current: '/' | '/metrics' | '/lessons' }) {
+export function SidebarNav({ current }: { current: '/' | '/features' | '/metrics' | '/lessons' }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-1 text-sm">
       {LINKS.map((l) => (

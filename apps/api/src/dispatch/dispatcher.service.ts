@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeorm';
 
+import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
@@ -13,6 +14,9 @@ import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { RunService } from '../run/run.service.js';
+
+/** Longest feature spec handed to an agent, in characters. */
+const FEATURE_SPEC_LIMIT = 8000;
 
 @Injectable()
 export class DispatcherService {
@@ -27,6 +31,7 @@ export class DispatcherService {
         @InjectRepository(Project) private readonly projectRepository: Repository<Project>,
         @InjectRepository(JobRun) private readonly runRepository: Repository<JobRun>,
         private readonly repoService: RepoService,
+        @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -134,6 +139,8 @@ export class DispatcherService {
 
         const job = await this.jobRepository.findOneByOrFail({ id: jobId });
 
+        const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
+
         let runId: string | undefined;
         let session: ExecutionResult;
         try {
@@ -151,6 +158,9 @@ export class DispatcherService {
                     task: job.task,
                     acceptanceCriteria: job.acceptanceCriteria,
                     testCommand: repo.testCommand,
+                    ...(feature
+                        ? { feature: { title: feature.title, spec: feature.spec.slice(0, FEATURE_SPEC_LIMIT), acceptanceCriteria: feature.acceptanceCriteria } }
+                        : {}),
                     ...(job.prNumber !== null && job.branch
                         ? {
                             continueOn: {

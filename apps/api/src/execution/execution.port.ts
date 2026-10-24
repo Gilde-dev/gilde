@@ -13,6 +13,7 @@ export const JobPayloadSchema = z.object({
     task: z.string(),
     acceptanceCriteria: z.array(z.string()),
     testCommand: z.string(),
+    feature: z.object({ title: z.string(), spec: z.string(), acceptanceCriteria: z.array(z.string()) }).optional(),
     continueOn: z.object({ branch: z.string(), prNumber: z.number().int(), reason: z.string() }).optional(),
 });
 export type JobPayload = z.infer<typeof JobPayloadSchema>;

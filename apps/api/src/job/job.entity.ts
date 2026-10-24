@@ -5,6 +5,7 @@ import { JOB_STATUSES, type JobStatus } from './job-state.js';
 @Entity({ name: 'jobs' })
 @Index(['repoId', 'status'])
 @Index(['projectId', 'status'])
+@Index(['featureId'])
 export class Job {
 
     @PrimaryGeneratedColumn('uuid')
@@ -19,6 +20,13 @@ export class Job {
         name: 'repo_id'
     })
     repoId: string;
+
+    @Column({
+        name: 'feature_id',
+        type: 'varchar',
+        nullable: true
+    })
+    featureId: string | null;
 
     @Column()
     title: string;

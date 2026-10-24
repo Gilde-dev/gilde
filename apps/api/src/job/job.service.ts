@@ -2,8 +2,10 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
-import { FindOptionsWhere, In, Repository } from 'typeorm';
+import { EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
 
+import { Feature } from '../feature/feature.entity.js';
+import { FEATURE_CLOSED } from '../feature/feature-state.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
 import { RepoService } from '../repo/repo.service.js';
@@ -24,6 +26,7 @@ export class JobService {
         private readonly feedbackService: FeedbackService,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @InjectRepository(JobDependency) private readonly dependencyRepository: Repository<JobDependency>,
+        @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly moduleRef?: ModuleRef,
     ) { }
 
@@ -31,11 +34,16 @@ export class JobService {
         const repo = await this.repoService.getById(repoId); // 404 if unknown
         const dependsOn = dto.dependsOn ?? [];
         await this.validateDependencies(null, repo.projectId, dependsOn);
+        const feature = dto.featureId ? await this.linkableFeature(dto.featureId, repo.projectId) : null;
+        if (feature?.status === 'draft' && dto.status === 'queued') {
+            throw new ConflictException('A draft feature cannot have queued jobs; create the job in triage or start the feature');
+        }
         const { dependsOn: _ignored, status: _status, ...fields } = dto;
-        const status = dto.status ?? 'queued';
+        const status = dto.status ?? (feature?.status === 'draft' ? 'triage' : 'queued');
         const entity = await this.jobRepository.save(
             this.jobRepository.create({
                 ...fields,
+                featureId: feature?.id ?? null,
                 acceptanceCriteria: dto.acceptanceCriteria ?? [],
                 repoId,
                 projectId: repo.projectId,
@@ -47,13 +55,40 @@ export class JobService {
         return this.toDTO(entity);
     }
 
-    /** Edits title, task and criteria; only while the job is in triage. */
+    /** Edits title, task and criteria while the job is in triage; the feature link also while it is queued. */
     async update(id: string, dto: UpdateJobDto): Promise<JobResponseDto> {
         const job = await this.getOrFail(id);
-        if (job.status !== 'triage') throw new ConflictException(`Cannot edit a job that is ${job.status}`);
-        const result = await this.jobRepository.update({ id, status: 'triage' }, dto);
+        const { featureId, ...content } = dto;
+        if (Object.keys(content).length > 0 && job.status !== 'triage') {
+            throw new ConflictException(`Cannot edit a job that is ${job.status}`);
+        }
+        if (featureId !== undefined && job.status !== 'triage' && job.status !== 'queued') {
+            throw new ConflictException(`Cannot change the feature of a job that is ${job.status}`);
+        }
+        const changes: Partial<Job> = { ...content };
+        if (featureId !== undefined) {
+            if (featureId === null) {
+                changes.featureId = null;
+            } else {
+                const feature = await this.linkableFeature(featureId, job.projectId);
+                if (feature.status === 'draft' && job.status === 'queued') {
+                    throw new ConflictException('A draft feature cannot have queued jobs; move the job to triage first');
+                }
+                changes.featureId = feature.id;
+            }
+        }
+        const result = await this.jobRepository.update({ id, status: job.status }, changes);
         if (!result.affected) throw new ConflictException('Job changed in the meantime, try again');
         return this.getById(id);
+    }
+
+    /** The feature a job may be linked to: it must exist in the project (400) and still be open (409). */
+    private async linkableFeature(featureId: string, projectId: string): Promise<Feature> {
+        const feature = await this.featureRepository.findOneBy({ id: featureId });
+        if (!feature) throw new BadRequestException(`Feature ${featureId} does not exist`);
+        if (feature.projectId !== projectId) throw new BadRequestException(`Feature ${featureId} is in another project`);
+        if (FEATURE_CLOSED.includes(feature.status)) throw new ConflictException(`Feature is ${feature.status}`);
+        return feature;
     }
 
     async enqueue(id: string): Promise<EnqueueResponseDto> {
@@ -66,21 +101,34 @@ export class JobService {
 
     /** All-or-nothing: if any job is missing or not in triage nothing is queued. */
     async enqueueMany(ids: string[]): Promise<EnqueueResponseDto[]> {
+        await this.jobRepository.manager.transaction((m) => this.enqueueManyIn(m, ids));
+        return this.loadEnqueued(ids);
+    }
+
+    /** The bulk enqueue inside a caller's transaction; pair with `loadEnqueued` once it committed. */
+    async enqueueManyIn(m: EntityManager, ids: string[]): Promise<void> {
         const unique = [...new Set(ids)];
-        await this.jobRepository.manager.transaction(async (m) => {
-            const found = await m.find(Job, { where: { id: In(unique) } });
-            const known = new Set(found.map((j) => j.id));
-            const missing = unique.filter((i) => !known.has(i));
-            if (missing.length) throw new NotFoundException({ message: `Jobs not found: ${missing.join(', ')}`, ids: missing });
-            const offending = found.filter((j) => nextStatus(j.status, 'enqueue') === null).map((j) => j.id);
-            if (offending.length) {
-                throw new ConflictException({ message: `Jobs not in triage: ${offending.join(', ')}`, ids: offending });
-            }
-            const result = await m.update(Job, { id: In(unique), status: 'triage' }, { status: 'queued', queuedAt: new Date() });
-            if (result.affected !== unique.length) throw new ConflictException('A job changed in the meantime, try again');
-        });
-        const entities = await this.jobRepository.find({ where: { id: In(unique) } });
+        const found = await m.find(Job, { where: { id: In(unique) } });
+        const known = new Set(found.map((j) => j.id));
+        const missing = unique.filter((i) => !known.has(i));
+        if (missing.length) throw new NotFoundException({ message: `Jobs not found: ${missing.join(', ')}`, ids: missing });
+        const offending = found.filter((j) => nextStatus(j.status, 'enqueue') === null).map((j) => j.id);
+        if (offending.length) {
+            throw new ConflictException({ message: `Jobs not in triage: ${offending.join(', ')}`, ids: offending });
+        }
+        const result = await m.update(Job, { id: In(unique), status: 'triage' }, { status: 'queued', queuedAt: new Date() });
+        if (result.affected !== unique.length) throw new ConflictException('A job changed in the meantime, try again');
+    }
+
+    /** The jobs with their enqueue warnings. */
+    async loadEnqueued(ids: string[]): Promise<EnqueueResponseDto[]> {
+        const entities = await this.jobRepository.find({ where: { id: In([...new Set(ids)]) } });
         return this.withWarnings(await this.toDTOs(entities));
+    }
+
+    /** All jobs of a feature, oldest first. */
+    async listByFeature(featureId: string): Promise<JobResponseDto[]> {
+        return this.toDTOs(await this.jobRepository.find({ where: { featureId }, order: { createdAt: 'ASC' } }));
     }
 
     /** Adds a warning per dependency that is still in triage, so it can never be merged without a human. */
@@ -157,6 +205,7 @@ export class JobService {
         const where: FindOptionsWhere<Job> = {};
         if (q.projectId) where.projectId = q.projectId;
         if (q.repoId) where.repoId = q.repoId;
+        if (q.featureId) where.featureId = q.featureId;
         if (q.status) where.status = q.status;
         const entities = await this.jobRepository.find({ where, order: { createdAt: 'DESC' }, take: q.limit });
         return this.toDTOs(entities);

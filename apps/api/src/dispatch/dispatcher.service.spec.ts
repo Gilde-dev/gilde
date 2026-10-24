@@ -3,6 +3,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutionError } from '../execution/execution.error.js';
+import { Feature } from '../feature/feature.entity.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import type { JobStatus } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
@@ -29,7 +30,7 @@ beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
-        entities: [Project, Repo, Job, JobRun, JobDependency],
+        entities: [Project, Repo, Job, JobRun, JobDependency, Feature],
         synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
@@ -39,7 +40,7 @@ beforeEach(async () => {
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> };
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService);
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature));
 });
 
 afterEach(() => ds.destroy());
@@ -143,13 +144,28 @@ describe('DispatcherService', () => {
         expect(payloads[2]).not.toHaveProperty('continueOn');
     });
 
+    it('adds the feature to the payload when the job has one, with the spec truncated, and omits it otherwise', async () => {
+        const repo = await seedRepo(await seedProject());
+        const feature = await ds.getRepository(Feature).save(ds.getRepository(Feature).create({
+            projectId: repo.projectId, title: 'Big feature', spec: 'x'.repeat(9000), acceptanceCriteria: ['c1'], status: 'active',
+        }));
+        await seedJob(repo, 'queued', { featureId: feature.id });
+        await seedJob(repo, 'queued', { featureId: null });
+        await repos.update({ id: repo.id }, { maxConcurrentJobs: 2 });
+
+        await dispatcher.dispatch();
+        const payloads = fire.mock.calls.map((c) => c[1] as Record<string, unknown>);
+        expect(payloads[0]!.feature).toEqual({ title: 'Big feature', spec: 'x'.repeat(8000), acceptanceCriteria: ['c1'] });
+        expect(payloads[1]).not.toHaveProperty('feature');
+    });
+
     it('never fires the same job twice with parallel dispatches', async () => {
         const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
         await seedJob(repo);
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> }, jobs, repos, projects, runs);
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature));
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);
