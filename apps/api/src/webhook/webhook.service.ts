@@ -114,7 +114,8 @@ export class WebhookService {
 
     private async onEdited(repoId: string, pr: PullRequestPayload): Promise<string> {
         const job = await this.findJobByPr(repoId, pr.number);
-        if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
+        // Not linked yet (e.g. opened before the gilde-job marker was added): link it like opened does.
+        if (!job) return this.onOpened(repoId, pr);
         const run = await this.findRun(job.id, null);
         if (!run) return `ignored: job has no run`;
         const parsed = parsePrBody(pr.body);
