@@ -28,6 +28,7 @@ import { JobController } from './job.controller.js';
         JobService
     ],
     exports: [
+        JobService
     ]
 })
 export class JobModule { }

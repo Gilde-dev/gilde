@@ -1,9 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { TERMINAL, nextStatus, retryOrPark, type JobEvent } from './job-state.js';
 import { Job } from './job.entity.js';
+import { LessonService } from '../lesson/lesson.service.js';
 import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import { parsePrBody } from '../webhook/pr-body.js';
@@ -36,6 +37,7 @@ export class JobEventsService {
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
         @InjectRepository(Project) private readonly projects: Repository<Project>,
+        @Optional() private readonly lessons?: LessonService,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -104,6 +106,7 @@ export class JobEventsService {
                 if (res.affected === 1) this.logger.log(`Run ${run.id} of job ${job.id} superseded: PR #${prNumber} ${event} while job was ${job.status}`);
             }
         }
+        await this.lessons?.onJobEnded(job.id, to);
         return `job ${to} with PR #${prNumber}`;
     }
 
@@ -149,6 +152,7 @@ export class JobEventsService {
             ...(event === 'retry' ? { queuedAt: new Date() } : {}),
         });
         if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
+        if (to === 'parked') await this.lessons?.onJobEnded(job.id, to, reason);
         return to;
     }
 

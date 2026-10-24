@@ -65,6 +65,18 @@ export class LessonController {
         return this.lessonService.reject(id);
     }
 
+    @Post(':id/apply')
+    @HttpCode(200)
+    apply(@Param('id', ParseUUIDPipe) id: string): Promise<LessonResponseDto> {
+        return this.lessonService.apply(id);
+    }
+
+    @Post(':id/mark-applied')
+    @HttpCode(200)
+    markApplied(@Param('id', ParseUUIDPipe) id: string): Promise<LessonResponseDto> {
+        return this.lessonService.markApplied(id);
+    }
+
     @Post(':id/reopen')
     @HttpCode(200)
     reopen(@Param('id', ParseUUIDPipe) id: string): Promise<LessonResponseDto> {

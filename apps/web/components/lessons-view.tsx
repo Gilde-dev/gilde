@@ -117,7 +117,7 @@ export function LessonsView() {
         {notice && <p role="status" className="px-4 pt-3 text-sm text-muted-foreground">{notice}</p>}
         {(actionError || lessons.error) && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{actionError ?? lessons.error?.message}</p>}
         {lessons.loading && !lessons.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
-        {tab !== 'rejected' && chosen.length > 0 && (
+        {(tab === 'candidate' || tab === 'approved') && chosen.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-4 pt-3 text-sm">
             <span>{chosen.length} selected</span>
             <select aria-label="Merge into…" className={SELECT} value={target} onChange={(e) => setMergeTarget(e.target.value)}>
@@ -145,11 +145,13 @@ export function LessonsView() {
               lesson={l}
               repos={repos.data ?? []}
               busy={busy}
-              selectable={tab !== 'rejected'}
+              selectable={tab === 'candidate' || tab === 'approved'}
               selected={selected.includes(l.id)}
               onSelect={(on) => setSelected((cur) => (on ? [...cur, l.id] : cur.filter((x) => x !== l.id)))}
               onUpdate={(input) => run(() => api.updateLesson(l.id, input))}
               onStatus={(action) => run(() => api.setLessonStatus(l.id, action))}
+              onApply={() => run(() => api.applyLesson(l.id), 'Apply job created')}
+              onMarkApplied={() => run(() => api.markLessonApplied(l.id))}
             />
           ))}
         </ul>
@@ -167,6 +169,8 @@ function LessonCard({
   onSelect,
   onUpdate,
   onStatus,
+  onApply,
+  onMarkApplied,
 }: {
   lesson: Lesson;
   repos: Repo[];
@@ -176,6 +180,8 @@ function LessonCard({
   onSelect: (on: boolean) => void;
   onUpdate: (input: UpdateLessonInput) => void;
   onStatus: (action: 'approve' | 'reject' | 'reopen') => void;
+  onApply: () => void;
+  onMarkApplied: () => void;
 }) {
   const [text, setText] = useState(lesson.text);
   const [note, setNote] = useState(lesson.note ?? '');
@@ -190,6 +196,9 @@ function LessonCard({
   const saveNote = () => {
     if (note !== (lesson.note ?? '')) onUpdate({ note: note.trim() === '' ? null : note });
   };
+
+  const locked = lesson.status === 'applying' || lesson.status === 'applied';
+  const canApply = (lesson.targetKind === 'skill' || lesson.targetKind === 'agents_md') && !!lesson.targetRepoId;
 
   return (
     <li aria-label={lesson.text.slice(0, 60)} className="space-y-2 rounded-md border border-border p-3">
@@ -272,12 +281,33 @@ function LessonCard({
             Approve
           </Button>
         )}
-        {lesson.status !== 'rejected' && (
+        {lesson.status === 'approved' && (
+          <>
+            <Button size="sm" disabled={busy || !canApply} onClick={onApply} title={canApply ? undefined : 'Needs a skill or agents_md target kind and a target repo'}>
+              Apply
+            </Button>
+            <Button size="sm" variant="outline" disabled={busy} onClick={onMarkApplied}>
+              Mark applied
+            </Button>
+          </>
+        )}
+        {locked && (
+          <span className="flex items-center gap-2 text-sm text-muted-foreground">
+            {lesson.appliedJobId && <span>Job {lesson.appliedJobId.slice(0, 8)}</span>}
+            {lesson.appliedJobPrUrl && (
+              <a href={lesson.appliedJobPrUrl} target="_blank" rel="noreferrer" className="underline">
+                PR
+              </a>
+            )}
+            {lesson.appliedAt && <span>Applied {new Date(lesson.appliedAt).toLocaleString()}</span>}
+          </span>
+        )}
+        {lesson.status !== 'rejected' && !locked && (
           <Button size="sm" variant="outline" disabled={busy} onClick={() => onStatus('reject')}>
             Reject
           </Button>
         )}
-        {lesson.status !== 'candidate' && (
+        {lesson.status !== 'candidate' && !locked && (
           <Button size="sm" variant="outline" disabled={busy} onClick={() => onStatus('reopen')}>
             Reopen
           </Button>

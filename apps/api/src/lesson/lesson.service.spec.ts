@@ -1,6 +1,6 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -9,10 +9,19 @@ import { LessonMapper } from './lesson.mapper.js';
 import { LessonService } from './lesson.service.js';
 import { LessonSource } from './lesson-source.entity.js';
 import { J1, J2, P1, P2, memoryDb } from './lesson.fixture.js';
+import type { JobService } from '../job/job.service.js';
 
 let ds: DataSource;
 let service: LessonService;
 let n = 0;
+
+/** Stands in for JobService.create: saves a queued job on the repo. */
+const fakeJobs = (db: DataSource) => ({
+    create: vi.fn(async (repoId: string, dto: { title: string; task: string; acceptanceCriteria?: string[] }) => {
+        const repo = await db.getRepository(Repo).findOneByOrFail({ id: repoId });
+        return db.getRepository(Job).save({ ...dto, acceptanceCriteria: dto.acceptanceCriteria ?? [], repoId, projectId: repo.projectId, queuedAt: new Date() });
+    }),
+}) as unknown as JobService & { create: ReturnType<typeof vi.fn> };
 
 const lesson = (over: Partial<Lesson> = {}) => ds.getRepository(Lesson).save({ projectId: P1, text: 't', ...over });
 const source = (lessonId: string, jobId = J1) =>
@@ -20,7 +29,7 @@ const source = (lessonId: string, jobId = J1) =>
 
 beforeEach(async () => {
     ds = await memoryDb();
-    service = new LessonService(new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo));
+    service = new LessonService(new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), fakeJobs(ds));
 });
 afterEach(() => ds.destroy());
 
@@ -114,6 +123,124 @@ describe('LessonService', () => {
             const target = await lesson();
             await expect(service.merge({ targetId: target.id, lessonIds: [target.id] })).rejects.toBeInstanceOf(BadRequestException);
             await expect(service.merge({ targetId: target.id, lessonIds: [J1] })).rejects.toBeInstanceOf(NotFoundException);
+        });
+    });
+
+    describe('apply', () => {
+        const approved = async (over: Partial<Lesson> = {}) => {
+            const repo = await ds.getRepository(Repo).save({ projectId: P1, fullName: `o/r${++n}`, testCommand: 't' });
+            return { repo, l: await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: repo.id, text: 'Always run pnpm install first', ...over }) };
+        };
+
+        it('creates one job on the target repo with the instruction and evidence, and moves the lesson to applying', async () => {
+            const { repo, l } = await approved();
+            await ds.getRepository(Job).save({ id: J1, projectId: P1, repoId: 'r', title: 't', task: 't', queuedAt: new Date(), prUrl: 'https://github.com/o/r/pull/1' });
+            for (let i = 0; i < 6; i++) await ds.getRepository(LessonSource).save({ lessonId: l.id, sourceKey: `retro:e${i}`, kind: 'retro', jobId: J1, excerpt: `excerpt ${i}` });
+
+            const dto = await service.apply(l.id);
+
+            const created = await ds.getRepository(Job).find({ where: { repoId: repo.id } });
+            expect(created).toHaveLength(1);
+            expect(created[0].title).toBe('Apply lesson: Always run pnpm install first');
+            expect(created[0].task).toContain('Always run pnpm install first');
+            expect(created[0].task).toContain(l.id);
+            expect(created[0].task).toContain('most fitting skill');
+            expect(created[0].task).toContain('https://github.com/o/r/pull/1');
+            expect(created[0].task).toContain('outcome blocked');
+            expect(created[0].task.match(/excerpt \d/g)).toHaveLength(5);
+            expect(created[0].acceptanceCriteria.join('\n')).toContain(l.id);
+            expect(dto).toMatchObject({ status: 'applying', appliedJobId: created[0].id, appliedAt: null });
+        });
+
+        it('truncates the title to 60 characters of text and uses the AGENTS.md instruction', async () => {
+            const { repo, l } = await approved({ targetKind: 'agents_md', text: 'x'.repeat(100) });
+            await service.apply(l.id);
+            const job = await ds.getRepository(Job).findOneByOrFail({ repoId: repo.id });
+            expect(job.title).toBe(`Apply lesson: ${'x'.repeat(60)}`);
+            expect(job.task).toContain('Update AGENTS.md');
+            expect(job.task).toContain('explicitly allows changing AGENTS.md');
+        });
+
+        it('409s unless the lesson is approved, creating no job', async () => {
+            for (const status of ['candidate', 'rejected', 'applying', 'applied'] as const) {
+                const { l } = await approved({ status });
+                await expect(service.apply(l.id)).rejects.toBeInstanceOf(ConflictException);
+            }
+            expect(await ds.getRepository(Job).count()).toBe(0);
+        });
+
+        it('400s for other kinds, a missing repo and a repo of another project', async () => {
+            for (const targetKind of ['routine_prompt', 'other', null] as const) {
+                const { l } = await approved({ targetKind });
+                await expect(service.apply(l.id)).rejects.toBeInstanceOf(BadRequestException);
+            }
+            const noRepo = await lesson({ status: 'approved', targetKind: 'skill' });
+            await expect(service.apply(noRepo.id)).rejects.toBeInstanceOf(BadRequestException);
+            const foreign = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/x', testCommand: 't' });
+            const cross = await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: foreign.id });
+            await expect(service.apply(cross.id)).rejects.toBeInstanceOf(BadRequestException);
+            expect(await ds.getRepository(Job).count()).toBe(0);
+        });
+    });
+
+    describe('markApplied', () => {
+        it('moves approved lessons to applied with appliedAt', async () => {
+            const l = await lesson({ status: 'approved', targetKind: 'other' });
+            const dto = await service.markApplied(l.id);
+            expect(dto.status).toBe('applied');
+            expect(dto.appliedAt).not.toBeNull();
+            expect(dto.appliedJobId).toBeNull();
+        });
+
+        it('409s from every other status, and applied is final', async () => {
+            for (const status of ['candidate', 'rejected', 'applying', 'applied'] as const) {
+                const l = await lesson({ status });
+                await expect(service.markApplied(l.id)).rejects.toBeInstanceOf(ConflictException);
+            }
+            const l = await lesson({ status: 'approved', targetKind: 'other' });
+            await service.markApplied(l.id);
+            await expect(service.approve(l.id)).rejects.toBeInstanceOf(ConflictException);
+            await expect(service.reject(l.id)).rejects.toBeInstanceOf(ConflictException);
+            await expect(service.reopen(l.id)).rejects.toBeInstanceOf(ConflictException);
+            await expect(service.apply(l.id)).rejects.toBeInstanceOf(ConflictException);
+        });
+
+        it('applying lessons cannot be merged', async () => {
+            const a = await lesson({ status: 'approved' });
+            const b = await lesson({ status: 'applying', appliedJobId: J1 });
+            await expect(service.merge({ targetId: a.id, lessonIds: [b.id] })).rejects.toBeInstanceOf(ConflictException);
+        });
+    });
+
+    describe('onJobEnded', () => {
+        const applying = () => lesson({ status: 'applying', appliedJobId: J1, targetKind: 'skill', note: 'n' });
+
+        it('merged -> applied with appliedAt', async () => {
+            const l = await applying();
+            await service.onJobEnded(J1, 'merged');
+            expect(await service.getById(l.id)).toMatchObject({ status: 'applied', note: 'n' });
+            expect((await service.getById(l.id)).appliedAt).not.toBeNull();
+        });
+
+        it.each(['rejected', 'parked', 'cancelled'] as const)('%s -> back to approved with the reason appended to the note', async (status) => {
+            const l = await applying();
+            await service.onJobEnded(J1, status, 'why');
+            const dto = await service.getById(l.id);
+            expect(dto.status).toBe('approved');
+            expect(dto.note).toContain('n\n');
+            expect(dto.note).toContain(`${status}: why`);
+            expect(dto.appliedAt).toBeNull();
+        });
+
+        it('does nothing for unrelated jobs, other statuses and non-applying lessons', async () => {
+            const l = await applying();
+            const done = await lesson({ status: 'applied', appliedJobId: J2 });
+            await service.onJobEnded(J2, 'merged');
+            await service.onJobEnded(J2, 'cancelled');
+            await service.onJobEnded(J1, 'pr_open');
+            expect((await service.getById(l.id)).status).toBe('applying');
+            expect((await service.getById(done.id)).status).toBe('applied');
+            expect((await service.getById(done.id)).note).toBeNull();
         });
     });
 });

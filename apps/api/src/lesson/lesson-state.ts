@@ -1,11 +1,14 @@
-export const LESSON_STATUSES = ['candidate', 'approved', 'rejected'] as const;
+export const LESSON_STATUSES = ['candidate', 'approved', 'applying', 'applied', 'rejected'] as const;
 export type LessonStatus = (typeof LESSON_STATUSES)[number];
 
-export type LessonEvent = 'approve' | 'reject' | 'reopen';
+export type LessonEvent = 'approve' | 'reject' | 'reopen' | 'apply' | 'job_merged' | 'job_failed' | 'mark_applied';
 
+// `applied` is final.
 const TRANSITIONS: Record<LessonStatus, Partial<Record<LessonEvent, LessonStatus>>> = {
     candidate: { approve: 'approved', reject: 'rejected' },
-    approved: { reopen: 'candidate', reject: 'rejected' },
+    approved: { reopen: 'candidate', reject: 'rejected', apply: 'applying', mark_applied: 'applied' },
+    applying: { job_merged: 'applied', job_failed: 'approved' },
+    applied: {},
     rejected: { reopen: 'candidate' },
 };
 

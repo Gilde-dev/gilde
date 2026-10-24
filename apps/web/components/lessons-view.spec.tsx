@@ -19,6 +19,9 @@ const lesson = (over: Partial<Lesson>): Lesson => ({
   targetKind: null,
   targetRepoId: null,
   note: null,
+  appliedJobId: null,
+  appliedJobPrUrl: null,
+  appliedAt: null,
   sources: [],
   sourceCount: 1,
   createdAt: '2026-10-01T10:00:00.000Z',
@@ -122,5 +125,42 @@ describe('LessonsView', () => {
     fireEvent.change(screen.getByLabelText('Merge into…'), { target: { value: 'a' } });
     fireEvent.click(screen.getByRole('button', { name: 'Merge' }));
     await waitFor(() => expect(merge).toHaveBeenCalledWith('a', ['b']));
+  });
+
+  it('applies an approved skill lesson with a target repo, and marks it applied by hand', async () => {
+    vi.spyOn(api, 'listLessons').mockResolvedValue([
+      lesson({ id: 'ok', text: 'Ready', status: 'approved', targetKind: 'skill', targetRepoId: 'r1' }),
+      lesson({ id: 'norepo', text: 'No repo', status: 'approved', targetKind: 'skill' }),
+      lesson({ id: 'prompt', text: 'Prompt', status: 'approved', targetKind: 'routine_prompt', targetRepoId: 'r1' }),
+    ]);
+    const apply = vi.spyOn(api, 'applyLesson').mockResolvedValue(lesson({}));
+    const mark = vi.spyOn(api, 'markLessonApplied').mockResolvedValue(lesson({}));
+    render(<LessonsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'approved (3)' }));
+    const ready = screen.getByRole('listitem', { name: 'Ready' });
+    expect(within(screen.getByRole('listitem', { name: 'No repo' })).getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(within(screen.getByRole('listitem', { name: 'Prompt' })).getByRole('button', { name: 'Apply' })).toBeDisabled();
+    expect(within(screen.getByRole('listitem', { name: 'Prompt' })).getByRole('button', { name: 'Mark applied' })).toBeEnabled();
+    fireEvent.click(within(ready).getByRole('button', { name: 'Apply' }));
+    await waitFor(() => expect(apply).toHaveBeenCalledWith('ok'));
+    fireEvent.click(within(ready).getByRole('button', { name: 'Mark applied' }));
+    await waitFor(() => expect(mark).toHaveBeenCalledWith('ok'));
+  });
+
+  it('shows the job, PR and applied date on applying and applied lessons', async () => {
+    vi.spyOn(api, 'listLessons').mockResolvedValue([
+      lesson({ id: 'a', text: 'In flight', status: 'applying', appliedJobId: 'abcdef1234', appliedJobPrUrl: 'https://github.com/o/r/pull/9' }),
+      lesson({ id: 'b', text: 'Finished', status: 'applied', appliedJobId: 'fedcba4321', appliedAt: '2026-10-02T10:00:00.000Z' }),
+    ]);
+    render(<LessonsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'applying (1)' }));
+    const inFlight = screen.getByRole('listitem', { name: 'In flight' });
+    expect(within(inFlight).getByText('Job abcdef12')).toBeInTheDocument();
+    expect(within(inFlight).getByRole('link', { name: 'PR' })).toHaveAttribute('href', 'https://github.com/o/r/pull/9');
+    expect(within(inFlight).queryByRole('button', { name: 'Reject' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'applied (1)' }));
+    const finished = screen.getByRole('listitem', { name: 'Finished' });
+    expect(within(finished).getByText(/^Applied /)).toBeInTheDocument();
+    expect(within(finished).queryByRole('button', { name: 'Reopen' })).not.toBeInTheDocument();
   });
 });
