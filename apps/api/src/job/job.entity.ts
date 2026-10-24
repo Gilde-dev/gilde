@@ -76,6 +76,19 @@ export class Job {
     })
     lastReason: string | null;
 
+    @Column({
+        name: 'needs_approval',
+        default: false
+    })
+    needsApproval: boolean;
+
+    @Column({
+        name: 'approval_reason',
+        type: 'text',
+        nullable: true
+    })
+    approvalReason: string | null;
+
     @CreateDateColumn({
         name: 'created_at'
     })

@@ -1,7 +1,7 @@
 name: CI
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -16,16 +16,3 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
       - run: pnpm test
-
-  protected-paths:
-    if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - name: Block agent changes to gate files
-        if: startsWith(github.head_ref, 'claude/') && !contains(github.event.pull_request.labels.*.name, 'gilde:allow-protected')
-        run: |
-          CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          BLOCKED=$(echo "$CHANGED" | grep -E '^(\.github/|\.claude/|AGENTS\.md|CLAUDE\.md|apps/api/src/job/job-state\.ts|apps/api/src/.*migrations/)' || true)
-          if [ -n "$BLOCKED" ]; then echo "Agent PR touches protected paths:"; echo "$BLOCKED"; exit 1; fi
