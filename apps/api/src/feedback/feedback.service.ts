@@ -1,0 +1,55 @@
+import { Injectable } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
+import { FindOptionsWhere, MoreThanOrEqual, Repository } from 'typeorm';
+
+import { isUniqueViolation } from '../common/db-errors.js';
+import type { FeedbackResponseDto, ListFeedbackQuery } from './feedback.dto.js';
+import { Feedback } from './feedback.entity.js';
+import { FeedbackMapper } from './feedback.mapper.js';
+
+export type NewFeedback = Omit<Feedback, 'id' | 'createdAt'> & { createdAt?: Date };
+
+@Injectable()
+export class FeedbackService {
+
+    constructor(
+        private readonly feedbackMapper: FeedbackMapper,
+        @InjectRepository(Feedback) private readonly feedbackRepository: Repository<Feedback>,
+    ) { }
+
+    /** Stores one piece of feedback; returns false when (kind, githubId) was already stored (redelivery). */
+    async record(input: NewFeedback): Promise<boolean> {
+        const existing = await this.feedbackRepository.findOneBy({ kind: input.kind, githubId: input.githubId });
+        if (existing) return false;
+        try {
+            await this.feedbackRepository.save(this.feedbackRepository.create(input));
+            return true;
+        } catch (e) {
+            if (isUniqueViolation(e)) return false; // concurrent redelivery
+            throw e;
+        }
+    }
+
+    async listForJob(jobId: string): Promise<FeedbackResponseDto[]> {
+        const entities = await this.feedbackRepository.find({ where: { jobId }, order: { createdAt: 'ASC', id: 'ASC' } });
+        return entities.map((e) => this.feedbackMapper.toDTO(e));
+    }
+
+    async list(q: ListFeedbackQuery): Promise<FeedbackResponseDto[]> {
+        const where: FindOptionsWhere<Feedback> = {};
+        if (q.projectId) where.projectId = q.projectId;
+        if (q.repoId) where.repoId = q.repoId;
+        if (q.since) where.createdAt = MoreThanOrEqual(new Date(q.since));
+        const entities = await this.feedbackRepository.find({ where, order: { createdAt: 'ASC', id: 'ASC' } });
+        return entities.map((e) => this.feedbackMapper.toDTO(e));
+    }
+
+    /** Internal: the inline comments stored for one review, oldest first. */
+    findReviewComments(jobId: string, reviewId: string): Promise<Feedback[]> {
+        return this.feedbackRepository.find({
+            where: { jobId, kind: 'review_comment', reviewId },
+            order: { createdAt: 'ASC', id: 'ASC' },
+        });
+    }
+
+}

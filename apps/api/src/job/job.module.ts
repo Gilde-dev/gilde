@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { FeedbackModule } from '../feedback/feedback.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { RunModule } from '../run/run.module.js';
 
@@ -16,7 +17,8 @@ import { JobController } from './job.controller.js';
             Job
         ]),
         RepoModule,
-        RunModule
+        RunModule,
+        FeedbackModule
     ],
     controllers: [
         JobController

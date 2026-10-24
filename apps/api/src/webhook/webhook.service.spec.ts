@@ -6,6 +6,9 @@ import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import type { RepoService } from '../repo/repo.service.js';
+import { Feedback } from '../feedback/feedback.entity.js';
+import { FeedbackMapper } from '../feedback/feedback.mapper.js';
+import { FeedbackService } from '../feedback/feedback.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { WebhookService } from './webhook.service.js';
 
@@ -18,11 +21,12 @@ let repos: Repository<Repo>;
 let jobs: Repository<Job>;
 let runs: Repository<JobRun>;
 let service: WebhookService;
+let feedbackService: FeedbackService;
 let repo: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun, Feedback], synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
     repos = ds.getRepository(Repo);
@@ -33,7 +37,8 @@ beforeEach(async () => {
     const repoService = {
         findByFullName: (n: string) => repos.findOneBy({ fullName: n.toLowerCase() }),
     } as unknown as RepoService;
-    service = new WebhookService(repoService, jobs, runs, projects);
+    feedbackService = new FeedbackService(new FeedbackMapper(), ds.getRepository(Feedback));
+    service = new WebhookService(repoService, feedbackService, jobs, runs, projects);
 });
 
 afterEach(() => ds.destroy());
@@ -306,6 +311,96 @@ describe('WebhookService', () => {
             expect(await service.handle('pull_request_review', review('CONTRIBUTOR'))).toContain('ignored');
             expect(await service.handle('pull_request_review', review('OWNER', { state: 'approved' }))).toContain('ignored');
             expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+    });
+
+    describe('feedback', () => {
+        const repository = { full_name: 'gilde-dev/gilde' };
+        const pull_request = () => prPayload('x').pull_request;
+        const reviewEvent = (over: Record<string, unknown> = {}) => ({
+            action: 'submitted', repository, pull_request: pull_request(),
+            review: {
+                id: 9001, state: 'COMMENTED', body: 'Looks mostly fine.', author_association: 'OWNER',
+                user: { login: 'alice' }, html_url: 'https://github.com/gilde-dev/gilde/pull/12#pullrequestreview-9001',
+                submitted_at: '2026-10-01T10:00:00Z', ...over,
+            },
+        });
+        const inlineEvent = (id: number, reviewId: number | null, over: Record<string, unknown> = {}) => ({
+            action: 'created', repository, pull_request: pull_request(),
+            comment: {
+                id, pull_request_review_id: reviewId, path: 'src/a.ts', line: 7, body: `fix ${id}`,
+                author_association: 'OWNER', user: { login: 'alice' },
+                html_url: `https://github.com/gilde-dev/gilde/pull/12#discussion_r${id}`,
+                created_at: '2026-10-01T09:59:00Z', ...over,
+            },
+        });
+        const issueEvent = (over: Record<string, unknown> = {}, issue: Record<string, unknown> = { number: 12, pull_request: { url: 'x' } }) => ({
+            action: 'created', repository, issue,
+            comment: {
+                id: 555, body: 'Ship it?', author_association: 'MEMBER', user: { login: 'bob' },
+                html_url: 'https://github.com/gilde-dev/gilde/pull/12#issuecomment-555', created_at: '2026-10-01T11:00:00Z', ...over,
+            },
+        });
+
+        it('stores a review, lowercasing its state', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            await service.handle('pull_request_review', reviewEvent({ state: 'APPROVED' }));
+            expect(await feedbackService.listForJob(job.id)).toMatchObject([{
+                jobId: job.id, projectId: job.projectId, repoId: job.repoId, prNumber: 12, kind: 'review', githubId: '9001',
+                author: 'alice', authorAssociation: 'OWNER', state: 'approved', reviewId: null, path: null, line: null,
+                body: 'Looks mostly fine.', url: 'https://github.com/gilde-dev/gilde/pull/12#pullrequestreview-9001',
+                createdAt: '2026-10-01T10:00:00.000Z',
+            }]);
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+
+        it('stores an inline review comment without touching the job', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            expect(await service.handle('pull_request_review_comment', inlineEvent(77, 9001))).toBe('stored review comment for PR #12');
+            expect(await feedbackService.listForJob(job.id)).toMatchObject([
+                { kind: 'review_comment', githubId: '77', reviewId: '9001', path: 'src/a.ts', line: 7, body: 'fix 77', state: null },
+            ]);
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+
+        it('stores a comment on a pull request but ignores comments on plain issues', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            expect(await service.handle('issue_comment', issueEvent({}, { number: 12 }))).toContain('ignored');
+            expect(await service.handle('issue_comment', issueEvent())).toBe('stored comment for PR #12');
+            expect(await feedbackService.listForJob(job.id)).toMatchObject([
+                { kind: 'comment', githubId: '555', author: 'bob', authorAssociation: 'MEMBER', body: 'Ship it?' },
+            ]);
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+
+        it('ignores feedback on unknown PRs', async () => {
+            await seedJob('awaiting_review', { prNumber: 99, headSha: SHA1 });
+            expect(await service.handle('pull_request_review', reviewEvent())).toContain('not a known job PR');
+            expect(await service.handle('pull_request_review_comment', inlineEvent(1, null))).toContain('not a known job PR');
+            expect(await service.handle('issue_comment', issueEvent())).toContain('not a known job PR');
+            expect(await ds.getRepository(Feedback).count()).toBe(0);
+        });
+
+        it('does not duplicate redelivered events', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            for (let i = 0; i < 2; i++) {
+                await service.handle('pull_request_review', reviewEvent());
+                await service.handle('pull_request_review_comment', inlineEvent(77, 9001));
+                await service.handle('issue_comment', issueEvent());
+            }
+            expect(await feedbackService.listForJob(job.id)).toHaveLength(3);
+        });
+
+        it('adds the stored inline comments of that review to the changes_requested retry reason', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, branch: 'b', headSha: SHA1 });
+            await service.handle('pull_request_review_comment', inlineEvent(1, 9001, { path: 'src/a.ts', line: 7, body: 'rename' }));
+            await service.handle('pull_request_review_comment', inlineEvent(2, 9001, { path: 'src/b.ts', line: 3, body: 'add test', created_at: '2026-10-01T09:59:30Z' }));
+            await service.handle('pull_request_review_comment', inlineEvent(3, 4242, { body: 'other review' }));
+            const res = await service.handle('pull_request_review', reviewEvent({ state: 'changes_requested', body: 'Please fix.' }));
+            expect(res).toBe('job queued with PR #12');
+            expect((await reload(job.id)).lastReason).toBe(
+                'Changes requested by @alice on PR #12:\nPlease fix.\n- src/a.ts:7 rename\n- src/b.ts:3 add test',
+            );
         });
     });
 

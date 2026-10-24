@@ -2,6 +2,7 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, Repository } from 'typeorm';
 
+import { FeedbackService } from '../feedback/feedback.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
 import type { CreateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
@@ -16,6 +17,7 @@ export class JobService {
         private readonly jobMapper: JobMapper,
         private readonly repoService: RepoService,
         private readonly runService: RunService,
+        private readonly feedbackService: FeedbackService,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
     ) { }
 
@@ -49,7 +51,11 @@ export class JobService {
 
     async getDetail(id: string): Promise<JobDetailResponseDto> {
         const job = await this.getById(id);
-        return { ...job, runs: await this.runService.listForJob(id) };
+        return {
+            ...job,
+            runs: await this.runService.listForJob(id),
+            feedback: await this.feedbackService.listForJob(id),
+        };
     }
 
     cancel(id: string): Promise<JobResponseDto> {
