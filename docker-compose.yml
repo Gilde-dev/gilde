@@ -1,0 +1,33 @@
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: gilde
+      POSTGRES_PASSWORD: gilde
+      POSTGRES_DB: gilde
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gilde -d gilde"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Forwards GitHub webhooks from a smee.io channel to the API running on the host.
+  # Only webhook deliveries are forwarded; the API itself stays private.
+  webhooks:
+    image: node:22-alpine
+    profiles: ["webhooks"]
+    command: >-
+      sh -c 'if [ -z "$$SMEE_URL" ]; then echo "SMEE_URL is not set (see .env.example)"; exit 1; fi;
+      exec npx -y smee-client@5 --url "$$SMEE_URL" --target http://host.docker.internal:4100/api/webhooks/github'
+    environment:
+      SMEE_URL: ${SMEE_URL:-}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

@@ -3,6 +3,7 @@ import { createObserveModule } from '@nestjs/observe';
 import { ScheduleModule } from '@nestjs/schedule';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { databaseConfig } from './database.config.js';
 import { HealthModule } from './health/health.module.js';
 import { ProjectModule } from './project/project.module.js';
 import { RepoModule } from './repo/repo.module.js';
@@ -20,12 +21,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
       appSecret: process.env.OBSERVE_APP_SECRET ?? 'YOUR_APP_SECRET',
       serviceId: 'api',
     }),
-    TypeOrmModule.forRoot({
-      type: 'better-sqlite3',
-      database: 'db.sqlite',
-      autoLoadEntities: true,
-      synchronize: true,
-    }),
+    TypeOrmModule.forRoot(databaseConfig()),
     ScheduleModule.forRoot(),
     HealthModule,
     ProjectModule,
