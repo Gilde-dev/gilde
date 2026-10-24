@@ -1,6 +1,8 @@
 import { createHmac } from 'node:crypto';
 import { UnauthorizedException } from '@nestjs/common';
+import { describe, expect, it, vi, beforeEach, afterAll } from 'vitest';
 
+import type { WebhookService } from './webhook.service.js';
 import { WebhookController } from './webhook.controller.js';
 
 const secret = 'test-secret';
@@ -9,7 +11,8 @@ const sig = `sha256=${createHmac('sha256', secret).update(body).digest('hex')}`;
 const req = { rawBody: body } as never;
 
 describe('WebhookController', () => {
-    const controller = new WebhookController();
+    const handle = vi.fn().mockResolvedValue('ignored: event push');
+    const controller = new WebhookController({ handle } as unknown as WebhookService);
     const original = process.env.GITHUB_WEBHOOK_SECRET;
 
     beforeEach(() => { process.env.GITHUB_WEBHOOK_SECRET = secret; });
@@ -18,19 +21,20 @@ describe('WebhookController', () => {
         else process.env.GITHUB_WEBHOOK_SECRET = original;
     });
 
-    it('answers a signed ping with pong', () => {
-        expect(controller.github(req, sig, 'ping', 'd1')).toEqual({ result: 'pong' });
+    it('answers a signed ping with pong', async () => {
+        expect(await controller.github(req, sig, 'ping', 'd1')).toEqual({ result: 'pong' });
     });
 
-    it('describes ignored events', () => {
-        expect(controller.github(req, sig, 'push', 'd2')).toEqual({ result: 'ignored: event push' });
+    it('delegates other events to the service', async () => {
+        expect(await controller.github(req, sig, 'push', 'd2', { a: 1 })).toEqual({ result: 'ignored: event push' });
+        expect(handle).toHaveBeenCalledWith('push', { a: 1 });
     });
 
-    it('rejects a missing signature', () => {
-        expect(() => controller.github(req, undefined, 'ping', 'd3')).toThrow(UnauthorizedException);
+    it('rejects a missing signature', async () => {
+        await expect(controller.github(req, undefined, 'ping', 'd3')).rejects.toBeInstanceOf(UnauthorizedException);
     });
 
-    it('rejects a bad signature', () => {
-        expect(() => controller.github(req, 'sha256=deadbeef', 'ping', 'd4')).toThrow(UnauthorizedException);
+    it('rejects a bad signature', async () => {
+        await expect(controller.github(req, 'sha256=deadbeef', 'ping', 'd4')).rejects.toBeInstanceOf(UnauthorizedException);
     });
 });
