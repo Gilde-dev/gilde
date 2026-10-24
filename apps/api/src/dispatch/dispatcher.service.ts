@@ -15,6 +15,7 @@ import { RunService } from '../run/run.service.js';
 @Injectable()
 export class DispatcherService {
     private readonly logger = new Logger(DispatcherService.name);
+    private running = false;
 
     constructor(
         private readonly runService: RunService,
@@ -34,14 +35,28 @@ export class DispatcherService {
         }
     }
 
-    /** Fires queued jobs where slots are free. Returns how many were fired. */
-    async dispatch(): Promise<number> {
+    /**
+     * Fires queued jobs where slots are free. `fired` counts successful fires, `failed` fire attempts that failed.
+     * A pass that starts while another is running in this process returns immediately.
+     */
+    async dispatch(): Promise<DispatchResult> {
+        if (this.running) return { fired: 0, failed: 0 };
+        this.running = true;
+        try {
+            return await this.runPass();
+        } finally {
+            this.running = false;
+        }
+    }
+
+    private async runPass(): Promise<DispatchResult> {
         const queued = await this.jobRepository.find({ where: { status: 'queued' }, select: { repoId: true } });
         const repoIds = [...new Set(queued.map((j) => j.repoId))];
 
         // Daily budget is per project and shared by its repos, so track what is left as we go.
         const budgets = new Map<string, number>();
         let fired = 0;
+        let failed = 0;
 
         for (const repoId of repoIds) {
             const repo = await this.repoRepository.findOneBy({ id: repoId });
@@ -62,16 +77,17 @@ export class DispatcherService {
             });
             for (const job of jobs) {
                 try {
-                    if (await this.fireJob(job.id, repo, project)) {
-                        fired++;
-                        budgets.set(project.id, budgets.get(project.id)! - 1);
-                    }
+                    const outcome = await this.fireJob(job.id, repo, project);
+                    if (outcome === 'skipped') continue;
+                    if (outcome === 'fired') fired++;
+                    else failed++;
+                    budgets.set(project.id, budgets.get(project.id)! - 1);
                 } catch (e) {
                     this.logger.error(`Job ${job.id}: ${errorMessage(e)}`);
                 }
             }
         }
-        return fired;
+        return { fired, failed };
     }
 
     private async dailyBudget(project: Project): Promise<number> {
@@ -83,7 +99,7 @@ export class DispatcherService {
         return project.dailyRunLimit - used;
     }
 
-    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<boolean> {
+    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped'> {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
@@ -92,7 +108,7 @@ export class DispatcherService {
             { id: jobId, status: 'queued' },
             { status: to, attempts: () => 'attempts + 1' },
         );
-        if (!claim.affected) return false;
+        if (!claim.affected) return 'skipped';
 
         const job = await this.jobRepository.findOneByOrFail({ id: jobId });
 
@@ -121,16 +137,14 @@ export class DispatcherService {
         } catch (e) {
             const message = errorMessage(e);
             let event: 'retry' | 'park' = 'park';
-            if (e instanceof ExecutionError) {
-                if (runId) await this.runService.markFailed(runId, message);
-                if (e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
-            }
+            if (runId) await this.runService.markFailed(runId, message);
+            if (e instanceof ExecutionError && e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
             await this.failJob(jobId, event, message);
-            return true;
+            return 'failed';
         }
         // Outside the try: a bookkeeping failure must not park a job that did fire.
         await this.runService.markFired(runId, session);
-        return true;
+        return 'fired';
     }
 
     private async failJob(jobId: string, event: 'retry' | 'park', reason: string): Promise<void> {
@@ -141,6 +155,11 @@ export class DispatcherService {
         await this.jobRepository.update({ id: jobId, status: 'dispatched' }, changes);
     }
 
+}
+
+export interface DispatchResult {
+    fired: number;
+    failed: number;
 }
 
 function errorMessage(e: unknown): string {

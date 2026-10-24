@@ -68,7 +68,7 @@ describe('DispatcherService', () => {
         const repo = await seedRepo(await seedProject());
         const job = await seedJob(repo);
 
-        expect(await dispatcher.dispatch()).toBe(1);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
 
         expect(fire).toHaveBeenCalledOnce();
         const [execRepo, payload] = fire.mock.calls[0] as [unknown, Record<string, unknown>];
@@ -88,9 +88,10 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const [a, b] = await Promise.all([dispatcher.dispatch(), dispatcher.dispatch()]);
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> }, jobs, repos, projects, runs);
+        const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
-        expect(a + b).toBe(2);
+        expect(a.fired + b.fired).toBe(2);
         expect(fire).toHaveBeenCalledTimes(2);
         const ids = (fire.mock.calls as [unknown, { jobId: string }][]).map((c) => c[1].jobId);
         expect(new Set(ids).size).toBe(2);
@@ -103,7 +104,7 @@ describe('DispatcherService', () => {
         const oldest = await seedJob(repo);
         const newer = await seedJob(repo);
 
-        expect(await dispatcher.dispatch()).toBe(1);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
 
         expect((await reload(oldest.id)).status).toBe('dispatched');
         expect((await reload(newer.id)).status).toBe('queued');
@@ -125,8 +126,8 @@ describe('DispatcherService', () => {
         await seedJob(r2);
         await seedJob(r2);
 
-        expect(await dispatcher.dispatch()).toBe(2);
-        expect(await dispatcher.dispatch()).toBe(0);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 2, failed: 0 });
+        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
     });
 
     it.each([
@@ -136,7 +137,7 @@ describe('DispatcherService', () => {
         ['no routine token env', async () => seedRepo(await seedProject(), { routineTokenEnv: null })],
     ])('fires nothing when %s', async (_name, setup) => {
         const job = await seedJob(await setup());
-        expect(await dispatcher.dispatch()).toBe(0);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
         expect(fire).not.toHaveBeenCalled();
         expect((await reload(job.id)).status).toBe('queued');
     });
@@ -172,5 +173,42 @@ describe('DispatcherService', () => {
         await dispatcher.dispatch();
 
         expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'kaput' });
+    });
+
+    it('marks the run fire_failed on an unknown error', async () => {
+        const job = await seedJob(await seedRepo(await seedProject()));
+        fire.mockRejectedValue(new Error('kaput'));
+
+        await dispatcher.dispatch();
+
+        expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: 'kaput' });
+    });
+
+    it('counts failed fires in failed, not fired', async () => {
+        const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+        await seedJob(repo);
+        await seedJob(repo);
+        fire.mockResolvedValueOnce({ sessionId: 's', sessionUrl: 'u' }).mockRejectedValueOnce(new Error('kaput'));
+
+        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 1 });
+    });
+
+    it('returns immediately while a pass is running, and releases the guard after an error', async () => {
+        const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+        await seedJob(repo);
+        let release!: () => void;
+        fire.mockImplementationOnce(() => new Promise((r) => { release = () => r({ sessionId: 's', sessionUrl: 'u' }); }));
+
+        const first = dispatcher.dispatch();
+        await vi.waitFor(() => expect(fire).toHaveBeenCalledOnce());
+        await seedJob(repo);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(fire).toHaveBeenCalledOnce();
+        release();
+        expect(await first).toEqual({ fired: 1, failed: 0 });
+
+        vi.spyOn(jobs, 'find').mockRejectedValueOnce(new Error('db down'));
+        await expect(dispatcher.dispatch()).rejects.toThrow('db down');
+        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
     });
 });
