@@ -93,6 +93,9 @@ export class JobEventsService {
         const wasPending = job.status === 'queued' || job.status === 'dispatched';
         const to = await this.transition(job, event, {});
         if (!to) return `ignored: job ${job.status} cannot take ${event}`;
+        // Stamp the end of the job's last run so time-to-merge can be measured.
+        const last = await this.findRun(job.id, null);
+        if (last && !last.finishedAt) await this.runs.update({ id: last.id }, { finishedAt: new Date() });
         if (wasPending) {
             // The PR ended while a retry was queued or running: that run's work is moot.
             const run = await this.findRun(job.id, null);

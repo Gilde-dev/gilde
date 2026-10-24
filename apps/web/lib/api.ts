@@ -186,12 +186,41 @@ export interface CreateJobInput {
   acceptanceCriteria: string[];
 }
 
+export interface Metrics {
+  days: number;
+  jobs: { total: number; countByStatus: Record<JobStatus, number> };
+  mergeRate: number | null;
+  firstPassRate: number | null;
+  avgAttempts: number | null;
+  /** Minutes from job creation to the last run finishing. */
+  timeToMerge: { median: number | null; p90: number | null };
+  runs: {
+    total: number;
+    byOutcome: { done: number; partial: number; blocked: number; none: number };
+    byCiConclusion: Record<string, number>;
+    gateFailures: number;
+  };
+  daily: { date: string; created: number; merged: number; parked: number }[];
+}
+
+export interface MetricsFilter {
+  projectId?: string;
+  repoId?: string;
+  days: number;
+}
+
 const id = encodeURIComponent;
 
 export const api = {
   listProjects: () => request<Project[]>('/v1/projects'),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string) => request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200`),
+  getMetrics: ({ projectId, repoId, days }: MetricsFilter) => {
+    const q = new URLSearchParams({ days: String(days) });
+    if (projectId) q.set('projectId', projectId);
+    if (repoId) q.set('repoId', repoId);
+    return request<Metrics>(`/v1/metrics?${q}`);
+  },
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),

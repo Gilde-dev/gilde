@@ -2,6 +2,7 @@
 
 import { api, type Project, type Repo } from '@/lib/api';
 import { PauseToggle } from './pause-toggle';
+import { SidebarNav } from './sidebar-nav';
 import { Badge } from './ui/badge';
 
 export function Sidebar({
@@ -22,6 +23,7 @@ export function Sidebar({
   return (
     <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
       <h1 className="text-lg font-bold">Gilde</h1>
+      <SidebarNav current="/" />
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Project
         <select
