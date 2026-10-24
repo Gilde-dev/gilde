@@ -1,11 +1,12 @@
 {
-  "name": "api",
+  "name": "@gilde/api",
   "version": "0.0.1",
   "description": "",
   "author": "",
   "private": true,
   "license": "UNLICENSED",
   "type": "module",
+  "packageManager": "pnpm@8.6.2",
   "scripts": {
     "build": "nest build",
     "deploy": "nest deploy",
