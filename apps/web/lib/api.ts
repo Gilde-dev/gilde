@@ -127,40 +127,77 @@ export interface JobDetail extends Job {
 
 export const API_BASE = (process.env.NEXT_PUBLIC_GILDE_API ?? 'http://localhost:4100/api').replace(/\/+$/, '');
 
+export interface ApiIssue {
+  path: string;
+  message: string;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
     readonly status?: number,
+    /** The API's own message, without the request prefix. */
+    readonly detail?: string,
+    /** Per-field validation issues from a 400 response. */
+    readonly issues: ApiIssue[] = [],
   ) {
     super(message);
     this.name = 'ApiError';
   }
 }
 
-async function request<T>(path: string): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' = 'GET', body?: unknown): Promise<T> {
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
   try {
-    res = await fetch(`${API_BASE}${path}`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      cache: 'no-store',
+      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    });
   } catch {
     throw new ApiError(`Could not reach the Gilde API at ${API_BASE}`);
   }
   if (!res.ok) {
     let detail = res.statusText;
+    let issues: ApiIssue[] = [];
     try {
-      const body = (await res.json()) as { message?: unknown };
-      if (typeof body.message === 'string') detail = body.message;
-      else if (Array.isArray(body.message)) detail = body.message.join(', ');
+      const json = (await res.json()) as { message?: unknown; issues?: unknown };
+      if (typeof json.message === 'string') detail = json.message;
+      else if (Array.isArray(json.message)) detail = json.message.join(', ');
+      if (Array.isArray(json.issues)) {
+        issues = json.issues.filter(
+          (i): i is ApiIssue => typeof i?.path === 'string' && typeof i?.message === 'string',
+        );
+      }
     } catch {
       // body wasn't JSON; keep the status text
     }
-    throw new ApiError(`GET ${path} failed: ${res.status} ${detail}`.trim(), res.status);
+    throw new ApiError(`${method} ${path} failed: ${res.status} ${detail}`.trim(), res.status, detail, issues);
   }
   return (await res.json()) as T;
 }
 
+export interface CreateJobInput {
+  title: string;
+  task: string;
+  acceptanceCriteria: string[];
+}
+
+const id = encodeURIComponent;
+
 export const api = {
   listProjects: () => request<Project[]>('/v1/projects'),
-  listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${encodeURIComponent(projectId)}/repos`),
-  listJobs: (projectId: string) => request<Job[]>(`/v1/jobs?projectId=${encodeURIComponent(projectId)}&limit=200`),
-  getJob: (id: string) => request<JobDetail>(`/v1/jobs/${encodeURIComponent(id)}`),
+  listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
+  listJobs: (projectId: string) => request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200`),
+  getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
+  createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
+  cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
+  retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
+  setRepoPaused: (repoId: string, paused: boolean) =>
+    request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
+  setProjectPaused: (projectId: string, paused: boolean) =>
+    request<Project>(`/v1/projects/${id(projectId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
 };
