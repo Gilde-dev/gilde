@@ -33,7 +33,7 @@ beforeEach(async () => {
     const repoService = {
         findByFullName: (n: string) => repos.findOneBy({ fullName: n.toLowerCase() }),
     } as unknown as RepoService;
-    service = new WebhookService(repoService, jobs, runs);
+    service = new WebhookService(repoService, jobs, runs, projects);
 });
 
 afterEach(() => ds.destroy());
@@ -240,12 +240,23 @@ describe('WebhookService', () => {
             expect(await reloadRun(run.id)).toMatchObject({ status: 'ci_passed', ciConclusion: conclusion });
         });
 
-        it('parks the job on failure with the reason', async () => {
-            const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+        it('requeues the job on failure when attempts are left, keeping the PR', async () => {
+            const job = await seedJob('pr_open', { prNumber: 12, branch: 'claude/x', headSha: SHA1 });
             const run = await seedRun(job);
             await service.handle('check_suite', suitePayload({ conclusion: 'failure' }));
-            expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'CI failure on a1b2c3d' });
+            expect(await reload(job.id)).toMatchObject({
+                status: 'queued', prNumber: 12, branch: 'claude/x', headSha: SHA1,
+                lastReason: 'CI failure on a1b2c3d. Fix the failing checks on the existing branch.',
+            });
             expect(await reloadRun(run.id)).toMatchObject({ status: 'ci_failed', ciConclusion: 'failure' });
+        });
+
+        it('parks the job on failure when no attempts are left', async () => {
+            const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1, attempts: 3 });
+            await service.handle('check_suite', suitePayload({ conclusion: 'failure' }));
+            expect(await reload(job.id)).toMatchObject({
+                status: 'parked', lastReason: 'CI failure on a1b2c3d. Fix the failing checks on the existing branch.',
+            });
         });
 
         it('ignores a stale check suite', async () => {
@@ -269,6 +280,45 @@ describe('WebhookService', () => {
             expect(await service.handle('check_suite', suitePayload()))
                 .toBe('ignored: job awaiting_review cannot take ci_passed');
             expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+    });
+
+    describe('pull_request_review', () => {
+        const review = (assoc: string, over: Record<string, unknown> = {}) => ({
+            action: 'submitted',
+            repository: { full_name: 'gilde-dev/gilde' },
+            pull_request: prPayload('x').pull_request,
+            review: { state: 'changes_requested', body: 'Please rename it.', author_association: assoc, user: { login: 'alice' }, ...over },
+        });
+
+        it('requeues the job with the review body when an owner requests changes', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, branch: 'b', headSha: SHA1 });
+            const res = await service.handle('pull_request_review', review('OWNER'));
+            expect(res).toBe('job queued with PR #12');
+            expect(await reload(job.id)).toMatchObject({
+                status: 'queued', prNumber: 12, branch: 'b',
+                lastReason: 'Changes requested by @alice on PR #12:\nPlease rename it.',
+            });
+        });
+
+        it('ignores outside contributors and other review states', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            expect(await service.handle('pull_request_review', review('CONTRIBUTOR'))).toContain('ignored');
+            expect(await service.handle('pull_request_review', review('OWNER', { state: 'approved' }))).toContain('ignored');
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+    });
+
+    describe('after a retry', () => {
+        it('moves a re-dispatched job to pr_open on push, and ignores a second PR', async () => {
+            const job = await seedJob('dispatched', { prNumber: 12, branch: 'b', headSha: SHA1, attempts: 2 });
+            const res = await service.handle('pull_request', prPayload('synchronize', { head: { ref: 'b', sha: SHA2 } }));
+            expect(res).toBe('job pr_open with PR #12');
+            expect(await reload(job.id)).toMatchObject({ status: 'pr_open', headSha: SHA2 });
+
+            const second = prPayload('opened', { number: 13, body: body(job, null) });
+            second.pull_request.number = 13;
+            expect(await service.handle('pull_request', second)).toBe('ignored: job already has PR #12');
         });
     });
 

@@ -133,6 +133,15 @@ export class DispatcherService {
                     task: job.task,
                     acceptanceCriteria: job.acceptanceCriteria,
                     testCommand: repo.testCommand,
+                    ...(job.prNumber !== null && job.branch
+                        ? {
+                            continueOn: {
+                                branch: job.branch,
+                                prNumber: job.prNumber,
+                                reason: job.lastReason ?? 'Continue the work on this PR.',
+                            },
+                        }
+                        : {}),
                 },
             );
         } catch (e) {

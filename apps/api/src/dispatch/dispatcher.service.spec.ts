@@ -87,6 +87,19 @@ describe('DispatcherService', () => {
         expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
     });
 
+    it('sends continueOn only when the job has a PR', async () => {
+        const repo = await seedRepo(await seedProject());
+        await seedJob(repo, 'queued', { prNumber: 7, branch: 'claude/x', lastReason: 'CI failure' });
+        await seedJob(repo, 'queued', { prNumber: 8, branch: 'claude/y' });
+        await seedJob(repo);
+        await repos.update({ id: repo.id }, { maxConcurrentJobs: 3 });
+        await dispatcher.dispatch();
+        const payloads = fire.mock.calls.map((c) => c[1] as Record<string, unknown>);
+        expect(payloads[0]!.continueOn).toEqual({ branch: 'claude/x', prNumber: 7, reason: 'CI failure' });
+        expect(payloads[1]!.continueOn).toEqual({ branch: 'claude/y', prNumber: 8, reason: 'Continue the work on this PR.' });
+        expect(payloads[2]).not.toHaveProperty('continueOn');
+    });
+
     it('never fires the same job twice with parallel dispatches', async () => {
         const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
         await seedJob(repo);
