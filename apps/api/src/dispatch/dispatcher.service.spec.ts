@@ -1,0 +1,176 @@
+import { DataSource, type Repository } from 'typeorm';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { ExecutionError } from '../execution/execution.error.js';
+import type { ExecutionPort } from '../execution/execution.port.js';
+import type { JobStatus } from '../job/job-state.js';
+import { Job } from '../job/job.entity.js';
+import { Project } from '../project/project.entity.js';
+import { Repo } from '../repo/repo.entity.js';
+import { JobRun } from '../run/run.entity.js';
+import { RunMapper } from '../run/run.mapper.js';
+import { RunService } from '../run/run.service.js';
+import { DispatcherService } from './dispatcher.service.js';
+
+let ds: DataSource;
+let fire: ReturnType<typeof vi.fn>;
+let dispatcher: DispatcherService;
+let projects: Repository<Project>;
+let repos: Repository<Repo>;
+let jobs: Repository<Job>;
+let runs: Repository<JobRun>;
+
+beforeEach(async () => {
+    ds = await new DataSource({
+        type: 'better-sqlite3',
+        database: ':memory:',
+        entities: [Project, Repo, Job, JobRun],
+        synchronize: true,
+    }).initialize();
+    projects = ds.getRepository(Project);
+    repos = ds.getRepository(Repo);
+    jobs = ds.getRepository(Job);
+    runs = ds.getRepository(JobRun);
+    fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
+    const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> };
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs);
+});
+
+afterEach(() => ds.destroy());
+
+let seq = 0;
+async function seedProject(over: Partial<Project> = {}) {
+    seq++;
+    return projects.save(projects.create({ slug: `p${seq}`, name: `P${seq}`, ...over }));
+}
+async function seedRepo(project: Project, over: Partial<Repo> = {}) {
+    seq++;
+    return repos.save(repos.create({
+        projectId: project.id,
+        fullName: `o/r${seq}`,
+        testCommand: 'pnpm test',
+        routineFireUrl: 'https://fire',
+        routineTokenEnv: 'TOKEN',
+        ...over,
+    }));
+}
+let t = 0;
+async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<Job> = {}) {
+    return jobs.save(jobs.create({
+        projectId: repo.projectId, repoId: repo.id, title: 'T', task: 'do', acceptanceCriteria: ['a'],
+        status, queuedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, t++)), ...over,
+    }));
+}
+const reload = (id: string) => jobs.findOneByOrFail({ id });
+
+describe('DispatcherService', () => {
+    it('fires a queued job with the full payload and records the run', async () => {
+        const repo = await seedRepo(await seedProject());
+        const job = await seedJob(repo);
+
+        expect(await dispatcher.dispatch()).toBe(1);
+
+        expect(fire).toHaveBeenCalledOnce();
+        const [execRepo, payload] = fire.mock.calls[0] as [unknown, Record<string, unknown>];
+        expect(execRepo).toMatchObject({ fullName: repo.fullName, routineFireUrl: 'https://fire' });
+        const run = await runs.findOneByOrFail({ jobId: job.id });
+        expect(payload).toEqual({
+            gilde: 1, jobId: job.id, runId: run.id, attempt: 1, repo: repo.fullName, baseBranch: 'main',
+            title: 'T', task: 'do', acceptanceCriteria: ['a'], testCommand: 'pnpm test',
+        });
+        expect(run).toMatchObject({ status: 'fired', sessionId: 's1', sessionUrl: 'https://x/s1', attempt: 1 });
+        expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+    });
+
+    it('never fires the same job twice with parallel dispatches', async () => {
+        const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+        await seedJob(repo);
+        await seedJob(repo);
+        fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
+
+        const [a, b] = await Promise.all([dispatcher.dispatch(), dispatcher.dispatch()]);
+
+        expect(a + b).toBe(2);
+        expect(fire).toHaveBeenCalledTimes(2);
+        const ids = (fire.mock.calls as [unknown, { jobId: string }][]).map((c) => c[1].jobId);
+        expect(new Set(ids).size).toBe(2);
+        expect(await runs.count()).toBe(2);
+    });
+
+    it('respects repo concurrency, counting active jobs, oldest first', async () => {
+        const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 2 });
+        await seedJob(repo, 'pr_open');
+        const oldest = await seedJob(repo);
+        const newer = await seedJob(repo);
+
+        expect(await dispatcher.dispatch()).toBe(1);
+
+        expect((await reload(oldest.id)).status).toBe('dispatched');
+        expect((await reload(newer.id)).status).toBe('queued');
+    });
+
+    it('respects the project daily limit across repos, counting earlier runs today', async () => {
+        const project = await seedProject({ dailyRunLimit: 3 });
+        const r1 = await seedRepo(project);
+        const r2 = await seedRepo(project);
+        const old = await seedJob(r1, 'merged');
+        await runs.save(runs.create({ jobId: old.id, projectId: project.id, repoId: r1.id, attempt: 1, status: 'fired' }));
+        // a run from before UTC midnight does not count
+        await runs.save(runs.create({
+            jobId: old.id, projectId: project.id, repoId: r1.id, attempt: 2, status: 'fired',
+            createdAt: new Date(Date.now() - 48 * 3600_000),
+        }));
+        await seedJob(r1);
+        await seedJob(r1);
+        await seedJob(r2);
+        await seedJob(r2);
+
+        expect(await dispatcher.dispatch()).toBe(2);
+        expect(await dispatcher.dispatch()).toBe(0);
+    });
+
+    it.each([
+        ['project paused', async () => { const p = await seedProject({ paused: true }); return seedRepo(p); }],
+        ['repo paused', async () => seedRepo(await seedProject(), { paused: true })],
+        ['no routine url', async () => seedRepo(await seedProject(), { routineFireUrl: null })],
+        ['no routine token env', async () => seedRepo(await seedProject(), { routineTokenEnv: null })],
+    ])('fires nothing when %s', async (_name, setup) => {
+        const job = await seedJob(await setup());
+        expect(await dispatcher.dispatch()).toBe(0);
+        expect(fire).not.toHaveBeenCalled();
+        expect((await reload(job.id)).status).toBe('queued');
+    });
+
+    it('requeues a retryable failure until maxAttempts, then parks', async () => {
+        const repo = await seedRepo(await seedProject({ maxAttempts: 2 }));
+        const job = await seedJob(repo);
+        fire.mockRejectedValue(new ExecutionError('boom', true));
+
+        await dispatcher.dispatch();
+        expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 1, lastReason: 'boom' });
+        expect(await runs.findOneByOrFail({ jobId: job.id, attempt: 1 })).toMatchObject({ status: 'fire_failed', error: 'boom' });
+
+        await dispatcher.dispatch();
+        expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 2, lastReason: 'boom' });
+        expect(await runs.count()).toBe(2);
+    });
+
+    it('parks immediately on a non-retryable ExecutionError', async () => {
+        const job = await seedJob(await seedRepo(await seedProject()));
+        fire.mockRejectedValue(new ExecutionError('bad token', false));
+
+        await dispatcher.dispatch();
+
+        expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1, lastReason: 'bad token' });
+        expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: 'bad token' });
+    });
+
+    it('parks immediately on an unknown error', async () => {
+        const job = await seedJob(await seedRepo(await seedProject()));
+        fire.mockRejectedValue(new Error('kaput'));
+
+        await dispatcher.dispatch();
+
+        expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'kaput' });
+    });
+});

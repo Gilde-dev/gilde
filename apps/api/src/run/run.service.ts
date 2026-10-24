@@ -27,6 +27,14 @@ export class RunService {
         }
     }
 
+    async markFired(id: string, session: { sessionId: string; sessionUrl: string }): Promise<void> {
+        await this.runRepository.update({ id }, { status: 'fired', ...session, firedAt: new Date() });
+    }
+
+    async markFailed(id: string, error: string): Promise<void> {
+        await this.runRepository.update({ id }, { status: 'fire_failed', error, finishedAt: new Date() });
+    }
+
     async listForJob(jobId: string): Promise<RunResponseDto[]> {
         const entities = await this.runRepository.find({ where: { jobId }, order: { attempt: 'ASC' } });
         return entities.map((e) => this.runMapper.toDTO(e));
