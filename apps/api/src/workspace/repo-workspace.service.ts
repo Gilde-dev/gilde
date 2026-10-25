@@ -59,6 +59,11 @@ interface State {
     error: string | null;
 }
 
+/** The header git needs over HTTPS: Basic auth with `x-access-token` as the user (Bearer only works on GitHub's REST API). */
+export function gitAuthHeader(token: string): string {
+    return `Authorization: Basic ${Buffer.from(`x-access-token:${token}`).toString('base64')}`;
+}
+
 /**
  * Keeps one read-only, depth-1 clone of every registered repo under GILDE_WORKSPACE_DIR and answers
  * grep / list / read questions from it. Gilde never commits, pushes or checks out other branches in a clone.
@@ -89,7 +94,7 @@ export class RepoWorkspaceService {
     /** Runs git with an argument array (no shell). The token is only ever part of the `-c` arguments of that one command. */
     protected git(args: string[], opts: { cwd?: string; auth?: boolean } = {}): Promise<string> {
         const token = process.env.GITHUB_TOKEN;
-        const full = opts.auth && token ? ['-c', `http.extraHeader=Authorization: Bearer ${token}`, ...args] : args;
+        const full = opts.auth && token ? ['-c', `http.extraHeader=${gitAuthHeader(token)}`, ...args] : args;
         return new Promise((ok, fail) => {
             execFile(
                 'git',
@@ -288,7 +293,8 @@ async function exists(path: string): Promise<boolean> {
 }
 
 function scrub(text: string, token: string | undefined): string {
-    return token ? text.split(token).join('***') : text;
+    if (!token) return text;
+    return text.split(token).join('***').split(Buffer.from(`x-access-token:${token}`).toString('base64')).join('***');
 }
 
 /** Parses `git grep -n -z` output: `path NUL line NUL text` per match. */
