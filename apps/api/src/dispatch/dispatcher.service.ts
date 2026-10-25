@@ -68,6 +68,11 @@ export class DispatcherService {
             const repo = await this.repoRepository.findOneBy({ id: repoId });
             if (!repo || repo.paused || !repo.routineFireUrl || !repo.routineTokenEnv) continue;
 
+            if (repo.testCommands.length === 0) {
+                this.logger.warn(`${repo.fullName}: skipped, no cached .gilde.json yet (${repo.manifestError ?? 'not refreshed yet'})`);
+                continue;
+            }
+
             const project = await this.projectRepository.findOneBy({ id: repo.projectId });
             if (!project || project.paused) continue;
 

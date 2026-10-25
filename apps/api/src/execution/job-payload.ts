@@ -17,7 +17,8 @@ export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, r
         title: job.title,
         task: job.task,
         acceptanceCriteria: job.acceptanceCriteria,
-        testCommand: repo.testCommand,
+        testCommands: repo.testCommands,
+        stacks: repo.stacks,
         ...(feature
             ? { feature: { title: feature.title, spec: feature.spec.slice(0, FEATURE_SPEC_LIMIT), acceptanceCriteria: feature.acceptanceCriteria } }
             : {}),

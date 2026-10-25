@@ -76,10 +76,10 @@ describe('LessonService', () => {
 
     it('only accepts a target repo from the lesson\'s project', async () => {
         const l = await lesson();
-        const repo = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/r', testCommand: 't' });
+        const repo = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/r', testCommands: ['t'] });
         await expect(service.update(l.id, { targetRepoId: repo.id })).rejects.toBeInstanceOf(BadRequestException);
         await expect(service.update(l.id, { targetRepoId: J1 })).rejects.toBeInstanceOf(BadRequestException);
-        const own = await ds.getRepository(Repo).save({ projectId: P1, fullName: 'o/r2', testCommand: 't' });
+        const own = await ds.getRepository(Repo).save({ projectId: P1, fullName: 'o/r2', testCommands: ['t'] });
         expect((await service.update(l.id, { targetRepoId: own.id })).targetRepoId).toBe(own.id);
         expect((await service.update(l.id, { targetRepoId: null })).targetRepoId).toBeNull();
     });
@@ -128,7 +128,7 @@ describe('LessonService', () => {
 
     describe('apply', () => {
         const approved = async (over: Partial<Lesson> = {}) => {
-            const repo = await ds.getRepository(Repo).save({ projectId: P1, fullName: `o/r${++n}`, testCommand: 't' });
+            const repo = await ds.getRepository(Repo).save({ projectId: P1, fullName: `o/r${++n}`, testCommands: ['t'] });
             return { repo, l: await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: repo.id, text: 'Always run pnpm install first', ...over }) };
         };
 
@@ -176,7 +176,7 @@ describe('LessonService', () => {
             }
             const noRepo = await lesson({ status: 'approved', targetKind: 'skill' });
             await expect(service.apply(noRepo.id)).rejects.toBeInstanceOf(BadRequestException);
-            const foreign = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/x', testCommand: 't' });
+            const foreign = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/x', testCommands: ['t'] });
             const cross = await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: foreign.id });
             await expect(service.apply(cross.id)).rejects.toBeInstanceOf(BadRequestException);
             expect(await ds.getRepository(Job).count()).toBe(0);

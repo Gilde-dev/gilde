@@ -4,6 +4,7 @@ import { In, Repository } from 'typeorm';
 
 import { TERMINAL, nextStatus, retryOrPark, type JobEvent } from './job-state.js';
 import { Job } from './job.entity.js';
+import { RepoManifestService } from '../repo/repo-manifest.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
 import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
@@ -38,6 +39,7 @@ export class JobEventsService {
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
         @InjectRepository(Project) private readonly projects: Repository<Project>,
         @Optional() private readonly lessons?: LessonService,
+        @Optional() private readonly manifests?: RepoManifestService,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -107,6 +109,7 @@ export class JobEventsService {
             }
         }
         await this.lessons?.onJobEnded(job.id, to);
+        if (merged) await this.manifests?.refreshQuietly(job.repoId);
         return `job ${to} with PR #${prNumber}`;
     }
 

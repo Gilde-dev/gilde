@@ -16,6 +16,12 @@ export interface GitHubWorkflowRun {
     conclusion: string | null;
 }
 
+export interface GitHubFile {
+    content: string;
+    /** The file's blob sha. */
+    sha: string;
+}
+
 export interface GitHubPort {
     /** False when no GitHub credentials are configured; the other methods would fail. */
     isConfigured(): boolean;
@@ -24,4 +30,6 @@ export interface GitHubPort {
     listRecentPulls(fullName: string): Promise<GitHubPull[]>;
     /** Workflow runs for a commit, newest first. */
     listWorkflowRuns(fullName: string, headSha: string): Promise<GitHubWorkflowRun[]>;
+    /** A text file at `ref`, or null when it does not exist. */
+    getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null>;
 }

@@ -27,7 +27,7 @@ describe('Lessons (e2e)', () => {
     const http = () => request(app.getHttpServer());
     const slug = `lessons-${randomUUID().slice(0, 8)}`;
     const project = (await http().post('/api/v1/projects').send({ slug, name: 'Lessons' }).expect(201)).body;
-    const repo = (await http().post(`/api/v1/projects/${project.id}/repos`).send({ fullName: `o/${slug}`, testCommand: 'pnpm test' }).expect(201)).body;
+    const repo = (await http().post(`/api/v1/projects/${project.id}/repos`).send({ fullName: `o/${slug}` }).expect(201)).body;
     const job = (await http().post(`/api/v1/repos/${repo.id}/jobs`).send({ title: 'Lesson job', task: 'Do the lesson thing' }).expect(201)).body;
 
     const ds = app.get(DataSource);

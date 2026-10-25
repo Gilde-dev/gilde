@@ -2,6 +2,7 @@
 
 import { api, type Project, type Repo } from '@/lib/api';
 import { PauseToggle } from './pause-toggle';
+import { RepoManifest } from './repo-manifest';
 import { SidebarNav } from './sidebar-nav';
 import { Badge } from './ui/badge';
 
@@ -52,6 +53,7 @@ export function Sidebar({
                 {r.paused && <Badge variant="warning">paused</Badge>}
               </div>
               {r.paused && r.pausedReason && <p className="text-xs text-muted-foreground">{r.pausedReason}</p>}
+              <RepoManifest repo={r} onChanged={onChanged ?? (() => {})} />
               <div className="mt-1">
                 <PauseToggle
                   paused={r.paused}

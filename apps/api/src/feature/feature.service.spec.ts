@@ -34,7 +34,7 @@ beforeEach(async () => {
     const repos = ds.getRepository(Repo);
     p1 = await projects.save(projects.create({ slug: 'p1', name: 'P1' }));
     const p2 = await projects.save(projects.create({ slug: 'p2', name: 'P2' }));
-    const mk = (p: Project, n: string) => repos.save(repos.create({ projectId: p.id, fullName: `o/${n}`, testCommand: 'x' }));
+    const mk = (p: Project, n: string) => repos.save(repos.create({ projectId: p.id, fullName: `o/${n}`, testCommands: ['x'] }));
     repoA = await mk(p1, 'a');
     repoB = await mk(p1, 'b');
     foreign = await mk(p2, 'c');

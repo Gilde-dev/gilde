@@ -1,6 +1,7 @@
 // repo.dto.ts
 import { z } from 'zod';
 import { STACKS } from './repo.entity.js';
+import { ManifestSkillsSchema } from './manifest.schema.js';
 
 /** owner/name, stored lowercase because GitHub names are case-insensitive. */
 const fullName = z
@@ -14,8 +15,6 @@ const envVarName = z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'Use an UPPER_SNAKE_CAS
 export const CreateRepoSchema = z.object({
     fullName,
     defaultBranch: z.string().trim().min(1).optional(),
-    stack: z.enum(STACKS).optional(),
-    testCommand: z.string().trim().min(1),
     routineFireUrl: z.string().url().nullable().optional(),
     routineTokenEnv: envVarName.nullable().optional(),
     maxConcurrentJobs: z.number().int().min(1).max(10).optional(),
@@ -29,11 +28,15 @@ export const RepoResponseSchema = z.object({
     projectId: z.string().uuid(),
     fullName: z.string(),
     defaultBranch: z.string(),
-    stack: z.enum(STACKS),
-    testCommand: z.string(),
     routineFireUrl: z.string().nullable(),
     routineTokenEnv: z.string().nullable(),
     maxConcurrentJobs: z.number().int(),
+    stacks: z.array(z.enum(STACKS)),
+    testCommands: z.array(z.string()),
+    skills: ManifestSkillsSchema.nullable(),
+    manifestSha: z.string().nullable(),
+    manifestSyncedAt: z.string().datetime().nullable(),
+    manifestError: z.string().nullable(),
     paused: z.boolean(),
     pausedReason: z.string().nullable(),
     createdAt: z.string().datetime(),

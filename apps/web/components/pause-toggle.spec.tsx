@@ -30,7 +30,7 @@ describe('PauseToggle', () => {
 
 describe('Sidebar repo pause', () => {
   it('shows pausedReason and a resume toggle for paused repos', () => {
-    const repos = [{ id: 'r', fullName: 'o/r', paused: true, pausedReason: 'CI broken' } as Repo];
+    const repos = [{ id: 'r', fullName: 'o/r', paused: true, pausedReason: 'CI broken', stacks: [], testCommands: [] } as unknown as Repo];
     render(<Sidebar projects={[]} projectId={null} repos={repos} onSelectProject={() => {}} />);
     expect(screen.getByText('CI broken')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Resume o/r' })).toBeInTheDocument();

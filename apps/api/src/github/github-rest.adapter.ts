@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import type { GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
+import type { GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -17,6 +17,13 @@ interface PullJson {
 
 interface WorkflowRunsJson {
     workflow_runs: { name?: string | null; status?: string | null; conclusion?: string | null }[];
+}
+
+interface ContentJson {
+    type: string;
+    encoding?: string;
+    content: string;
+    sha: string;
 }
 
 @Injectable()
@@ -41,7 +48,21 @@ export class GitHubRestAdapter implements GitHubPort {
         return body.workflow_runs.map((r) => ({ name: r.name ?? '', status: r.status ?? '', conclusion: r.conclusion ?? null }));
     }
 
-    private async get<T>(path: string): Promise<T> {
+    async getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null> {
+        const file = await this.get<ContentJson | ContentJson[]>(
+            `/repos/${fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
+            true,
+        );
+        if (file === null) return null;
+        if (Array.isArray(file) || file.type !== 'file' || file.encoding !== 'base64') {
+            throw new Error(`GitHub path ${path} in ${fullName} is not a file`);
+        }
+        return { content: Buffer.from(file.content, 'base64').toString('utf8'), sha: file.sha };
+    }
+
+    private async get<T>(path: string): Promise<T>;
+    private async get<T>(path: string, nullOn404: true): Promise<T | null>;
+    private async get<T>(path: string, nullOn404 = false): Promise<T | null> {
         const token = process.env.GITHUB_TOKEN;
         if (!token) throw new Error('GITHUB_TOKEN is not set');
         const res = await fetch(`${API}${path}`, {
@@ -53,6 +74,7 @@ export class GitHubRestAdapter implements GitHubPort {
             signal: AbortSignal.timeout(TIMEOUT_MS),
         });
         // Never include headers or the token in errors.
+        if (nullOn404 && res.status === 404) return null;
         if (!res.ok) throw new Error(`GitHub GET ${path.split('?')[0]} failed: ${res.status}`);
         return (await res.json()) as T;
     }

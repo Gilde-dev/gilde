@@ -55,7 +55,8 @@ async function seedRepo(project: Project, over: Partial<Repo> = {}) {
     return repos.save(repos.create({
         projectId: project.id,
         fullName: `o/r${seq}`,
-        testCommand: 'pnpm test',
+        stacks: ['node'],
+        testCommands: ['pnpm test'],
         routineFireUrl: 'https://fire',
         routineTokenEnv: 'TOKEN',
         ...over,
@@ -71,6 +72,16 @@ async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<J
 const reload = (id: string) => jobs.findOneByOrFail({ id });
 
 describe('DispatcherService', () => {
+    it('skips repos without a cached manifest and logs the manifest error', async () => {
+        const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+        const repo = await seedRepo(await seedProject(), { testCommands: [], stacks: [], manifestError: '.gilde.json not found on main' });
+        await seedJob(repo);
+        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(fire).not.toHaveBeenCalled();
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('.gilde.json not found on main'));
+        warn.mockRestore();
+    });
+
     it('never fires triage jobs', async () => {
         const repo = await seedRepo(await seedProject());
         const triage = await seedJob(repo, 'triage', { queuedAt: null });
@@ -125,7 +136,7 @@ describe('DispatcherService', () => {
         const run = await runs.findOneByOrFail({ jobId: job.id });
         expect(payload).toEqual({
             gilde: 1, jobId: job.id, runId: run.id, attempt: 1, repo: repo.fullName, baseBranch: 'main',
-            title: 'T', task: 'do', acceptanceCriteria: ['a'], testCommand: 'pnpm test',
+            title: 'T', task: 'do', acceptanceCriteria: ['a'], testCommands: ['pnpm test'], stacks: ['node'],
         });
         expect(run).toMatchObject({ status: 'fired', sessionId: 's1', sessionUrl: 'https://x/s1', attempt: 1 });
         expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
