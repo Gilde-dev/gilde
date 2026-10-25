@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 
 import { InjectRepository } from "@nestjs/typeorm";
 import { QueryFailedError, Repository } from "typeorm";
@@ -6,13 +6,15 @@ import { QueryFailedError, Repository } from "typeorm";
 import { ProjectMapper } from "./project.mapper.js";
 import { CreateProjectDto, ProjectResponseDto, UpdateProjectDto } from "./project.dto.js";
 import { Project } from "./project.entity.js";
+import { Repo } from "../repo/repo.entity.js";
 
 @Injectable()
 export class ProjectService {
 
     constructor(
         private readonly projectMapper: ProjectMapper,
-        @InjectRepository(Project) private projectRepository: Repository<Project>
+        @InjectRepository(Project) private projectRepository: Repository<Project>,
+        @InjectRepository(Repo) private repoRepository: Repository<Repo>
     ) { }
 
     async list(): Promise<ProjectResponseDto[]> {
@@ -37,7 +39,9 @@ export class ProjectService {
             throw new ConflictException(`A project with slug '${dto.slug}' already exists`);
         }
         try {
-            const entity = await this.projectRepository.save(this.projectRepository.create(dto));
+            const entity = this.projectRepository.create(dto);
+            await this.applySkillsLibrary(entity, dto);
+            await this.projectRepository.save(entity);
             return this.projectMapper.toDTO(entity);
         } catch (e) {
             // Two requests with the same slug at the same moment: the unique index decides.
@@ -48,7 +52,9 @@ export class ProjectService {
 
     async update(id: string, dto: UpdateProjectDto): Promise<ProjectResponseDto> {
         const entity = await this.getOrFail(id);
-        const saved = await this.projectRepository.save(this.projectRepository.merge(entity, dto));
+        this.projectRepository.merge(entity, dto);
+        await this.applySkillsLibrary(entity, dto);
+        const saved = await this.projectRepository.save(entity);
         return this.projectMapper.toDTO(saved);
     }
 
@@ -63,6 +69,22 @@ export class ProjectService {
     async assertExists(id: string): Promise<void> {
         if (!(await this.projectRepository.existsBy({ id }))) {
             throw new NotFoundException(`Project ${id} not found`);
+        }
+    }
+
+    /** A repo library must point at a repo of this project; any other kind has no repo. */
+    private async applySkillsLibrary(entity: Project, dto: UpdateProjectDto): Promise<void> {
+        entity.skillsLibrary ??= 'none';
+        if (entity.skillsLibrary !== 'repo') {
+            entity.skillsLibraryRepoId = null;
+            return;
+        }
+        const repoId = entity.skillsLibraryRepoId;
+        if (!repoId) throw new BadRequestException("skillsLibraryRepoId is required when skillsLibrary is 'repo'");
+        // Only (re)check when the config changes; a repo removed later is reported by the resolver.
+        if (dto.skillsLibrary === undefined && dto.skillsLibraryRepoId === undefined) return;
+        if (!entity.id || !(await this.repoRepository.existsBy({ id: repoId, projectId: entity.id }))) {
+            throw new BadRequestException('skillsLibraryRepoId must be a repo in the same project');
         }
     }
 

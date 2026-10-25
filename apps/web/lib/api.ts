@@ -25,6 +25,9 @@ export const RUN_STATUSES = [
 ] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
+export const SKILLS_LIBRARY_KINDS = ['none', 'folder', 'repo'] as const;
+export type SkillsLibraryKind = (typeof SKILLS_LIBRARY_KINDS)[number];
+
 export interface Project {
   id: string;
   slug: string;
@@ -35,8 +38,42 @@ export interface Project {
   runTimeoutMinutes: number;
   retryOnChangesRequested: boolean;
   paused: boolean;
+  skillsLibrary: SkillsLibraryKind;
+  skillsLibraryRepoId: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface UpdateProjectInput {
+  skillsLibrary?: SkillsLibraryKind;
+  skillsLibraryRepoId?: string | null;
+}
+
+export const SKILL_STATUSES = ['ok', 'outdated', 'missing', 'orphaned', 'conflict', 'repo'] as const;
+export type SkillStatus = (typeof SKILL_STATUSES)[number];
+
+export interface SkillCatalog {
+  library: { kind: 'folder' | 'repo'; repoFullName: string | null };
+  skills: {
+    name: string;
+    description: string;
+    scope: 'global' | 'stack';
+    stacks: string[];
+    files: string[];
+    repos: { id: string; fullName: string }[];
+  }[];
+}
+
+export interface RepoSkills {
+  repoId: string;
+  skills: {
+    name: string;
+    description: string | null;
+    source: 'managed' | 'repo' | null;
+    managedBy: string | null;
+    status: SkillStatus;
+  }[];
+  counts: Record<SkillStatus, number>;
 }
 
 export interface Repo {
@@ -458,6 +495,11 @@ export const api = {
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
+  updateProject: (projectId: string, input: UpdateProjectInput) =>
+    request<Project>(`/v1/projects/${id(projectId)}`, 'PATCH', input),
+  getSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills`),
+  refreshSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills/refresh`, 'POST'),
+  getRepoSkills: (repoId: string) => request<RepoSkills>(`/v1/repos/${id(repoId)}/skills`),
   setProjectPaused: (projectId: string, paused: boolean) =>
     request<Project>(`/v1/projects/${id(projectId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
 };

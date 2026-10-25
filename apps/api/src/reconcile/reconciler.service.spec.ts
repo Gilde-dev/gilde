@@ -38,6 +38,7 @@ beforeEach(async () => {
         listRecentPulls: async () => github.recent,
         listWorkflowRuns: async () => github.workflows,
         getFileContent: async () => null,
+        listDirectory: async () => null,
     };
     const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects);
     service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo));

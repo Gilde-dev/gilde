@@ -12,9 +12,10 @@ const LINKS = [
   { href: '/metrics', label: 'Metrics' },
   { href: '/proposals', label: 'Proposals' },
   { href: '/lessons', label: 'Lessons' },
+  { href: '/skills', label: 'Skills' },
 ];
 
-export function SidebarNav({ current }: { current: '/' | '/features' | '/metrics' | '/proposals' | '/lessons' }) {
+export function SidebarNav({ current }: { current: '/' | '/features' | '/metrics' | '/proposals' | '/lessons' | '/skills' }) {
   const proposed = usePolling(fetchProposed, 30_000);
   const count = proposed.data?.length ?? 0;
   return (

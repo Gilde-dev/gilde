@@ -1,6 +1,9 @@
 import { Column, CreateDateColumn, Entity, OneToMany, PrimaryGeneratedColumn, UpdateDateColumn, type Relation } from "typeorm";
 import { Repo } from "../repo/repo.entity.js";
 
+export const SKILLS_LIBRARY_KINDS = ['none', 'folder', 'repo'] as const;
+export type SkillsLibraryKind = (typeof SKILLS_LIBRARY_KINDS)[number];
+
 @Entity({
     name: 'projects'
 })
@@ -49,6 +52,22 @@ export class Project {
         default: false
     })
     paused: boolean;
+
+    @Column({
+        name: 'skills_library',
+        type: 'simple-enum',
+        enum: SKILLS_LIBRARY_KINDS,
+        default: 'none'
+    })
+    skillsLibrary: SkillsLibraryKind;
+
+    /** The repo holding the skills library; only set when skillsLibrary is 'repo'. */
+    @Column({
+        name: 'skills_library_repo_id',
+        type: 'varchar',
+        nullable: true
+    })
+    skillsLibraryRepoId: string | null;
 
     @OneToMany(() => Repo, (repo) => repo.project)
     repos?: Relation<Repo[]>;
