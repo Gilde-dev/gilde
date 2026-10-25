@@ -12,7 +12,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - `src/app.module.ts` — root module, TypeORM config (better-sqlite3 locally)
   - `test/` — e2e tests (`*.e2e-spec.ts`)
 - `apps/web/` — the Next.js (App Router) web UI (`@gilde/web`), Tailwind + shadcn-style components in `components/ui`
-  - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); base URL from `NEXT_PUBLIC_GILDE_API` (default `http://localhost:4100/api`)
+  - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); calls `/api/gilde`, a server-side proxy (`app/api/gilde/[...path]/route.ts`) that adds the token from the httpOnly `gilde_session` cookie and forwards to `GILDE_API_URL` (server-only, default `http://localhost:4100/api`). The browser must never read or store the token. `middleware.ts` redirects to `/login` without the cookie
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
   - pages: job board (`/`), `/features`, `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `packages/` — shared packages (none yet)
