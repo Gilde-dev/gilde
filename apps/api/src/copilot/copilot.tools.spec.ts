@@ -32,7 +32,8 @@ describe('co-pilot tools', () => {
         const { tools } = setup();
         expect(Object.keys(tools).sort()).toEqual([
             'createPlannedFeature', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills',
-            'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepos', 'planFeature',
+            'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'planFeature',
+            'readRepoFile', 'searchRepoCode',
         ]);
         for (const tool of Object.values(tools)) {
             expect(tool.description.length).toBeGreaterThan(20);
