@@ -1,4 +1,4 @@
-import { parseUserCreateArgs } from './args.js';
+import { parseApiKeyCreateArgs, parseUserCreateArgs } from './args.js';
 
 describe('parseUserCreateArgs', () => {
   it('reads email and name', () => {
@@ -7,5 +7,15 @@ describe('parseUserCreateArgs', () => {
 
   it('requires both', () => {
     expect(() => parseUserCreateArgs(['--email', 'a@b.nl'])).toThrow(/Usage/);
+  });
+});
+
+describe('parseApiKeyCreateArgs', () => {
+  it('reads email and name', () => {
+    expect(parseApiKeyCreateArgs(['--email', 'a@b.nl', '--name', 'bot'])).toEqual({ email: 'a@b.nl', name: 'bot' });
+  });
+
+  it('requires both', () => {
+    expect(() => parseApiKeyCreateArgs(['--name', 'bot'])).toThrow(/apikey:create/);
   });
 });

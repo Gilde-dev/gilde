@@ -31,7 +31,8 @@ Run from the repo root unless noted.
 ## API domains (`apps/api/src/`)
 One NestJS module per domain:
 - `user/` — users (name, email, argon2id password hash); created with the `user:create` CLI (`pnpm --filter @gilde/api user:create --email <email> --name <name>`)
-- `auth/` — `POST /api/v1/auth/login` (passport-local, throttled 5/min per IP) issues a JWT; `GET /api/v1/auth/me`; the global `JwtAuthGuard`. Env: `JWT_SECRET` (≥ 32 chars), `JWT_EXPIRES_IN`, `AUTH_ENABLED`
+- `auth/` — `POST /api/v1/auth/login` (passport-local, throttled 5/min per IP) issues a JWT; `GET /api/v1/auth/me`; the global `JwtAuthGuard`, which accepts a JWT or an API key (`Authorization: Bearer gk_...`); both end up as `req.user`. Env: `JWT_SECRET` (≥ 32 chars), `JWT_EXPIRES_IN`, `AUTH_ENABLED`
+- `api-key/` — `api_keys` (`gk_<prefix>_<secret>`, sha256 hash stored, shown once on creation); `POST/GET /api/v1/api-keys`, `DELETE /api/v1/api-keys/:id` for the current user; CLI `pnpm --filter @gilde/api apikey:create --email <email> --name <name>`; the web page is `/settings/api-keys`
 - `project/` — products; policies like daily run limit, max attempts, run timeout, retry on changes requested, pause
 - `repo/` — GitHub repos in a project; test command, routine fire URL and token env var name, concurrency, pause
 - `job/` — units of work; `job-state.ts` is the state machine (triage → queued → dispatched → pr_open → awaiting_review → merged, plus rejected/parked/cancelled); `job-dependency.entity.ts` for dependencies; `job-events.service.ts` applies GitHub events to jobs

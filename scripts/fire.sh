@@ -9,7 +9,7 @@
 # or apps/api/.env.
 #
 # Env: GILDE_API (default http://localhost:4100/api)
-#      GILDE_TOKEN (optional) a Gilde login token, sent as a Bearer token on API calls
+#      GILDE_TOKEN (optional) a Gilde login token (JWT) or API key (gk_...), sent as a Bearer token on API calls
 # Needs: curl, jq, node
 set -euo pipefail
 
