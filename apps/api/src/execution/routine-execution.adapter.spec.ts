@@ -103,6 +103,54 @@ describe('RoutineExecutionAdapter', () => {
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
+    describe('lessons', () => {
+        const lesson = (i: number, size = 100) => ({ id: `l${i}`, text: 'z'.repeat(size), scope: 'project' as const, status: 'approved' as const, relevance: 0.9 - i / 100 });
+
+        it('sends lessons in the payload; a legacy payload without them is unchanged and still validates', async () => {
+            fetchMock.mockResolvedValue(jsonResponse(okBody));
+            await adapter.fire(repo, { ...payload, lessons: [lesson(1)] });
+            expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toContain('"lessons":[{"id":"l1"');
+            expect(adapter.preview(payload).text).not.toContain('lessons');
+            expect(adapter.preview(payload).text).toBe(`Gilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n${JSON.stringify(payload)}`);
+        });
+
+        it('drops the least relevant lessons first to fit near the limit, never touching task or instructions', () => {
+            const base = adapter.preview(payload).text.length;
+            instructions = { text: 'x'.repeat(PROMPT_LIMIT - base - 1520), version: 'v' };
+            const lessons = [lesson(1, 400), lesson(2, 400), lesson(3, 400), lesson(4, 400)];
+            const { text } = adapter.preview({ ...payload, lessons });
+            expect(text.length).toBeLessThanOrEqual(PROMPT_LIMIT);
+            expect(text).toContain('"id":"l1"');
+            expect(text).not.toContain('"id":"l4"');
+            expect(text).toContain('"task":"Do it"');
+            expect(text.startsWith('x'.repeat(100))).toBe(true);
+        });
+
+        it('omits the lessons key entirely when none fit, and a prompt that is valid without lessons is never a config error', () => {
+            const base = adapter.preview(payload).text.length;
+            instructions = { text: 'x'.repeat(PROMPT_LIMIT - base - 20), version: 'v' };
+            const { text } = adapter.preview({ ...payload, lessons: [lesson(1, 800)] });
+            expect(text).not.toContain('lessons');
+            expect(text.length).toBeLessThanOrEqual(PROMPT_LIMIT);
+        });
+
+        it('still fails as a config error when the required content alone is too long', () => {
+            instructions = { text: 'x'.repeat(PROMPT_LIMIT), version: 'v' };
+            expect(() => adapter.preview({ ...payload, lessons: [lesson(1)] })).toThrow(ExecutionError);
+        });
+
+        it('keeps feature, downstream and continuation context next to lessons', () => {
+            const full = {
+                ...payload, lessons: [lesson(1)],
+                feature: { title: 'F', spec: 's', acceptanceCriteria: [] },
+                downstream: [{ jobId: 'd', title: 'D', task: 't', acceptanceCriteria: [], dependsOn: ['job-1'] }],
+                continueOn: { branch: 'b', prNumber: 3, reason: 'fix ci' },
+            };
+            const { text } = adapter.preview(full);
+            for (const key of ['"feature"', '"downstream"', '"continueOn"', '"lessons"']) expect(text).toContain(key);
+        });
+    });
+
     it('rejects a repo without routine config (not retryable)', async () => {
         const err = await failure(adapter.fire({ ...repo, routineFireUrl: null }, payload));
         expect(err.kind).toBe('config');

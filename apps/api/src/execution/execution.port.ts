@@ -2,6 +2,16 @@ import { z } from 'zod';
 
 export const EXECUTION_PORT = Symbol('EXECUTION_PORT');
 
+/** An approved lesson offered to the agent. Advisory only: it never overrides the task, criteria, repo instructions or safety rules. */
+export const JobLessonSchema = z.object({
+    id: z.string(),
+    text: z.string(),
+    scope: z.enum(['project', 'repo']),
+    status: z.enum(['approved', 'applying', 'applied']),
+    relevance: z.number(),
+});
+export type JobLesson = z.infer<typeof JobLessonSchema>;
+
 export const JobPayloadSchema = z.object({
     gilde: z.literal(1),
     jobId: z.string(),
@@ -22,6 +32,7 @@ export const JobPayloadSchema = z.object({
         acceptanceCriteria: z.array(z.string()),
         dependsOn: z.array(z.string()),
     })).optional(),
+    lessons: z.array(JobLessonSchema).optional(),
     continueOn: z.object({ branch: z.string(), prNumber: z.number().int(), reason: z.string() }).optional(),
 });
 export type JobPayload = z.infer<typeof JobPayloadSchema>;
