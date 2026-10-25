@@ -3,6 +3,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { JOB_STATUSES, type JobStatus } from '../job/job-state.js';
+import { User } from '../user/user.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import type { ProjectService } from '../project/project.service.js';
@@ -23,7 +24,7 @@ let otherRepo: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);

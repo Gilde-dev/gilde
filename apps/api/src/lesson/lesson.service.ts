@@ -65,7 +65,7 @@ export class LessonService implements LessonJobHook {
     }
 
     /** Creates a job on the target repo that applies the lesson; the lesson is `applying` until that job ends. */
-    async apply(id: string): Promise<LessonResponseDto> {
+    async apply(id: string, actor: { id: string } | null = null): Promise<LessonResponseDto> {
         const lesson = await this.getOrFail(id);
         if (nextLessonStatus(lesson.status, 'apply') === null) throw new ConflictException(`Cannot apply a ${lesson.status} lesson`);
         if (lesson.targetKind !== 'repo_skill' && lesson.targetKind !== 'skill' && lesson.targetKind !== 'agents_md') {
@@ -86,7 +86,7 @@ export class LessonService implements LessonJobHook {
                 'The change is minimal and consistent with the existing content',
                 `The PR body cites the lesson id ${lesson.id}`,
             ],
-        });
+        }, actor);
 
         const res = await this.lessons.update({ id, status: 'approved' }, { status: 'applying', appliedJobId: job.id, appliedAt: null });
         if (res.affected !== 1) throw new ConflictException('Lesson changed in the meantime, try again');

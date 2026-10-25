@@ -4,11 +4,12 @@ import { Feedback } from '../feedback/feedback.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
+import { User } from '../user/user.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonSource } from './lesson-source.entity.js';
 
-export const ENTITIES = [Lesson, LessonSource, JobRun, Feedback, Job, Repo, Project];
+export const ENTITIES = [User, Lesson, LessonSource, JobRun, Feedback, Job, Repo, Project];
 
 export const P1 = '11111111-1111-4111-8111-111111111111';
 export const P2 = '22222222-2222-4222-8222-222222222222';

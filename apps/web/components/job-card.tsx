@@ -2,6 +2,14 @@ import type { Job } from '@/lib/api';
 import { JobActions } from './job-actions';
 import { relativeTime } from '@/lib/time';
 
+const initials = (name: string) =>
+  name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((w) => w[0].toUpperCase())
+    .join('');
+
 const blockedTitles = (job: Job) => job.blockedBy.map((b) => `${b.title} (${b.status})`).join('\n');
 
 export function JobCard({
@@ -72,6 +80,12 @@ export function JobCard({
             <span>#{job.prNumber}</span>
           ))}
         <span>{relativeTime(job.updatedAt)}</span>
+        <span
+          className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-900"
+          title={job.createdBy ? `Created by ${job.createdBy.name}` : 'Created by the system'}
+        >
+          {job.createdBy ? initials(job.createdBy.name) : 'System'}
+        </span>
         {job.failedDependency ? (
           <span
             className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-900"

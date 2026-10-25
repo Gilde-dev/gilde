@@ -1,5 +1,6 @@
-import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
+import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
+import { User } from '../user/user.entity.js';
 import { JOB_STATUSES, type JobStatus } from './job-state.js';
 
 @Entity({ name: 'jobs' })
@@ -98,6 +99,18 @@ export class Job {
         nullable: true
     })
     approvalReason: string | null;
+
+    /** The user who created the job; null for system-created jobs and when the user was deleted. */
+    @Column({
+        name: 'created_by',
+        type: 'varchar',
+        nullable: true
+    })
+    createdById: string | null;
+
+    @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })
+    @JoinColumn({ name: 'created_by' })
+    createdBy?: User | null;
 
     @CreateDateColumn({
         name: 'created_at'

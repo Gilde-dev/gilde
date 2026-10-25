@@ -8,7 +8,7 @@ const FAILED_DEPENDENCY: readonly string[] = ['rejected', 'parked', 'cancelled']
 @Injectable()
 export class JobMapper {
 
-    toDTO(e: Job, deps: { dependsOn: string[]; blockedBy: BlockingJobDto[]; pendingRevisions?: number; revision?: number } = { dependsOn: [], blockedBy: [] }): JobResponseDto {
+    toDTO(e: Job, deps: { dependsOn: string[]; blockedBy: BlockingJobDto[]; pendingRevisions?: number; revision?: number; createdBy?: { id: string; name: string } | null } = { dependsOn: [], blockedBy: [] }): JobResponseDto {
         return {
             id: e.id,
             projectId: e.projectId,
@@ -31,6 +31,7 @@ export class JobMapper {
             pendingRevisions: deps.pendingRevisions ?? 0,
             revision: deps.revision ?? 0,
             ...(deps.blockedBy.some((b) => FAILED_DEPENDENCY.includes(b.status)) ? { failedDependency: true } : {}),
+            createdBy: deps.createdBy ?? null,
             createdAt: e.createdAt.toISOString(),
             updatedAt: e.updatedAt.toISOString(),
         };

@@ -23,6 +23,7 @@ export function Dashboard() {
   const [creating, setCreating] = useState(false);
   const [warnings, setWarnings] = useState<string[]>([]);
   const [featureFilter, setFeatureFilter] = useState('');
+  const [creatorFilter, setCreatorFilter] = useState<'' | 'me'>('');
 
   const projects = usePolling(api.listProjects, 30_000);
   const requested = params.get('project');
@@ -30,7 +31,7 @@ export function Dashboard() {
     projects.data?.find((p) => p.id === requested)?.id ?? projects.data?.[0]?.id ?? null;
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([])), [projectId]);
-  const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId) : Promise.resolve([])), [projectId]);
+  const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId, creatorFilter || undefined) : Promise.resolve([])), [projectId, creatorFilter]);
   const fetchFeatures = useCallback(() => (projectId ? api.listFeatures(projectId) : Promise.resolve([])), [projectId]);
   const repos = usePolling(fetchRepos, POLL_MS);
   const features = usePolling(fetchFeatures, POLL_MS);
@@ -85,6 +86,15 @@ export function Dashboard() {
                     {f.title}
                   </option>
                 ))}
+              </select>
+              <select
+                aria-label="Created by filter"
+                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                value={creatorFilter}
+                onChange={(e) => setCreatorFilter(e.target.value as '' | 'me')}
+              >
+                <option value="">Anyone</option>
+                <option value="me">Me</option>
               </select>
               <Button onClick={() => setCreating(true)}>New job</Button>
             </div>

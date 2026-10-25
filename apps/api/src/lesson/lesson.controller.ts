@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../auth/auth.dto.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import {
@@ -67,8 +69,8 @@ export class LessonController {
 
     @Post(':id/apply')
     @HttpCode(200)
-    apply(@Param('id', ParseUUIDPipe) id: string): Promise<LessonResponseDto> {
-        return this.lessonService.apply(id);
+    apply(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<LessonResponseDto> {
+        return this.lessonService.apply(id, user);
     }
 
     @Post(':id/mark-applied')

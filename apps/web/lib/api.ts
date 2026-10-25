@@ -136,6 +136,8 @@ export interface Job {
   pendingRevisions: number;
   /** Number of the last accepted revision; 0 when never revised. */
   revision: number;
+  /** Who created the job; null for system-created jobs. */
+  createdBy: { id: string; name: string } | null;
   /** Present (true) when any dependency is rejected, parked or cancelled. */
   failedDependency?: boolean;
   createdAt: string;
@@ -482,7 +484,8 @@ const id = encodeURIComponent;
 export const api = {
   listProjects: () => request<Project[]>('/v1/projects'),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
-  listJobs: (projectId: string) => request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200`),
+  listJobs: (projectId: string, createdBy?: 'me') =>
+    request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200${createdBy ? `&createdBy=${createdBy}` : ''}`),
   getMetrics: ({ projectId, repoId, days }: MetricsFilter) => {
     const q = new URLSearchParams({ days: String(days) });
     if (projectId) q.set('projectId', projectId);

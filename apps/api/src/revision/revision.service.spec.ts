@@ -3,6 +3,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DispatcherService } from '../dispatch/dispatcher.service.js';
+import { User } from '../user/user.entity.js';
 import { loadDownstream } from '../execution/downstream.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import { Feature } from '../feature/feature.entity.js';
@@ -43,7 +44,7 @@ let seq = 0;
 beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3', database: ':memory:',
-        entities: [Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback], synchronize: true,
+        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
