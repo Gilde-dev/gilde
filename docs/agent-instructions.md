@@ -32,6 +32,9 @@ and downstream [{ jobId, title, task, acceptanceCriteria, dependsOn }] (unstarte
 
    <short description of the change>
 
+   ## Acceptance criteria
+   - [x] <each acceptance criterion from the payload, checked only when it is met>
+
    ```gilde-result
    {"outcome":"done|partial|blocked","summary":"<one or two sentences>","testsRun":true,"testsPassed":true,"suggestedLesson":"<one reusable lesson for future agents, or null>"}
    ```
