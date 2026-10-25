@@ -20,6 +20,11 @@ export const UpdateJobSchema = z.object({
     featureId: z.string().uuid().nullable().optional(),
 }).refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update' });
 
+export const SendBackSchema = z.object({
+    reason: z.string().trim().min(1).max(4000),
+});
+export type SendBackDto = z.infer<typeof SendBackSchema>;
+
 export const BulkEnqueueSchema = z.object({
     ids: z.array(z.string().uuid()).min(1).max(50),
 });

@@ -455,6 +455,48 @@ describe('WebhookService', () => {
         });
     });
 
+    describe('/gilde retry comment', () => {
+        const comment = (body: string, assoc = 'OWNER', id = 600) => ({
+            action: 'created', repository: { full_name: 'gilde-dev/gilde' }, issue: { number: 12, pull_request: { url: 'x' } },
+            comment: { id, body, author_association: assoc, user: { login: 'bob' }, html_url: 'u', created_at: '2026-10-01T11:00:00Z' },
+        });
+
+        it('requeues the job with the comment text and unaddressed inline comments', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, branch: 'claude/x', headSha: SHA1 });
+            await service.handle('pull_request_review_comment', {
+                action: 'created', repository: { full_name: 'gilde-dev/gilde' }, pull_request: prPayload('x').pull_request,
+                comment: { id: 77, path: 'a.ts', line: 3, body: 'fix me', author_association: 'OWNER', user: { login: 'bob' }, created_at: '2026-10-01T09:00:00Z' },
+            });
+            const res = await service.handle('issue_comment', comment('/GILDE retry  please tidy up'));
+            expect(res).toContain('job queued');
+            const after = await reload(job.id);
+            expect(after.status).toBe('queued');
+            expect(after.prNumber).toBe(12);
+            expect(after.lastReason).toBe('Sent back by the reviewer: please tidy up\n- a.ts:3 fix me');
+        });
+
+        it('uses a default reason when there is no text', async () => {
+            const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+            await service.handle('issue_comment', comment('/gilde retry'));
+            expect((await reload(job.id)).lastReason).toBe('Sent back by the reviewer: Address the review comments on the PR.');
+        });
+
+        it('only stores comments from others and from non-commands', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            expect(await service.handle('issue_comment', comment('/gilde retry', 'CONTRIBUTOR'))).toContain('ignored');
+            expect(await service.handle('issue_comment', comment('please /gilde retry', 'OWNER', 601))).toBe('stored comment for PR #12');
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+        });
+
+        it('does not requeue twice on a redelivery', async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            await service.handle('issue_comment', comment('/gilde retry'));
+            await jobs.update({ id: job.id }, { status: 'pr_open' });
+            expect(await service.handle('issue_comment', comment('/gilde retry'))).toContain('unchanged');
+            expect((await reload(job.id)).status).toBe('pr_open');
+        });
+    });
+
     describe('after a retry', () => {
         it('moves a re-dispatched job to pr_open on push, and ignores a second PR', async () => {
             const job = await seedJob('dispatched', { prNumber: 12, branch: 'b', headSha: SHA1, attempts: 2 });

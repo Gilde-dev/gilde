@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { FindOptionsWhere, MoreThanOrEqual, Repository } from 'typeorm';
+import { FindOptionsWhere, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 
 import { isUniqueViolation } from '../common/db-errors.js';
 import type { FeedbackResponseDto, ListFeedbackQuery } from './feedback.dto.js';
@@ -42,6 +42,14 @@ export class FeedbackService {
         if (q.since) where.createdAt = MoreThanOrEqual(new Date(q.since));
         const entities = await this.feedbackRepository.find({ where, order: { createdAt: 'ASC', id: 'ASC' } });
         return entities.map((e) => this.feedbackMapper.toDTO(e));
+    }
+
+    /** Internal: inline review comments on the job's PR created after `since` (i.e. not yet answered by an agent push). */
+    findReviewCommentsSince(jobId: string, since: Date | null): Promise<Feedback[]> {
+        return this.feedbackRepository.find({
+            where: { jobId, kind: 'review_comment', ...(since ? { createdAt: MoreThan(since) } : {}) },
+            order: { createdAt: 'ASC', id: 'ASC' },
+        });
     }
 
     /** Internal: the inline comments stored for one review, oldest first. */

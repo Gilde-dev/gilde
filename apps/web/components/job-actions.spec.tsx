@@ -13,6 +13,7 @@ describe('JobActions', () => {
     const cancel = ['triage', 'queued', 'dispatched', 'parked'].includes(status);
     expect(!!screen.queryByRole('button', { name: 'Cancel' })).toBe(cancel);
     expect(!!screen.queryByRole('button', { name: 'Retry' })).toBe(status === 'parked');
+    expect(!!screen.queryByRole('button', { name: 'Send back to agent' })).toBe(status === 'pr_open' || status === 'awaiting_review');
     expect(!!screen.queryByRole('button', { name: 'Queue' })).toBe(status === 'triage');
     expect(!!screen.queryByRole('button', { name: 'Back to triage' })).toBe(status === 'queued');
   });
@@ -43,6 +44,28 @@ describe('JobActions', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Job is not parked');
     expect(retry).toHaveBeenCalledWith('j1');
     expect(onChanged).not.toHaveBeenCalled();
+  });
+
+  it('sends an awaiting_review job back with a reason', async () => {
+    const sendBack = vi.spyOn(api, 'sendBackJob').mockResolvedValue({} as Job);
+    const onChanged = vi.fn();
+    render(<JobActions job={job('awaiting_review')} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send back to agent' }));
+    const submit = screen.getByRole('button', { name: 'Send back' });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: ' fix the tests ' } });
+    fireEvent.click(submit);
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(sendBack).toHaveBeenCalledWith('j1', 'fix the tests');
+  });
+
+  it('shows the API error inside the send-back dialog', async () => {
+    vi.spyOn(api, 'sendBackJob').mockRejectedValue(new ApiError('long', 409, 'Cannot send back'));
+    render(<JobActions job={job('pr_open')} onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Send back to agent' }));
+    fireEvent.change(screen.getByLabelText('Reason'), { target: { value: 'x' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send back' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot send back');
   });
 
   it('queues a triage job and reports dependency warnings', async () => {
