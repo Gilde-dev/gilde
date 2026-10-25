@@ -16,6 +16,7 @@ import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
 import { nextStatus, type JobEvent } from './job-state.js';
 import { JobRevision } from '../revision/revision.entity.js';
+import { User } from '../user/user.entity.js';
 
 @Injectable()
 export class JobService {
@@ -31,7 +32,8 @@ export class JobService {
         private readonly moduleRef?: ModuleRef,
     ) { }
 
-    async create(repoId: string, dto: CreateJobDto): Promise<JobResponseDto> {
+    /** `actor` is the user creating the job; null for system-created jobs. */
+    async create(repoId: string, dto: CreateJobDto, actor: { id: string } | null = null): Promise<JobResponseDto> {
         const repo = await this.repoService.getById(repoId); // 404 if unknown
         const dependsOn = dto.dependsOn ?? [];
         await this.validateDependencies(null, repo.projectId, dependsOn);
@@ -47,6 +49,7 @@ export class JobService {
                 featureId: feature?.id ?? null,
                 acceptanceCriteria: dto.acceptanceCriteria ?? [],
                 repoId,
+                createdById: actor?.id ?? null,
                 projectId: repo.projectId,
                 status,
                 queuedAt: status === 'queued' ? new Date() : null,
@@ -196,6 +199,11 @@ export class JobService {
             where: { jobId: In(entities.map((e) => e.id)), status: In(['proposed', 'accepted']) },
             select: { jobId: true, status: true, revision: true },
         });
+        const creatorIds = [...new Set(entities.map((e) => e.createdById).filter((i): i is string => !!i))];
+        const creators = creatorIds.length
+            ? await this.jobRepository.manager.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true } })
+            : [];
+        const creatorById = new Map(creators.map((u) => [u.id, { id: u.id, name: u.name }]));
         return entities.map((e) => {
             const own = revisions.filter((r) => r.jobId === e.id);
             const revision = {
@@ -207,16 +215,21 @@ export class JobService {
                 .map((id) => depById.get(id))
                 .filter((d): d is Job => !!d && d.status !== 'merged')
                 .map((d) => ({ id: d.id, title: d.title, status: d.status }));
-            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision });
+            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null });
         });
     }
 
-    async list(q: ListJobsQuery): Promise<JobResponseDto[]> {
+    async list(q: ListJobsQuery, actor: { id: string } | null = null): Promise<JobResponseDto[]> {
         const where: FindOptionsWhere<Job> = {};
         if (q.projectId) where.projectId = q.projectId;
         if (q.repoId) where.repoId = q.repoId;
         if (q.featureId) where.featureId = q.featureId;
         if (q.status) where.status = q.status;
+        if (q.createdBy) {
+            const creatorId = q.createdBy === 'me' ? actor?.id : q.createdBy;
+            if (!creatorId) return []; // "me" without a logged-in user matches nothing
+            where.createdById = creatorId;
+        }
         const entities = await this.jobRepository.find({ where, order: { createdAt: 'DESC' }, take: q.limit });
         return this.toDTOs(entities);
     }

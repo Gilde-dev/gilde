@@ -2,6 +2,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GitHubRestAdapter } from '../github/github-rest.adapter.js';
+import { User } from '../user/user.entity.js';
 import type { GitHubPort, GitHubPull, GitHubWorkflowRun } from '../github/github.port.js';
 import { JobEventsService } from '../job/job-events.service.js';
 import type { JobStatus } from '../job/job-state.js';
@@ -23,7 +24,7 @@ let service: ReconcilerService;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     projects = ds.getRepository(Project);

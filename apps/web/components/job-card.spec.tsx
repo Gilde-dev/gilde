@@ -6,7 +6,7 @@ import { JobCard } from './job-card';
 const base = {
   id: 'j', projectId: 'p', repoId: 'r', featureId: null, title: 'Job', task: 't', acceptanceCriteria: [], status: 'queued',
   attempts: 0, queuedAt: '2026-01-01T00:00:00.000Z', prNumber: null, prUrl: null, branch: null, lastReason: null,
-  needsApproval: false, approvalReason: null, dependsOn: [], blockedBy: [], pendingRevisions: 0, revision: 0,
+  needsApproval: false, approvalReason: null, dependsOn: [], blockedBy: [], pendingRevisions: 0, revision: 0, createdBy: null,
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 } as Job;
 
@@ -50,5 +50,17 @@ describe('JobCard proposals', () => {
   it('shows no badge without pending proposals', () => {
     render(<JobCard job={base} onOpen={() => {}} />);
     expect(screen.queryByText('proposal pending')).toBeNull();
+  });
+});
+
+describe('JobCard creator', () => {
+  it('shows the creator initials', () => {
+    render(<JobCard job={{ ...base, createdBy: { id: 'u1', name: 'Ann de Vries' } }} onOpen={() => {}} />);
+    expect(screen.getByText('AD')).toHaveAttribute('title', 'Created by Ann de Vries');
+  });
+
+  it('shows System without a creator', () => {
+    render(<JobCard job={base} onOpen={() => {}} />);
+    expect(screen.getByText('System')).toBeInTheDocument();
   });
 });

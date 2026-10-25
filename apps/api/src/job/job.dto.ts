@@ -34,6 +34,7 @@ export const ListJobsQuerySchema = z.object({
     repoId: z.string().uuid().optional(),
     featureId: z.string().uuid().optional(),
     status: z.enum(JOB_STATUSES).optional(),
+    createdBy: z.union([z.literal('me'), z.string().uuid()]).optional(),
     limit: z.coerce.number().int().min(1).max(200).default(50),
 });
 
@@ -41,6 +42,11 @@ export const BlockingJobSchema = z.object({
     id: z.string().uuid(),
     title: z.string(),
     status: z.enum(JOB_STATUSES),
+});
+
+export const JobCreatorSchema = z.object({
+    id: z.string().uuid(),
+    name: z.string(),
 });
 
 export const JobResponseSchema = z.object({
@@ -65,6 +71,7 @@ export const JobResponseSchema = z.object({
     pendingRevisions: z.number().int(),
     revision: z.number().int(),
     failedDependency: z.boolean().optional(),
+    createdBy: JobCreatorSchema.nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });

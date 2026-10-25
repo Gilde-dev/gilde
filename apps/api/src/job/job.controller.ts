@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../auth/auth.dto.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import { BulkEnqueueSchema, UpdateJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type UpdateJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery, type JobPromptResponseDto } from './job.dto.js';
@@ -18,13 +20,14 @@ export class JobController {
     create(
         @Param('repoId', ParseUUIDPipe) repoId: string,
         @Body(new ZodValidationPipe(CreateJobSchema)) dto: CreateJobDto,
+        @CurrentUser() user: AuthUser | null,
     ): Promise<JobResponseDto> {
-        return this.jobService.create(repoId, dto);
+        return this.jobService.create(repoId, dto, user);
     }
 
     @Get('jobs')
-    list(@Query(new ZodValidationPipe(ListJobsQuerySchema)) q: ListJobsQuery): Promise<JobResponseDto[]> {
-        return this.jobService.list(q);
+    list(@Query(new ZodValidationPipe(ListJobsQuerySchema)) q: ListJobsQuery, @CurrentUser() user: AuthUser | null): Promise<JobResponseDto[]> {
+        return this.jobService.list(q, user);
     }
 
     @Get('jobs/:id')

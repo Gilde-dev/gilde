@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 
+import { CurrentUser } from '../auth/current-user.decorator.js';
+import type { AuthUser } from '../auth/auth.dto.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import { PromoteSkillSchema, type PromoteSkillDto, type PromoteSkillResponseDto, type RepoSkillsResponseDto, type SkillCatalogResponseDto } from './skill.dto.js';
@@ -34,7 +36,8 @@ export class SkillController {
         @Param('id', ParseUUIDPipe) id: string,
         @Param('name') name: string,
         @Body(new ZodValidationPipe(PromoteSkillSchema)) dto: PromoteSkillDto,
+        @CurrentUser() user: AuthUser | null,
     ): Promise<PromoteSkillResponseDto> {
-        return this.promoter.promote(id, name, dto);
+        return this.promoter.promote(id, name, dto, user);
     }
 }

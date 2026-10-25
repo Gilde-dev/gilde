@@ -143,6 +143,12 @@ describe('LessonService', () => {
             return { repo, l: await lesson({ status: 'approved', targetKind: 'repo_skill', targetRepoId: repo.id, text: 'Always run pnpm install first', ...over }) };
         };
 
+        it('passes the acting user on to the job', async () => {
+            const { l } = await approved();
+            await service.apply(l.id, { id: 'user-1' });
+            expect((service as never as { jobService: { create: ReturnType<typeof vi.fn> } }).jobService.create.mock.calls[0][2]).toEqual({ id: 'user-1' });
+        });
+
         it('creates one job on the target repo with the instruction and evidence, and moves the lesson to applying', async () => {
             const { repo, l } = await approved();
             await ds.getRepository(Job).save({ id: J1, projectId: P1, repoId: 'r', title: 't', task: 't', queuedAt: new Date(), prUrl: 'https://github.com/o/r/pull/1' });

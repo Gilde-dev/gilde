@@ -262,6 +262,9 @@ export function JobModal({
                     </a>
                   )}
                   {shown.branch && <code className="text-xs">{shown.branch}</code>}
+                  <span>
+                    Created by {shown.createdBy?.name ?? 'System'} on {new Date(shown.createdAt).toLocaleDateString('en')}
+                  </span>
                 </div>
               </DialogDescription>
             </div>

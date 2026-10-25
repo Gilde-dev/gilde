@@ -22,7 +22,7 @@ export class SkillPromoteService {
         private readonly reader: RepoSkillsReader,
     ) { }
 
-    async promote(repoId: string, name: string, dto: PromoteSkillDto): Promise<PromoteSkillResponseDto> {
+    async promote(repoId: string, name: string, dto: PromoteSkillDto, actor: { id: string } | null = null): Promise<PromoteSkillResponseDto> {
         // The library's registry only accepts these names; a promoted invalid name would make the whole catalog unreadable.
         if (!skillName.safeParse(name).success) {
             throw new BadRequestException(`'${name}' is not a valid library skill name: use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit`);
@@ -65,7 +65,7 @@ export class SkillPromoteService {
                     `registry.yaml has an entry for ${name} with scope ${dto.scope}${dto.scope === 'stack' ? ` and stacks ${dto.stacks!.join(', ')}` : ''}`,
                     'The repo test commands pass',
                 ],
-            });
+            }, actor);
             libraryJobId = job.id;
         }
 
@@ -78,7 +78,7 @@ export class SkillPromoteService {
                 covered ? '.gilde.json is unchanged' : `.gilde.json lists ${name} in skills.include`,
             ],
             ...(libraryJobId ? { dependsOn: [libraryJobId] } : {}),
-        });
+        }, actor);
         return { libraryJobId, cleanupJobId: cleanup.id };
     }
 }

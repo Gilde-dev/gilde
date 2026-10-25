@@ -3,6 +3,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Feature } from '../feature/feature.entity.js';
+import { User } from '../user/user.entity.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -21,7 +22,7 @@ let other: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobDependency, Feature, JobRevision], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobDependency, Feature, JobRevision], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     const projects = ds.getRepository(Project);
@@ -158,5 +159,39 @@ describe('triage', () => {
         const dep = await seed(repoA, 'merged');
         const t = await seed(repoA, 'triage');
         expect((await service.setDependencies(t.id, [dep.id])).dependsOn).toEqual([dep.id]);
+    });
+});
+
+describe('createdBy', () => {
+    const users = () => ds.getRepository(User);
+    const mkUser = (name: string) => users().save(users().create({ name, email: `${name}@x.nl`, password: 'x' }));
+
+    it('stores the actor, defaults to null, and reports the creator in list and detail', async () => {
+        const ann = await mkUser('ann');
+        const mine = await service.create(repoA.id, body(), { id: ann.id });
+        const system = await service.create(repoA.id, body());
+        expect(mine.createdBy).toEqual({ id: ann.id, name: 'ann' });
+        expect(system.createdBy).toBeNull();
+        expect((await service.getById(mine.id)).createdBy).toEqual({ id: ann.id, name: 'ann' });
+        const list = await service.list({ limit: 50 });
+        expect(list.find((j) => j.id === mine.id)?.createdBy).toEqual({ id: ann.id, name: 'ann' });
+        expect(list.find((j) => j.id === system.id)?.createdBy).toBeNull();
+    });
+
+    it('filters by user id and by me', async () => {
+        const ann = await mkUser('ann');
+        const bob = await mkUser('bob');
+        const a = await service.create(repoA.id, body(), { id: ann.id });
+        const b = await service.create(repoA.id, body(), { id: bob.id });
+        expect((await service.list({ limit: 50, createdBy: 'me' }, { id: ann.id })).map((j) => j.id)).toEqual([a.id]);
+        expect((await service.list({ limit: 50, createdBy: bob.id })).map((j) => j.id)).toEqual([b.id]);
+        expect(await service.list({ limit: 50, createdBy: 'me' }, null)).toEqual([]);
+    });
+
+    it('sets created_by to null when the user is deleted', async () => {
+        const ann = await mkUser('ann');
+        const job = await service.create(repoA.id, body(), { id: ann.id });
+        await users().delete({ id: ann.id });
+        expect((await service.getById(job.id)).createdBy).toBeNull();
     });
 });
