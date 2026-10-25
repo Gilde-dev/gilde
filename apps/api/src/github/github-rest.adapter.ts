@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import type { GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
+import type { GitHubDirEntry, GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -24,6 +24,12 @@ interface ContentJson {
     encoding?: string;
     content: string;
     sha: string;
+}
+
+interface ContentEntryJson {
+    type: string;
+    name: string;
+    path: string;
 }
 
 @Injectable()
@@ -58,6 +64,18 @@ export class GitHubRestAdapter implements GitHubPort {
             throw new Error(`GitHub path ${path} in ${fullName} is not a file`);
         }
         return { content: Buffer.from(file.content, 'base64').toString('utf8'), sha: file.sha };
+    }
+
+    async listDirectory(fullName: string, path: string, ref: string): Promise<GitHubDirEntry[] | null> {
+        const entries = await this.get<ContentEntryJson[] | ContentJson>(
+            `/repos/${fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,
+            true,
+        );
+        if (entries === null) return null;
+        if (!Array.isArray(entries)) throw new Error(`GitHub path ${path} in ${fullName} is not a directory`);
+        return entries
+            .filter((e) => e.type === 'file' || e.type === 'dir')
+            .map((e) => ({ name: e.name, path: e.path, type: e.type === 'dir' ? 'dir' : 'file' }));
     }
 
     private async get<T>(path: string): Promise<T>;

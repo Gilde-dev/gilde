@@ -5,9 +5,10 @@ const LINKS = [
   { href: '/features', label: 'Features' },
   { href: '/metrics', label: 'Metrics' },
   { href: '/lessons', label: 'Lessons' },
+  { href: '/skills', label: 'Skills' },
 ];
 
-export function SidebarNav({ current }: { current: '/' | '/features' | '/metrics' | '/lessons' }) {
+export function SidebarNav({ current }: { current: '/' | '/features' | '/metrics' | '/lessons' | '/skills' }) {
   return (
     <nav aria-label="Main" className="flex flex-col gap-1 text-sm">
       {LINKS.map((l) => (

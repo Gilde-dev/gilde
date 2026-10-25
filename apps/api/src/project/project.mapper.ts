@@ -16,6 +16,8 @@ export class ProjectMapper {
             runTimeoutMinutes: entity.runTimeoutMinutes,
             paused: entity.paused,
             maxAttempts: entity.maxAttempts,
+            skillsLibrary: entity.skillsLibrary ?? 'none',
+            skillsLibraryRepoId: entity.skillsLibraryRepoId ?? null,
             createdAt: entity.createdAt?.toISOString() || '',
             updatedAt: entity.updatedAt?.toISOString() || ''
         }

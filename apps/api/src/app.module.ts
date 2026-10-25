@@ -16,6 +16,7 @@ import { ReconcileModule } from './reconcile/reconcile.module.js';
 import { MetricsModule } from './metrics/metrics.module.js';
 import { FeatureModule } from './feature/feature.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
+import { SkillModule } from './skill/skill.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -41,6 +42,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ReconcileModule,
     MetricsModule,
     LessonModule,
+    SkillModule,
   ],
 })
 export class AppModule { }

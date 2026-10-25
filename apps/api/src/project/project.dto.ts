@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { SKILLS_LIBRARY_KINDS } from './project.entity.js';
+
 const slug = z
     .string()
     .regex(/^[a-z0-9][a-z0-9-]{1,62}$/, 'Lowercase letters, digits and dashes, 2–63 characters');
@@ -12,6 +14,8 @@ export const CreateProjectSchema = z.object({
     maxAttempts: z.number().int().min(1).max(10).optional(),
     runTimeoutMinutes: z.number().int().min(5).max(24 * 60).optional(),
     retryOnChangesRequested: z.boolean().optional(),
+    skillsLibrary: z.enum(SKILLS_LIBRARY_KINDS).optional(),
+    skillsLibraryRepoId: z.string().uuid().nullable().optional(),
 });
 
 export const UpdateProjectSchema = CreateProjectSchema.omit({ slug: true }).partial();
@@ -26,6 +30,8 @@ export const ProjectResponseSchema = z.object({
     runTimeoutMinutes: z.number().int(),
     retryOnChangesRequested: z.boolean(),
     paused: z.boolean(),
+    skillsLibrary: z.enum(SKILLS_LIBRARY_KINDS),
+    skillsLibraryRepoId: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });

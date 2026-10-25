@@ -22,6 +22,13 @@ export interface GitHubFile {
     sha: string;
 }
 
+export interface GitHubDirEntry {
+    name: string;
+    /** Path from the repo root. */
+    path: string;
+    type: 'file' | 'dir';
+}
+
 export interface GitHubPort {
     /** False when no GitHub credentials are configured; the other methods would fail. */
     isConfigured(): boolean;
@@ -32,4 +39,6 @@ export interface GitHubPort {
     listWorkflowRuns(fullName: string, headSha: string): Promise<GitHubWorkflowRun[]>;
     /** A text file at `ref`, or null when it does not exist. */
     getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null>;
+    /** The entries of a directory at `ref`, or null when it does not exist. */
+    listDirectory(fullName: string, path: string, ref: string): Promise<GitHubDirEntry[] | null>;
 }

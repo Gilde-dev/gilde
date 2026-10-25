@@ -5,12 +5,14 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 import { ProjectService } from './project.service.js';
 import { ProjectMapper } from './project.mapper.js';
 import { Project } from './project.entity.js';
+import { Repo } from '../repo/repo.entity.js';
 import { ProjectController } from './project.controller.js';
 
 @Module({
     imports: [
         TypeOrmModule.forFeature([
-            Project
+            Project,
+            Repo
         ])
     ],
     controllers: [
