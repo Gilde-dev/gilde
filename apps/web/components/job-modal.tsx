@@ -18,6 +18,11 @@ function RunRow({ run }: { run: Run }) {
         {run.ciConclusion && (
           <Badge variant={run.ciConclusion === 'success' ? 'success' : 'danger'}>CI {run.ciConclusion}</Badge>
         )}
+        {run.instructionsVersion && (
+          <Badge variant="outline" title="Agent instructions version">
+            Instructions {run.instructionsVersion}
+          </Badge>
+        )}
         {run.result && (
           <Badge variant={run.result.outcome === 'done' ? 'success' : run.result.outcome === 'blocked' ? 'danger' : 'warning'}>
             {run.result.outcome}

@@ -27,8 +27,9 @@ export class RunService {
         }
     }
 
-    async markFired(id: string, session: { sessionId: string; sessionUrl: string }): Promise<void> {
-        await this.runRepository.update({ id }, { status: 'fired', ...session, firedAt: new Date() });
+    async markFired(id: string, session: { sessionId: string; sessionUrl: string; instructionsVersion?: string | null }): Promise<void> {
+        const { instructionsVersion = null, ...rest } = session;
+        await this.runRepository.update({ id }, { status: 'fired', ...rest, instructionsVersion, firedAt: new Date() });
     }
 
     async markFailed(id: string, error: string): Promise<void> {

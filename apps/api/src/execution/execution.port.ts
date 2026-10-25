@@ -27,8 +27,12 @@ export interface ExecutionRepo {
 export interface ExecutionResult {
     sessionId: string;
     sessionUrl: string;
+    /** Version of the agent instructions sent with the job; null when none were configured. */
+    instructionsVersion?: string | null;
 }
 
 export interface ExecutionPort {
     fire(repo: ExecutionRepo, payload: JobPayload): Promise<ExecutionResult>;
+    /** The exact text a fire would send for this payload. No side effects. */
+    preview(payload: JobPayload): { text: string; instructionsVersion: string | null };
 }

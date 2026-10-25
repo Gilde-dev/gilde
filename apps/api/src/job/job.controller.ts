@@ -2,13 +2,17 @@ import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { BulkEnqueueSchema, UpdateJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type UpdateJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery } from './job.dto.js';
+import { BulkEnqueueSchema, UpdateJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type UpdateJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery, type JobPromptResponseDto } from './job.dto.js';
+import { JobPromptService } from './job-prompt.service.js';
 import { JobService } from './job.service.js';
 
 @Controller('/v1')
 export class JobController {
 
-    constructor(private readonly jobService: JobService) { }
+    constructor(
+        private readonly jobService: JobService,
+        private readonly jobPromptService: JobPromptService,
+    ) { }
 
     @Post('repos/:repoId/jobs')
     create(
@@ -26,6 +30,11 @@ export class JobController {
     @Get('jobs/:id')
     getById(@Param('id', ParseUUIDPipe) id: string): Promise<JobDetailResponseDto> {
         return this.jobService.getDetail(id);
+    }
+
+    @Get('jobs/:id/prompt')
+    prompt(@Param('id', ParseUUIDPipe) id: string): Promise<JobPromptResponseDto> {
+        return this.jobPromptService.get(id);
     }
 
     @Patch('jobs/:id')

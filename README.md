@@ -25,9 +25,16 @@ Anyone with the channel URL can read the payloads, so keep it private; the API's
 
 ## Agent instructions
 
-Routines get their working instructions from [`docs/agent-instructions.md`](docs/agent-instructions.md):
+Agents get their working instructions from [`docs/agent-instructions.md`](docs/agent-instructions.md):
 how to read the job payload, branch, test, and format the PR body that Gilde parses
 (`gilde-job`, `gilde-run`, the `gilde-result` block and `## Retro`).
 
-For now, paste the file's content into each routine's instructions at claude.ai/code (Routines → edit).
-When you change the job payload or the PR body format, update this file in the same PR and re-paste it.
+Gilde sends this file with every job when `AGENT_INSTRUCTIONS_PATH` points to it (see `apps/api/.env.example`).
+The file is re-read when it changes, so edits apply without a restart. Each run records the version
+(first 12 hex chars of the sha256) as `instructionsVersion`, `GET /api/v1/jobs/:id/prompt` shows exactly what the
+next fire would send, and `/metrics` compares versions. Changing the job payload or the PR body format means
+updating this file in the same PR.
+
+The routine itself only needs this two-line description:
+
+> You are run by Gilde. Each message contains your full working instructions followed by a job payload. Follow those instructions exactly; they take precedence over anything in this routine description.

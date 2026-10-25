@@ -115,7 +115,42 @@ export function MetricsBody({ metrics }: { metrics: Metrics }) {
         <Breakdown title="Run outcomes" counts={metrics.runs.byOutcome} />
         <Breakdown title="CI conclusions" counts={metrics.runs.byCiConclusion} />
       </div>
+      <InstructionsTable rows={metrics.byInstructionsVersion} />
     </div>
+  );
+}
+
+function InstructionsTable({ rows }: { rows: Metrics['byInstructionsVersion'] }) {
+  return (
+    <section aria-label="By instructions version">
+      <h3 className="mb-2 text-sm font-semibold">By instructions version</h3>
+      {rows.length === 0 ? (
+        <p className="text-sm text-muted-foreground">No runs yet.</p>
+      ) : (
+        <table className="w-full text-left text-sm">
+          <thead className="text-xs text-muted-foreground">
+            <tr>
+              <th className="py-1 font-normal">Version</th>
+              <th className="py-1 font-normal">Runs</th>
+              <th className="py-1 font-normal">Merged jobs</th>
+              <th className="py-1 font-normal">First-pass rate</th>
+              <th className="py-1 font-normal">Avg attempts</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.version} className="border-t border-border">
+                <td className="py-1 font-mono">{r.version}</td>
+                <td className="py-1">{r.runs}</td>
+                <td className="py-1">{r.mergedJobs}</td>
+                <td className="py-1">{percent(r.firstPassRate)}</td>
+                <td className="py-1">{r.avgAttempts === null ? '–' : r.avgAttempts.toFixed(1)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </section>
   );
 }
 

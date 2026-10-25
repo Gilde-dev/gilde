@@ -19,6 +19,7 @@ export const RunResponseSchema = z.object({
     status: z.enum(RUN_STATUSES),
     sessionId: z.string().nullable(),
     sessionUrl: z.string().nullable(),
+    instructionsVersion: z.string().nullable(),
     error: z.string().nullable(),
     ciConclusion: z.string().nullable(),
     result: gildeResultSchema.nullable(),

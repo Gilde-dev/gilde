@@ -2,6 +2,8 @@ import { afterEach, beforeEach, vi } from 'vitest';
 
 import { ExecutionError } from './execution.error.js';
 import type { JobPayload } from './execution.port.js';
+import type { AgentInstructionsService } from './agent-instructions.service.js';
+import { PROMPT_LIMIT } from './job-prompt.js';
 import { RoutineExecutionAdapter } from './routine-execution.adapter.js';
 
 const TOKEN = 'secret-token-value';
@@ -23,11 +25,13 @@ const okBody = { type: 'routine_fire', claude_code_session_id: 'sess_1', claude_
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
 
 describe('RoutineExecutionAdapter', () => {
-    const adapter = new RoutineExecutionAdapter();
+    let instructions = { text: null as string | null, version: null as string | null };
+    const adapter = new RoutineExecutionAdapter({ get: () => instructions } as unknown as AgentInstructionsService);
     const fetchMock = vi.fn();
 
     beforeEach(() => {
         process.env.TEST_ROUTINE_TOKEN = TOKEN;
+        instructions = { text: null, version: null };
         vi.stubGlobal('fetch', fetchMock);
     });
     afterEach(() => {
@@ -49,6 +53,7 @@ describe('RoutineExecutionAdapter', () => {
         await expect(adapter.fire(repo, payload)).resolves.toEqual({
             sessionId: 'sess_1',
             sessionUrl: 'https://claude.ai/code/sess_1',
+            instructionsVersion: null,
         });
 
         const [url, init] = fetchMock.mock.calls[0];
@@ -65,6 +70,36 @@ describe('RoutineExecutionAdapter', () => {
                 'Gilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n' +
                 JSON.stringify(payload),
         });
+    });
+
+    it('sends instructions, a --- line, then the job line and payload', async () => {
+        instructions = { text: 'Be good.\n', version: 'abc123def456' };
+        fetchMock.mockResolvedValue(jsonResponse(okBody));
+
+        const result = await adapter.fire(repo, payload);
+
+        expect(result.instructionsVersion).toBe('abc123def456');
+        const sent = JSON.parse(fetchMock.mock.calls[0][1].body).text;
+        expect(sent).toBe(
+            'Be good.\n\n---\n\nGilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n' +
+            JSON.stringify(payload),
+        );
+        expect(adapter.preview(payload)).toEqual({ text: sent, instructionsVersion: 'abc123def456' });
+    });
+
+    it('sends the payload only, version null, without instructions', async () => {
+        fetchMock.mockResolvedValue(jsonResponse(okBody));
+        const result = await adapter.fire(repo, payload);
+        expect(result.instructionsVersion).toBeNull();
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toMatch(/^Gilde job job-1/);
+    });
+
+    it('fails as a config error instead of truncating an oversized prompt', async () => {
+        instructions = { text: 'x'.repeat(PROMPT_LIMIT), version: 'v' };
+        const err = await failure(adapter.fire(repo, payload));
+        expect(err.kind).toBe('config');
+        expect(err.message).toContain('limit');
+        expect(fetchMock).not.toHaveBeenCalled();
     });
 
     it('rejects a repo without routine config (not retryable)', async () => {

@@ -69,6 +69,21 @@ describe('MetricsService', () => {
         expect(m.mergeRate).toBe(1);
     });
 
+    it('groups runs by instructions version, null shown as none', async () => {
+        const a = await seedJob('merged', '2026-03-09T10:00:00.000Z', { attempts: 1 });
+        await seedRun(a, 1, { instructionsVersion: 'v1' });
+        const b = await seedJob('merged', '2026-03-09T10:00:00.000Z', { attempts: 2 });
+        await seedRun(b, 1, { instructionsVersion: 'v1' });
+        await seedRun(b, 2, { instructionsVersion: 'v1' });
+        const c = await seedJob('parked', '2026-03-09T10:00:00.000Z', { attempts: 3 });
+        await seedRun(c, 1);
+        const m = await service.get({ days: 7 }, NOW);
+        const by = Object.fromEntries(m.byInstructionsVersion.map((v) => [v.version, v]));
+        expect(by.v1).toEqual({ version: 'v1', runs: 3, mergedJobs: 2, firstPassRate: 0.5, avgAttempts: 1.5 });
+        expect(by.none).toEqual({ version: 'none', runs: 1, mergedJobs: 0, firstPassRate: null, avgAttempts: 3 });
+        expect(m.byInstructionsVersion).toHaveLength(2);
+    });
+
     it('returns zeros, nulls and a full zero-filled daily series for an empty database', async () => {
         const m = await service.get({ days: 7 }, NOW);
         expect(m.jobs.total).toBe(0);

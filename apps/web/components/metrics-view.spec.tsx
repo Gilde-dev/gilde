@@ -19,6 +19,7 @@ const empty: Metrics = {
   avgAttempts: null,
   timeToMerge: { median: null, p90: null },
   runs: { total: 0, byOutcome: { done: 0, partial: 0, blocked: 0, none: 0 }, byCiConclusion: { none: 0 }, gateFailures: 0 },
+  byInstructionsVersion: [],
   daily: [{ date: '2026-03-10', created: 0, merged: 0, parked: 0 }],
 };
 
@@ -30,6 +31,10 @@ const withData: Metrics = {
   avgAttempts: 1.5,
   timeToMerge: { median: 25, p90: 130 },
   runs: { total: 5, byOutcome: { done: 3, partial: 1, blocked: 0, none: 1 }, byCiConclusion: { success: 3, failure: 1, none: 1 }, gateFailures: 2 },
+  byInstructionsVersion: [
+    { version: 'abc123def456', runs: 4, mergedJobs: 3, firstPassRate: 0.67, avgAttempts: 1.3 },
+    { version: 'none', runs: 1, mergedJobs: 0, firstPassRate: null, avgAttempts: null },
+  ],
   daily: [
     { date: '2026-03-09', created: 2, merged: 0, parked: 0 },
     { date: '2026-03-10', created: 2, merged: 3, parked: 1 },
@@ -57,6 +62,10 @@ describe('MetricsView', () => {
     expect(screen.getByRole('region', { name: 'Daily activity' })).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Run outcomes' })).toHaveTextContent('done');
     expect(screen.getByRole('region', { name: 'CI conclusions' })).toHaveTextContent('failure');
+    const versions = screen.getByRole('region', { name: 'By instructions version' });
+    expect(versions).toHaveTextContent('abc123def456');
+    expect(versions).toHaveTextContent('67%');
+    expect(versions).toHaveTextContent('none');
     expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute('aria-current', 'page');
   });
 

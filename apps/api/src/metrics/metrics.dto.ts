@@ -33,6 +33,13 @@ export const MetricsResponseSchema = z.object({
         byCiConclusion: z.record(z.string(), z.number().int()),
         gateFailures: z.number().int(),
     }),
+    byInstructionsVersion: z.array(z.object({
+        version: z.string(),
+        runs: z.number().int(),
+        mergedJobs: z.number().int(),
+        firstPassRate: rate,
+        avgAttempts: z.number().nullable(),
+    })),
     daily: z.array(z.object({
         date: z.string(),
         created: z.number().int(),

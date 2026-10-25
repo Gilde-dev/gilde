@@ -5,6 +5,7 @@ import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeor
 
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
+import { buildJobPayload } from '../execution/job-payload.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
@@ -14,9 +15,6 @@ import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { RunService } from '../run/run.service.js';
-
-/** Longest feature spec handed to an agent, in characters. */
-const FEATURE_SPEC_LIMIT = 8000;
 
 @Injectable()
 export class DispatcherService {
@@ -147,30 +145,7 @@ export class DispatcherService {
             runId = await this.startRun(job, project.id, repo.id);
             session = await this.execution.fire(
                 { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
-                {
-                    gilde: 1,
-                    jobId,
-                    runId,
-                    attempt: job.attempts,
-                    repo: repo.fullName,
-                    baseBranch: repo.defaultBranch,
-                    title: job.title,
-                    task: job.task,
-                    acceptanceCriteria: job.acceptanceCriteria,
-                    testCommand: repo.testCommand,
-                    ...(feature
-                        ? { feature: { title: feature.title, spec: feature.spec.slice(0, FEATURE_SPEC_LIMIT), acceptanceCriteria: feature.acceptanceCriteria } }
-                        : {}),
-                    ...(job.prNumber !== null && job.branch
-                        ? {
-                            continueOn: {
-                                branch: job.branch,
-                                prNumber: job.prNumber,
-                                reason: job.lastReason ?? 'Continue the work on this PR.',
-                            },
-                        }
-                        : {}),
-                },
+                buildJobPayload(job, repo, feature, runId, job.attempts),
             );
         } catch (e) {
             const message = errorMessage(e);
