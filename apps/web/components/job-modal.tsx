@@ -197,6 +197,35 @@ function Dependencies({
   );
 }
 
+function RevisionHistory({ jobId, revision }: { jobId: string; revision: number }) {
+  const fetchRevisions = useCallback(() => api.listJobRevisions(jobId), [jobId]);
+  const { data } = usePolling(fetchRevisions, 15_000);
+  if (!data?.length) return null;
+  return (
+    <section>
+      <h3 className="text-sm font-semibold">Revisions (current: {revision})</h3>
+      <ul className="mt-1 space-y-1 text-sm">
+        {data.map((r) => (
+          <li key={r.id}>
+            <span className="font-medium">{r.status === 'accepted' ? `#${r.revision}` : r.status}</span>
+            {' · '}
+            {r.reason}
+            {r.pr && (
+              <>
+                {' · '}
+                <a href={r.pr.url} target="_blank" rel="noreferrer" className="underline">
+                  PR #{r.pr.number}
+                </a>
+              </>
+            )}
+            <span className="text-muted-foreground"> · changes {[r.title && 'title', r.task && 'task', r.acceptanceCriteria && 'criteria', r.dependsOn && 'dependencies'].filter(Boolean).join(', ')}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
 export function JobModal({
   job,
   projectJobs = [],
@@ -289,6 +318,8 @@ export function JobModal({
                 <p className="mt-1 whitespace-pre-wrap text-sm">{shown.lastReason}</p>
               </section>
             )}
+
+            <RevisionHistory jobId={shown.id} revision={shown.revision} />
 
             <section>
               <h3 className="text-sm font-semibold">Runs</h3>

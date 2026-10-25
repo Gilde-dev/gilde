@@ -8,7 +8,8 @@ import { RepoManifestService } from '../repo/repo-manifest.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
 import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
-import { parsePrBody } from '../webhook/pr-body.js';
+import { ProposalService } from '../revision/proposal.service.js';
+import { parsePrBody, type ParsedPrBody } from '../webhook/pr-body.js';
 
 export interface PullInfo {
     number: number;
@@ -40,6 +41,7 @@ export class JobEventsService {
         @InjectRepository(Project) private readonly projects: Repository<Project>,
         @Optional() private readonly lessons?: LessonService,
         @Optional() private readonly manifests?: RepoManifestService,
+        @Optional() private readonly proposals?: ProposalService,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -79,8 +81,19 @@ export class JobEventsService {
                 { id: run.id, status: In(['firing', 'fired', 'pr_opened']) },
                 { status: 'pr_opened', result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
             );
+            await this.recordProposals(job, run, parsed);
         }
         return `job ${to} with PR #${pr.number}`;
+    }
+
+    /** Stores the PR body's proposals for the run. A failure is logged and never fails the event. */
+    async recordProposals(job: Job, run: JobRun, parsed: ParsedPrBody): Promise<void> {
+        if (!this.proposals) return;
+        try {
+            await this.proposals.record(run, job, parsed.proposals, parsed.proposalsError);
+        } catch (e) {
+            this.logger.error(`Run ${run.id}: recording proposals failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
     }
 
     /** New commits on the job's PR. */

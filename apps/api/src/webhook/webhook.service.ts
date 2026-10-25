@@ -188,6 +188,7 @@ export class WebhookService {
             { id: run.id },
             { result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
         );
+        await this.events.recordProposals(job, run, parsed);
         return `updated result of run ${run.attempt} for PR #${pr.number}`;
     }
 

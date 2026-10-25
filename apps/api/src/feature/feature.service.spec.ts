@@ -7,6 +7,7 @@ import type { JobStatus } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
 import { JobMapper } from '../job/job.mapper.js';
 import { JobService } from '../job/job.service.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { Feature } from './feature.entity.js';
@@ -26,7 +27,7 @@ let foreign: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobDependency, Feature], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobDependency, Feature, JobRevision], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     features = ds.getRepository(Feature);

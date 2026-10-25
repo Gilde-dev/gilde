@@ -9,6 +9,7 @@ import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RunModule } from '../run/run.module.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { JobRun } from '../run/run.entity.js';
 
 import { DispatchController } from './dispatch.controller.js';
@@ -22,7 +23,8 @@ import { DispatcherService } from './dispatcher.service.js';
             Repo,
             Project,
             JobRun,
-            Feature
+            Feature,
+            JobRevision
         ]),
         ExecutionModule,
         RepoModule,

@@ -62,6 +62,8 @@ export const JobResponseSchema = z.object({
     approvalReason: z.string().nullable(),
     dependsOn: z.array(z.string().uuid()),
     blockedBy: z.array(BlockingJobSchema),
+    pendingRevisions: z.number().int(),
+    revision: z.number().int(),
     failedDependency: z.boolean().optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),

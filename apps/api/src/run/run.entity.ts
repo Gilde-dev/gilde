@@ -66,6 +66,13 @@ export class JobRun {
     })
     resultError: string | null;
 
+    @Column({
+        name: 'proposals_error',
+        type: 'text',
+        nullable: true
+    })
+    proposalsError: string | null;
+
     @Column({ type: 'text', nullable: true })
     retro: string | null;
 
