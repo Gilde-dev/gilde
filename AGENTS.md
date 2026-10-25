@@ -49,6 +49,14 @@ One NestJS module per domain:
 Each domain has: `*.entity.ts`, `*.dto.ts` (zod), `*.mapper.ts`, `*.service.ts`, `*.controller.ts`, `*.module.ts`.
 Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 
+## Web app (`apps/web/`)
+- Next.js 15 App Router, React 19. Pages (`app/**/page.tsx`) stay thin and render one view from `components/` (e.g. `app/metrics/page.tsx` → `MetricsView`).
+- Views and interactive components are client components (`'use client'`) in `components/`: kebab-case files, named exports. Shared primitives (button, badge, dialog) are in `components/ui/`. Import with the `@/` alias; merge classes with `cn` from `lib/utils.ts`.
+- All API calls go through the `api` object in `lib/api.ts`; failures throw `ApiError` (with zod `issues` for form fields). Keep its types and status lists in sync with the API DTOs you change. Poll with `usePolling`; no data-fetching or state library.
+- Job-status logic lives in `lib/lanes.ts` (board columns) and `lib/job-actions.ts` (which actions a status allows); update both when job statuses or transitions change.
+- Styling is Tailwind utility classes; no extra UI or chart libraries.
+- Tests: `*.spec.tsx` next to the component (Testing Library), shared test data in `*.fixture.ts`.
+
 ## Routes
 - Global prefix `/api` is set in `main.ts`; controllers declare the rest.
 - Domain controllers are versioned: `@Controller('/v1/...')` → `/api/v1/...`.
