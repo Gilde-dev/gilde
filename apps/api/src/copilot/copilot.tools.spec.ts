@@ -77,6 +77,22 @@ describe('co-pilot tools', () => {
         expect(s.jobs.list).toHaveBeenCalledWith({ featureId: UUID, limit: 25 }, null);
     });
 
+    it('listJobs returns compact items without task text', async () => {
+        const { s, run } = setup();
+        s.jobs.list.mockResolvedValue([{ id: UUID, title: 'T', task: 'long task', acceptanceCriteria: ['x'], status: 'queued', repoId: OTHER, prUrl: null, blockedBy: [] }]);
+        const [job] = await run('listJobs', { limit: 25 });
+        expect(job).toMatchObject({ id: UUID, title: 'T', status: 'queued', repoId: OTHER });
+        expect(job).not.toHaveProperty('task');
+        expect(job).not.toHaveProperty('acceptanceCriteria');
+    });
+
+    it('listFeatures returns compact items without spec text', async () => {
+        const { s, run } = setup();
+        s.features.list.mockResolvedValue([{ id: UUID, projectId: OTHER, title: 'F', spec: 'long spec', acceptanceCriteria: ['x'], status: 'draft', progress: { total: 1 } }]);
+        const [feature] = await run('listFeatures', { projectId: UUID });
+        expect(feature).toEqual({ id: UUID, projectId: OTHER, title: 'F', status: 'draft', progress: { total: 1 } });
+    });
+
     it('listJobs rejects unknown statuses and non-uuid ids', () => {
         const { tools } = setup();
         const schema = tools.listJobs.inputSchema!;

@@ -27,6 +27,21 @@ export function createMemoryStorage(databaseUrl: string | undefined = process.en
     return new LibSQLStore({ id: 'gilde-copilot', url: 'file:mastra.db' });
 }
 
+interface RunFinish {
+    steps?: unknown[];
+    totalUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+}
+
+/** One info line per co-pilot run: number of steps and token usage, so cost is visible in the API log. */
+export function logRunUsage(logger: Pick<Logger, 'log'>, threadId: unknown, result: RunFinish): void {
+    const u = result.totalUsage ?? result.usage ?? {};
+    logger.log(
+        `Co-pilot run finished (thread ${String(threadId ?? 'unknown')}): steps=${result.steps?.length ?? 0} ` +
+            `inputTokens=${u.inputTokens ?? 0} cachedInputTokens=${u.cachedInputTokens ?? 0} outputTokens=${u.outputTokens ?? 0}`,
+    );
+}
+
 const STEP_LIMIT_NOTE =
     'You are out of steps. Do not call any more tools. Reply with a short text: say you ran out of steps, what you have done and found so far, and what is left, so the user can continue.';
 
@@ -34,9 +49,11 @@ const STEP_LIMIT_NOTE =
  * Default options for every call path (CopilotKit route, remote calls from the channels app): the step limit,
  * and on the last step tools are switched off so the run ends with a message instead of silently.
  */
-export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STEPS, logger: Pick<Logger, 'warn'> = new Logger('Copilot')) {
+export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STEPS, logger: Pick<Logger, 'warn' | 'log'> = new Logger('Copilot')) {
     return {
         maxSteps,
+        onFinish: (result: RunFinish & { threadId?: string; requestContext?: { get(key: string): unknown } }) =>
+            logRunUsage(logger, result.threadId ?? result.requestContext?.get('threadId'), result),
         prepareStep: ({ stepNumber, systemMessages, requestContext }: { stepNumber: number; systemMessages?: unknown[]; requestContext?: { get(key: string): unknown } }) => {
             if (stepNumber < maxSteps - 1) return undefined;
             logger.warn(`Co-pilot reached the step limit of ${maxSteps}; forcing a final message (thread ${String(requestContext?.get('threadId') ?? 'unknown')})`);

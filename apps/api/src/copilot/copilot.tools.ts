@@ -2,10 +2,12 @@ import { createTool } from '@mastra/core/tools';
 import { z } from 'zod';
 
 import type { DispatcherService } from '../dispatch/dispatcher.service.js';
+import type { FeatureResponseDto } from '../feature/feature.dto.js';
 import type { FeatureService } from '../feature/feature.service.js';
 import { FEATURE_STATUSES } from '../feature/feature-state.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import type { GitHubPort } from '../github/github.port.js';
+import type { JobResponseDto } from '../job/job.dto.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
@@ -19,6 +21,23 @@ import type { SkillService } from '../skill/skill.service.js';
 import { createCodeTools } from './copilot.code-tools.js';
 import { copilotUser } from './copilot.context.js';
 import { dependencyOrder, FeaturePlanSchema, graphProblems, type FeaturePlan } from './copilot.plan.js';
+
+/** A job without its task text and criteria, for list results. */
+export const compactJob = (j: JobResponseDto) => ({
+    id: j.id,
+    title: j.title,
+    status: j.status,
+    repoId: j.repoId,
+    featureId: j.featureId,
+    prNumber: j.prNumber,
+    prUrl: j.prUrl,
+    attempts: j.attempts,
+    lastReason: j.lastReason,
+    blockedBy: j.blockedBy,
+});
+
+/** A feature without its spec and criteria, for list results. */
+export const compactFeature = (f: FeatureResponseDto) => ({ id: f.id, projectId: f.projectId, title: f.title, status: f.status, progress: f.progress });
 
 /** The existing services the co-pilot tools call. Tools never query repositories or the HTTP API. */
 export interface CopilotServices {
@@ -56,7 +75,7 @@ export function createCopilotTools(s: CopilotServices) {
         id: 'listJobs',
         description:
             'List jobs, newest first, optionally filtered by project, repo, feature or status. ' +
-            'Set createdBy to "me" to list only jobs created by the current user. Returns status, PR link, last reason and what blocks each job.',
+            'Set createdBy to "me" to list only jobs created by the current user. Returns compact items (id, title, status, repo, PR link, last reason, blockers) without task text; use getJob for the full detail.',
         inputSchema: z.object({
             projectId: id('project').optional(),
             repoId: id('repo').optional(),
@@ -66,7 +85,7 @@ export function createCopilotTools(s: CopilotServices) {
             limit: z.number().int().min(1).max(200).default(25),
         }),
         execute: async ({ limit, ...filter }, { requestContext }) =>
-            s.jobs.list({ ...filter, limit }, copilotUser(requestContext)),
+            (await s.jobs.list({ ...filter, limit }, copilotUser(requestContext))).map(compactJob),
     });
 
     const getJob = createTool({
@@ -83,9 +102,9 @@ export function createCopilotTools(s: CopilotServices) {
 
     const listFeatures = createTool({
         id: 'listFeatures',
-        description: 'List the features of a project (groups of jobs across its repos) with their progress, optionally filtered by status.',
+        description: 'List the features of a project (groups of jobs across its repos) as compact items (id, title, status, progress) without spec text; use getFeature for the detail.',
         inputSchema: z.object({ projectId: id('project'), status: z.enum(FEATURE_STATUSES).optional() }),
-        execute: async ({ projectId, status }) => s.features.list(projectId, { status }),
+        execute: async ({ projectId, status }) => (await s.features.list(projectId, { status })).map(compactFeature),
     });
 
     const getFeature = createTool({
