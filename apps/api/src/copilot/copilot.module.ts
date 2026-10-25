@@ -28,12 +28,14 @@ import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { createMastra, MASTRA_PREFIX } from './copilot.mastra.js';
 import { COPILOT_CONFIG, COPILOT_MASTRA } from './copilot.tokens.js';
+import { RepoContextService } from './repo-context.service.js';
 import type { CopilotServices } from './copilot.tools.js';
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
     imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule],
     providers: [
+        RepoContextService,
         {
             provide: COPILOT_CONFIG,
             useFactory: (): CopilotConfig => {
@@ -58,11 +60,12 @@ import type { CopilotServices } from './copilot.tools.js';
                 projects: ProjectService,
                 repos: RepoService,
                 github: GitHubPort,
+                repoContext: RepoContextService,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github };
-                return createMastra(config, services);
+                return createMastra(config, services, undefined, repoContext);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoContextService],
         },
     ],
     exports: [COPILOT_CONFIG, COPILOT_MASTRA],
