@@ -1,3 +1,4 @@
+import { BadRequestException } from '@nestjs/common';
 import { RequestContext } from '@mastra/core/request-context';
 
 import { COPILOT_USER_KEY } from './copilot.context.js';
@@ -17,6 +18,7 @@ function setup() {
         skills: { forRepo: vi.fn().mockResolvedValue({ repoId: UUID, skills: [], counts: {} }) },
         projects: { list: vi.fn().mockResolvedValue([{ id: UUID }]) },
         repos: { listForProject: vi.fn().mockResolvedValue([{ id: OTHER }]) },
+        history: { search: vi.fn().mockResolvedValue({ status: 'ok', results: [], indexComplete: true, suppressed: 0 }), searchLessons: vi.fn() },
     };
     const tools = createCopilotTools(s as unknown as CopilotServices);
     const run = (tool: keyof typeof tools, input: unknown, user: { id: string } | null = null) => {
@@ -33,7 +35,7 @@ describe('co-pilot tools', () => {
         expect(Object.keys(tools).sort()).toEqual([
             'createPlannedFeature', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills',
             'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'planFeature',
-            'readRepoFile', 'searchRepoCode',
+            'readRepoFile', 'searchHistory', 'searchRepoCode',
         ]);
         for (const tool of Object.values(tools)) {
             expect(tool.description.length).toBeGreaterThan(20);
@@ -139,6 +141,41 @@ describe('co-pilot tools', () => {
         const { s, run } = setup();
         await run('listLessons', { status: 'candidate' });
         expect(s.lessons.list).toHaveBeenCalledWith({ status: 'candidate' });
+    });
+
+    it('searchHistory is read-only, calls the history service and takes no user identity', async () => {
+        const { s, tools, run } = setup();
+        const input = { projectId: UUID, repoId: OTHER, query: 'streaming export', topK: 3, types: ['run'] };
+        expect(await run('searchHistory', input, { id: 'u1' })).toEqual({ status: 'ok', results: [], indexComplete: true, suppressed: 0 });
+        expect(s.history.search).toHaveBeenCalledWith(input);
+        expect(Object.keys((tools.searchHistory.inputSchema as unknown as { shape: object }).shape).sort()).toEqual(['projectId', 'query', 'repoId', 'topK', 'types']);
+        expect(s.history.searchLessons).not.toHaveBeenCalled();
+    });
+
+    it('searchHistory validates its input: project required, bounded topK and query, no unknown source types', () => {
+        const { tools } = setup();
+        const schema = tools.searchHistory.inputSchema as unknown as { safeParse: (v: unknown) => { success: boolean } };
+        expect(schema.safeParse({ query: 'x' }).success).toBe(false);
+        expect(schema.safeParse({ projectId: 'nope', query: 'x' }).success).toBe(false);
+        expect(schema.safeParse({ projectId: UUID, query: '' }).success).toBe(false);
+        expect(schema.safeParse({ projectId: UUID, query: 'x'.repeat(2001) }).success).toBe(false);
+        expect(schema.safeParse({ projectId: UUID, query: 'x', topK: 11 }).success).toBe(false);
+        expect(schema.safeParse({ projectId: UUID, query: 'x', types: ['conversation'] }).success).toBe(false);
+        expect(schema.safeParse({ projectId: UUID, query: 'x' }).success).toBe(true);
+    });
+
+    it('searchHistory reports a repo outside the project as invalid instead of searching', async () => {
+        const { s, run } = setup();
+        s.history.search.mockRejectedValue(new BadRequestException('Repo does not belong to project'));
+        expect(await run('searchHistory', { projectId: UUID, repoId: OTHER, query: 'x' })).toEqual({ status: 'invalid', problem: 'Repo does not belong to project', results: [] });
+    });
+
+    it('searchHistory passes unavailable retrieval through unchanged, and lets unexpected errors surface', async () => {
+        const { s, run } = setup();
+        s.history.search.mockResolvedValue({ status: 'unavailable', reason: 'embeddings off', results: [] });
+        expect(await run('searchHistory', { projectId: UUID, query: 'x' })).toEqual({ status: 'unavailable', reason: 'embeddings off', results: [] });
+        s.history.search.mockRejectedValue(new Error('boom'));
+        await expect(run('searchHistory', { projectId: UUID, query: 'x' })).rejects.toThrow('boom');
     });
 
     it('getRepoSkills returns the drift of a repo', async () => {
