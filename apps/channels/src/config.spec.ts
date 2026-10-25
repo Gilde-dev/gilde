@@ -46,3 +46,49 @@ describe('loadConfig', () => {
     expect(message).not.toContain(KEY);
   });
 });
+
+describe('loadConfig notifications', () => {
+  const slackEnv = { GILDE_API_KEY: KEY, SLACK_BOT_TOKEN: 'xoxb-secret-1', SLACK_APP_TOKEN: 'xapp-secret-1' };
+  const enabled = {
+    ...slackEnv,
+    NOTIFICATIONS_ENABLED: 'true',
+    NOTIFICATION_SLACK_CHANNEL_ID: 'C0123ABCDEF',
+    GILDE_PUBLIC_URL: 'https://gilde.example.com/',
+  };
+
+  it('is disabled by default and without any notification variables', () => {
+    expect(loadConfig(slackEnv).notifications).toBeUndefined();
+    expect(loadConfig({ ...slackEnv, NOTIFICATIONS_ENABLED: 'false', NOTIFICATION_SLACK_CHANNEL_ID: 'C0123ABCDEF' }).notifications).toBeUndefined();
+  });
+
+  it('enables all five kinds for one channel with bounded defaults and needs no LLM variables', () => {
+    const { notifications } = loadConfig(enabled);
+    expect(notifications).toMatchObject({
+      kinds: ['job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close'],
+      slack: { botToken: 'xoxb-secret-1', channelId: 'C0123ABCDEF' },
+      publicUrl: 'https://gilde.example.com',
+      pollIntervalMs: 15_000,
+      batchSize: 10,
+    });
+  });
+
+  it('selects kinds', () => {
+    expect(loadConfig({ ...enabled, NOTIFICATION_KINDS: 'job.parked, revision.waiting' }).notifications?.kinds).toEqual(['job.parked', 'revision.waiting']);
+  });
+
+  it('rejects unknown kinds, missing settings and out-of-range numbers by name', () => {
+    expect(() => loadConfig({ ...enabled, NOTIFICATION_KINDS: 'job.bogus' })).toThrow(/NOTIFICATION_KINDS: unknown kind "job.bogus"/);
+    expect(() => loadConfig({ ...slackEnv, NOTIFICATIONS_ENABLED: 'true' })).toThrow(/NOTIFICATION_SLACK_CHANNEL_ID is required[\s\S]*GILDE_PUBLIC_URL is required/);
+    expect(() => loadConfig({ ...enabled, NOTIFICATION_BATCH_SIZE: '1000' })).toThrow(/NOTIFICATION_BATCH_SIZE/);
+    expect(() => loadConfig({ ...enabled, NOTIFICATION_SLACK_CHANNEL_ID: '#werkplaats' })).toThrow(/NOTIFICATION_SLACK_CHANNEL_ID/);
+  });
+
+  it('still validates chat credentials and keeps secrets out of errors', () => {
+    expect(() => loadConfig({ GILDE_API_KEY: KEY, SLACK_BOT_TOKEN: 'xoxb-secret-1', NOTIFICATIONS_ENABLED: 'true' })).toThrow(/SLACK_APP_TOKEN/);
+    try {
+      loadConfig({ ...enabled, NOTIFICATION_POLL_INTERVAL_MS: 'xoxb-secret-1' });
+    } catch (error) {
+      expect((error as Error).message).not.toContain('secret');
+    }
+  });
+});
