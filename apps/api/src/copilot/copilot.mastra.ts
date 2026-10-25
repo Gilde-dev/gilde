@@ -8,8 +8,11 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 
+import { memoryConfig } from '../memory/memory.config.js';
+import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
+
 import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig } from './copilot.config.js';
-import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, copilotResourceId, copilotUser, extractProjectId } from './copilot.context.js';
+import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId } from './copilot.context.js';
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
 import type { RepoContextService } from './repo-context.service.js';
@@ -25,6 +28,35 @@ export function createMemoryStorage(databaseUrl: string | undefined = process.en
         return new PostgresStore({ id: 'gilde-copilot', connectionString: databaseUrl });
     }
     return new LibSQLStore({ id: 'gilde-copilot', url: 'file:mastra.db' });
+}
+
+/** Stable preferences the co-pilot keeps per user across all threads. Kept short on purpose: it is sent with every request. */
+export const WORKING_MEMORY_TEMPLATE = `# User preferences
+- Preferred language:
+- Answer style (short / detailed):
+- Default project or repo:
+- Other stable preferences:
+`;
+
+export const SEMANTIC_RECALL = { topK: 4, messageRange: 1, scope: 'resource' } as const;
+
+/**
+ * The co-pilot's Mastra Memory: the last 20 messages of the thread, resource-scoped working memory (preferences) and,
+ * when an embedder is configured, resource-scoped semantic recall of older conversations in any thread of the same
+ * user. The resource is always the authenticated Gilde user (see CopilotContextInterceptor).
+ * Without embeddings, only semantic recall is off; working memory and conversation history keep working.
+ */
+export function createCopilotMemory(infra: MemoryInfrastructure): Memory {
+    const recall = infra.embeddingsEnabled;
+    return new Memory({
+        storage: infra.storage,
+        ...(recall ? { vector: infra.personalVector, embedder: infra.embedder, embeddingDimension: infra.embeddingDimension } : { vector: false as const }),
+        options: {
+            lastMessages: 20,
+            workingMemory: { enabled: true, scope: 'resource', template: WORKING_MEMORY_TEMPLATE },
+            semanticRecall: recall ? { ...SEMANTIC_RECALL } : false,
+        },
+    });
 }
 
 interface RunFinish {
@@ -66,8 +98,10 @@ export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STE
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService): Mastra {
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure): Mastra {
     if (!config.enabled) return new Mastra({});
+
+    const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
 
     const agent = new Agent({
         id: COPILOT_AGENT_ID,
@@ -82,19 +116,19 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
         // OpenAI through the Mastra model router; the provider is only chosen by COPILOT_MODEL.
         model: config.model as `openai/${string}`,
         tools: createCopilotTools(services),
-        memory: new Memory({ options: { lastMessages: 20 } }),
+        memory: createCopilotMemory(memoryInfra),
         defaultOptions: copilotDefaultOptions(config.maxSteps) as never,
     });
 
     return new Mastra({
         agents: { [COPILOT_AGENT_ID]: agent },
-        storage: storage ?? createMemoryStorage(),
+        storage: memoryInfra.storage,
         server: {
             apiRoutes: [
                 registerCopilotKit({
                     path: COPILOTKIT_PATH,
                     // Replaced per request by the authenticated user (see CopilotContextInterceptor).
-                    resourceId: copilotResourceId(null),
+                    resourceId: UNAUTHENTICATED_RESOURCE,
                     setContext: async (c, requestContext) => {
                         // Remember the project the page says is selected, so the instructions can include its repos.
                         try {

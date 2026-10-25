@@ -9,6 +9,47 @@ By default the API uses SQLite (`db.sqlite`). To use Postgres instead:
 1. Start Postgres: `docker compose up -d`
 2. Set `DATABASE_URL=postgres://gilde:gilde@localhost:5432/gilde` (see `apps/api/.env.example`) and run `pnpm dev`.
 
+The compose service uses the `pgvector/pgvector:pg16` image, which has the pgvector extension available. Mastra's `PgVector` runs
+`CREATE EXTENSION IF NOT EXISTS vector` itself when it creates an index, so no init script is needed. **Existing Postgres setups:**
+switching the compose image keeps the data volume (same major version), but run `docker compose pull && docker compose up -d` to
+recreate the container. A self-managed Postgres needs the pgvector package installed (`CREATE EXTENSION` needs the right to create
+extensions, or run `CREATE EXTENSION vector;` once as a superuser). Without pgvector, only vector features fail (see Degraded operation);
+the rest of the API is unaffected. Without `DATABASE_URL`, co-pilot memory and vectors live in the LibSQL file `mastra.db`
+(gitignored, override with `MASTRA_DB_URL`, e.g. `file:/data/mastra.db`); keep that file on persistent storage to keep memory across restarts.
+
+## Co-pilot memory
+
+The co-pilot uses Mastra's built-in `Memory` on the shared infrastructure in `apps/api/src/memory/` (storage, vector stores and the
+embedder, below the co-pilot and the dispatcher). Per user it has the last 20 messages of the thread, **working memory** (a short
+preferences template, kept across all threads) and **semantic recall** of older conversations in any thread of the same user.
+
+**Identity.** The memory resource is the authenticated Gilde account (JWT or API key owner), on every `/api/v1/mastra` route.
+Requests without an authenticated account are refused (no anonymous or shared memory). A `resourceId`/`memory.resource` naming another
+account gets `403`; a thread or message id owned by another account gets `404` (on the read, write, delete, clone and CopilotKit routes), and on
+memory routes the `resourceId` query parameter is pinned to the caller. A channel that talks to the API with one bot API key (e.g. Slack) shares
+that bot account's memory between everyone in that channel; mapping chat users to Gilde users is not done.
+
+**OpenAI data.** With `OPENAI_API_KEY` set, the text of co-pilot messages is sent to OpenAI's embeddings API (`text-embedding-3-small`, 1536
+dimensions) to index it for recall, and recalled messages are sent to the chat model like any other context. Embedding cost is small
+(about $0.02 per million tokens for the default model). Set `MEMORY_EMBEDDING_MODEL` / `MEMORY_EMBEDDING_DIMENSION` to change the model;
+the key is independent of `COPILOT_MODEL`. Personal memory is never written to the shared history index (`gilde_history_<dimension>`),
+which is a separate vector store and index.
+
+**Changing model or dimension.** Vectors from different models/dimensions must not be mixed. Mastra names the recall index after the
+dimension, and the history index is `gilde_history_<dimension>`, so a new dimension starts a fresh, empty index and old messages are no longer
+recalled until re-embedded. Same dimension but another model: drop the old indexes first (`memory_messages_<dimension>` and `gilde_history_<dimension>`
+in the vector store, e.g. `DROP TABLE` in Postgres, or delete `mastra.db`'s vector tables) so they are rebuilt. Conversations and working memory
+are not touched by this.
+
+**Degraded operation.** Without `OPENAI_API_KEY` the API starts normally (a warning is logged), no embedding request is ever made, and the co-pilot keeps
+last-20-message context and working memory but has no semantic recall. If the vector store is unavailable (no pgvector, database down),
+recall and history search report errors; job dispatch does not depend on the co-pilot, memory or vectors.
+
+**Tests.** Automated tests use a deterministic fake embedder (`memory.testing.ts`) and a mock model on real local LibSQL files; nothing calls OpenAI.
+**Postgres/pgvector smoke check:** `docker compose up -d`, then
+`PGVECTOR_SMOKE_URL=postgres://gilde:gilde@localhost:5432/gilde pnpm --filter @gilde/api test -- memory.pgvector`
+(creates and drops a `gilde_smoke_*` index and checks insert/query with the fake embedder).
+
 ## Code workspace
 
 The co-pilot searches and reads repo code from local clones (`git grep`), kept under `GILDE_WORKSPACE_DIR`

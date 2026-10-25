@@ -1,7 +1,11 @@
 import { LibSQLStore } from '@mastra/libsql';
 import { PostgresStore } from '@mastra/pg';
 
-import { logRunUsage, createMastra, createMemoryStorage, copilotDefaultOptions, COPILOT_AGENT_ID } from './copilot.mastra.js';
+import { testMemoryInfrastructure } from '../memory/memory.testing.js';
+import { memoryConfig } from '../memory/memory.config.js';
+import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
+
+import { createCopilotMemory, logRunUsage, createMastra, createMemoryStorage, copilotDefaultOptions, COPILOT_AGENT_ID } from './copilot.mastra.js';
 
 describe('createMemoryStorage', () => {
     it('uses Postgres for a postgres URL', () => {
@@ -54,5 +58,21 @@ describe('logRunUsage', () => {
         logRunUsage({ log }, 'thread-9', { steps: [{}, {}, {}], totalUsage: { inputTokens: 1000, cachedInputTokens: 400, outputTokens: 50 } });
         expect(log).toHaveBeenCalledWith(expect.stringContaining('thread-9'));
         expect(log).toHaveBeenCalledWith(expect.stringContaining('steps=3 inputTokens=1000 cachedInputTokens=400 outputTokens=50'));
+    });
+});
+
+describe('createCopilotMemory', () => {
+    it('keeps the last 20 messages and adds resource-scoped working memory and semantic recall', () => {
+        const options = createCopilotMemory(testMemoryInfrastructure()).getMergedThreadConfig({});
+        expect(options.lastMessages).toBe(20);
+        expect(options.workingMemory).toMatchObject({ enabled: true, scope: 'resource' });
+        expect(options.semanticRecall).toMatchObject({ scope: 'resource' });
+    });
+
+    it('turns semantic recall off, and creates no vector store, without an embedder', () => {
+        const infra = new MemoryInfrastructure(memoryConfig({}), { storage: new LibSQLStore({ id: 't', url: 'file::memory:' }) });
+        const options = createCopilotMemory(infra).getMergedThreadConfig({});
+        expect(options.semanticRecall).toBe(false);
+        expect(options.lastMessages).toBe(20);
     });
 });

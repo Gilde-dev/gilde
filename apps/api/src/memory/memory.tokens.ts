@@ -1,0 +1,2 @@
+export const MEMORY_CONFIG = Symbol('MEMORY_CONFIG');
+export const MEMORY_INFRASTRUCTURE = Symbol('MEMORY_INFRASTRUCTURE');
