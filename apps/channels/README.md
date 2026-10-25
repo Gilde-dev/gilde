@@ -27,6 +27,53 @@ Setting only one of the two Slack variables is rejected at startup.
 
 The API needs its co-pilot enabled (`OPENAI_API_KEY`, `COPILOT_MODEL`), see the root `AGENTS.md`.
 
+## Slack notifications (#werkplaats)
+
+The same process can post factory notifications to one Slack channel. It is separate from the chat:
+it needs no co-pilot (`OPENAI_API_KEY`, `COPILOT_MODEL`), no LLM and no Socket Mode connection at runtime, and
+a chat or Slack failure does not stop it (or the API, dispatcher or webhooks). Messages are formatted
+deterministically in this package; the API only stores platform-neutral events (`GET /v1/notifications`).
+
+| Variable | |
+| --- | --- |
+| `NOTIFICATIONS_ENABLED` | `true` to start the worker. Default off |
+| `NOTIFICATION_KINDS` | Comma-separated kinds, default all five: `job.awaiting_review,job.parked,job.approval_needed,revision.waiting,feature.ready_to_close` |
+| `NOTIFICATION_SLACK_CHANNEL_ID` | Required. Slack channel ID (`C…`) of #werkplaats |
+| `GILDE_PUBLIC_URL` | Required. Public URL of the web UI, used for deep links |
+| `NOTIFICATION_POLL_INTERVAL_MS` | Default 15000 |
+| `NOTIFICATION_BATCH_SIZE` | Default 10, max 100 |
+| `NOTIFICATION_REQUEST_TIMEOUT_MS` | Default 10000, for every API and Slack request |
+| `NOTIFICATION_RETRY_BASE_MS` / `NOTIFICATION_RETRY_MAX_MS` | Backoff base (30000) and cap (3600000) |
+
+Enabling needs `SLACK_BOT_TOKEN` too (and, by the existing rule, `SLACK_APP_TOKEN`). Example for all five kinds:
+
+```sh
+NOTIFICATIONS_ENABLED=true
+NOTIFICATION_SLACK_CHANNEL_ID=<channel ID of #werkplaats>
+GILDE_PUBLIC_URL=https://gilde.example.com
+```
+
+The channel ID is operator-supplied: in Slack, open the channel details and copy the ID at the bottom.
+Invite the bot to the channel (`/invite @<bot name>`) and give it the `chat:write` scope (already in the scopes above).
+
+Behaviour:
+- Disabled kinds are not polled; they stay unsent and are sent if you enable them later. Changing the channel
+  affects only events that are not delivered yet; delivered events are never replayed. There is no backfill.
+- One serial loop: a pass lists due events, posts each one, then marks it delivered. Passes never overlap.
+- Delivery is at-least-once with simple semantics. If the process crashes after Slack accepted a post but before the
+  API was told, the event is posted again after restart (a rare duplicate). While the process lives, a failed
+  acknowledgement is retried without reposting. Capture on the API side is best effort, so a crash can also lose an event.
+- A transient failure (network, timeout, 5xx, Slack 429) is reported as failed with a retry time: capped exponential
+  backoff with jitter, or Slack's `Retry-After` when longer. Permanent errors (`invalid_auth`, `channel_not_found`,
+  `not_in_channel`, `is_archived`, `missing_scope`, …) stay failed without automatic retry; fix the cause and
+  reset the event in the database or wait for a new occurrence. API errors back off the loop the same way.
+- Run **exactly one** channels replica with notifications enabled: there is no claim or lease, so two workers would double-post.
+- Troubleshooting: the log shows event ids and sanitized reasons (never tokens). `Slack error: not_in_channel` means
+  the bot was not invited; `invalid_auth` means a wrong or revoked `SLACK_BOT_TOKEN`; repeated `Gilde API` errors mean
+  `GILDE_API_URL`/`GILDE_API_KEY` are wrong or the API is down.
+
+Messages link to `GILDE_PUBLIC_URL/?project=<id>&job=<id>` (opens the job in the board) or `/features/<id>`.
+
 ## The bot user and its API key
 
 ```sh
@@ -59,5 +106,10 @@ pnpm --filter @gilde/channels test
 
 ## Adding a platform
 
-Add one entry to `ADAPTER_ENTRIES` in `src/adapters.ts` that returns the adapter when its credentials are set,
+For notifications, implement `OutboundAdapter` (`src/notifications/types.ts`: `send(notification, context)`, throw
+`NotifyError` with `permanent` and optional `retryAfterMs`) and add an `OutboundEntry` to `OUTBOUND_ENTRIES` in
+`src/notifications/outbound-adapters.ts` (e.g. Teams). Events and the API do not change. Slack posts use the Web API
+over `fetch` because CopilotKit Channels only exposes conversational adapters (reply to an incoming event), not proactive posts.
+
+For chat, add one entry to `ADAPTER_ENTRIES` in `src/adapters.ts` that returns the adapter when its credentials are set,
 and the variables to `src/config.ts`.

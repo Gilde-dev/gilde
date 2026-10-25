@@ -2,17 +2,17 @@ import { createChannel } from '@copilotkit/channels';
 
 import { selectAdapters } from './adapters.js';
 import { createCopilotAgent } from './agent.js';
-import { loadConfig } from './config.js';
+import { loadConfig, type ChannelsConfig } from './config.js';
+import { createNotificationWorker } from './notifications/index.js';
 
 const NO_ADAPTERS = 'No channel adapters configured (set SLACK_BOT_TOKEN and SLACK_APP_TOKEN)';
 
-async function main(): Promise<void> {
-  const config = loadConfig();
+type Stoppable = { stop(): Promise<void> };
+
+/** Starts the mention/thread chat. Needs the co-pilot agent and Socket Mode. */
+async function startChat(config: ChannelsConfig): Promise<Stoppable | undefined> {
   const adapters = selectAdapters(config);
-  if (adapters.length === 0) {
-    console.log(NO_ADAPTERS);
-    return;
-  }
+  if (adapters.length === 0) return undefined;
 
   const channel = createChannel({
     name: 'gilde',
@@ -28,9 +28,30 @@ async function main(): Promise<void> {
   // Channels have no public start(); the runtime seam is what CopilotKit's own runner calls.
   await channel.ɵruntime.start();
   console.log(`Gilde channels running: ${adapters.map((entry) => entry.name).join(', ')} -> ${config.apiUrl}`);
+  return { stop: () => channel.ɵruntime.stop() };
+}
+
+async function main(): Promise<void> {
+  const config = loadConfig();
+  // Notifications run on their own: no co-pilot agent, no Socket Mode, and a chat failure does not stop them.
+  const worker = createNotificationWorker(config);
+  worker?.start();
+  if (worker) console.log(`Gilde notifications running -> ${config.apiUrl}`);
+
+  let chat: Stoppable | undefined;
+  try {
+    chat = await startChat(config);
+  } catch (error) {
+    if (!worker) throw error;
+    console.error(`Chat failed to start, notifications keep running: ${error instanceof Error ? error.message : 'unknown error'}`);
+  }
+  if (!chat && !worker) {
+    console.log(NO_ADAPTERS);
+    return;
+  }
 
   const stop = () => {
-    void channel.ɵruntime.stop().finally(() => process.exit(0));
+    void Promise.allSettled([worker?.stop(), chat?.stop()]).finally(() => process.exit(0));
   };
   process.once('SIGINT', stop);
   process.once('SIGTERM', stop);
