@@ -1,6 +1,8 @@
 'use client';
 
 import { useInterrupt } from '@copilotkit/react-core/v2/headless';
+import { useEffect, useState } from 'react';
+import { api } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 
 export interface PlanJob {
@@ -23,7 +25,7 @@ export interface FeaturePlan {
 
 export const PLAN_TOOL = 'createPlannedFeature';
 
-/** The plan to approve, with Approve and Cancel. Jobs are collapsed; open one to see its task. */
+/** The plan to approve, with Approve and Cancel. Jobs are collapsed; open one to see its full task. */
 export function PlanApprovalCard({
   plan,
   repoNames = {},
@@ -62,6 +64,10 @@ export function PlanApprovalCard({
                 {repoNames[j.repoId] ?? j.repoId}
                 {j.dependsOn.length > 0 && <> · after {j.dependsOn.map((k) => titles.get(k) ?? k).join(', ')}</>}
               </p>
+              <details className="mt-1">
+                <summary className="cursor-pointer text-xs font-medium">Task</summary>
+                <p className="mt-1 whitespace-pre-wrap">{j.task}</p>
+              </details>
               <ul className="mt-1 list-disc pl-5">
                 {j.acceptanceCriteria.map((c) => (
                   <li key={c}>{c}</li>
@@ -104,6 +110,23 @@ export function planFromInterrupt(interrupt: ApprovalInterrupt | null | undefine
   };
 }
 
+/** The card with repo names resolved from the plan's project; shows ids until (or unless) the repos load. */
+function PlanApprovalWithRepos({ plan, onApprove, onCancel }: { plan: FeaturePlan; onApprove: () => void; onCancel: () => void }) {
+  const [repoNames, setRepoNames] = useState<Record<string, string>>({});
+  useEffect(() => {
+    if (!plan.projectId) return;
+    let cancelled = false;
+    api
+      .listRepos(plan.projectId)
+      .then((repos) => !cancelled && setRepoNames(Object.fromEntries(repos.map((r) => [r.id, r.fullName]))))
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [plan.projectId]);
+  return <PlanApprovalCard plan={plan} repoNames={repoNames} onApprove={onApprove} onCancel={onCancel} />;
+}
+
 /**
  * Renders the approval card in the chat when the agent wants to run createPlannedFeature. Approving resumes the
  * run with { approved: true }; cancelling declines the tool call, so nothing is created. Renders nothing itself.
@@ -114,7 +137,7 @@ export function CopilotPlanApproval() {
     render: ({ interrupt, resolve, cancel }) => {
       const plan = planFromInterrupt(interrupt as ApprovalInterrupt | null);
       if (!plan) return <></>;
-      return <PlanApprovalCard plan={plan} onApprove={() => resolve({ approved: true })} onCancel={() => cancel()} />;
+      return <PlanApprovalWithRepos plan={plan} onApprove={() => resolve({ approved: true })} onCancel={() => cancel()} />;
     },
   });
   return null;
