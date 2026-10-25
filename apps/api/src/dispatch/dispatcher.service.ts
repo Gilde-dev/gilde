@@ -22,6 +22,9 @@ import { RunService } from '../run/run.service.js';
 export class DispatcherService {
     private readonly logger = new Logger(DispatcherService.name);
     private running = false;
+    private last: DispatchStatus = { at: null, result: null };
+    private readonly lastKeys = new Map<string, string>();
+    private readonly lastReasons = new Map<string, DispatchReason>();
 
     constructor(
         private readonly runService: RunService,
@@ -48,13 +51,20 @@ export class DispatcherService {
      * A pass that starts while another is running in this process returns immediately.
      */
     async dispatch(): Promise<DispatchResult> {
-        if (this.running) return { fired: 0, failed: 0 };
+        if (this.running) return { fired: 0, failed: 0, repos: [] };
         this.running = true;
         try {
-            return await this.runPass();
+            const result = await this.runPass();
+            this.last = { at: new Date().toISOString(), result };
+            return result;
         } finally {
             this.running = false;
         }
+    }
+
+    /** The result of the last pass, without running one. */
+    status(): DispatchStatus {
+        return this.last;
     }
 
     private async runPass(): Promise<DispatchResult> {
@@ -66,17 +76,11 @@ export class DispatcherService {
         let fired = 0;
         let failed = 0;
 
+        const reports: RepoDispatchReport[] = [];
         for (const repoId of repoIds) {
             const repo = await this.repoRepository.findOneBy({ id: repoId });
-            if (!repo || repo.paused || !repo.routineFireUrl || !repo.routineTokenEnv) continue;
-
-            if (repo.testCommands.length === 0) {
-                this.logger.warn(`${repo.fullName}: skipped, no cached .gilde.json yet (${repo.manifestError ?? 'not refreshed yet'})`);
-                continue;
-            }
-
+            if (!repo) continue;
             const project = await this.projectRepository.findOneBy({ id: repo.projectId });
-            if (!project || project.paused) continue;
 
             // Jobs with an unmerged dependency are excluded in the query, so they take no slot and block nobody.
             const unmerged = (qb: SelectQueryBuilder<Job>) => qb.subQuery()
@@ -93,21 +97,56 @@ export class DispatcherService {
                 .where('rev.jobId = job.id')
                 .andWhere("rev.status = 'proposed'")
                 .getQuery();
-            const waiting = await this.jobRepository.createQueryBuilder('job')
+            const queuedJobs = () => this.jobRepository.createQueryBuilder('job')
                 .where('job.repoId = :repoId', { repoId })
-                .andWhere("job.status = 'queued'")
-                .andWhere((qb) => `EXISTS ${unmerged(qb)}`)
+                .andWhere("job.status = 'queued'");
+            const waitingOnDependencies = await queuedJobs().andWhere((qb) => `EXISTS ${unmerged(qb)}`).getCount();
+            const waitingOnRevisions = await queuedJobs()
+                .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
+                .andWhere((qb) => `EXISTS ${revised(qb)}`)
                 .getCount();
-            if (waiting > 0) this.logger.log(`${repo.fullName}: ${waiting} queued job(s) waiting on dependencies`);
+
+            const report: RepoDispatchReport = {
+                repoId, fullName: repo.fullName, queued: await queuedJobs().getCount(), fired: 0,
+                reason: 'none', detail: null, resetsAt: null, waitingOnDependencies, waitingOnRevisions,
+            };
+            reports.push(report);
+
+            if (repo.paused) {
+                report.reason = 'repo_paused';
+                report.detail = repo.pausedReason;
+                continue;
+            }
+            if (!project || project.paused) {
+                report.reason = 'project_paused';
+                continue;
+            }
+            if (!repo.routineFireUrl || !repo.routineTokenEnv) {
+                report.reason = 'no_routine';
+                continue;
+            }
+            if (repo.testCommands.length === 0) {
+                report.reason = 'no_manifest';
+                report.detail = repo.manifestError ?? 'not refreshed yet';
+                continue;
+            }
 
             if (!budgets.has(project.id)) budgets.set(project.id, await this.dailyBudget(project));
             const active = await this.jobRepository.count({ where: { repoId, status: In(ACTIVE) } });
+            if (repo.maxConcurrentJobs - active <= 0) {
+                report.reason = 'no_slots';
+                report.detail = `${active}/${repo.maxConcurrentJobs}`;
+                continue;
+            }
+            if (budgets.get(project.id)! <= 0) {
+                report.reason = 'daily_limit';
+                report.detail = `${project.dailyRunLimit}/${project.dailyRunLimit}`;
+                report.resetsAt = nextUtcMidnight().toISOString();
+                continue;
+            }
             const slots = Math.min(repo.maxConcurrentJobs - active, budgets.get(project.id)!);
-            if (slots <= 0) continue;
 
-            const jobs = await this.jobRepository.createQueryBuilder('job')
-                .where('job.repoId = :repoId', { repoId })
-                .andWhere("job.status = 'queued'")
+            const jobs = await queuedJobs()
                 .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
                 .andWhere((qb) => `NOT EXISTS ${revised(qb)}`)
                 .orderBy('job.queuedAt', 'ASC')
@@ -117,7 +156,7 @@ export class DispatcherService {
                 try {
                     const outcome = await this.fireJob(job.id, repo, project);
                     if (outcome === 'skipped') continue;
-                    if (outcome === 'fired') fired++;
+                    if (outcome === 'fired') { fired++; report.fired++; }
                     else failed++;
                     budgets.set(project.id, budgets.get(project.id)! - 1);
                     // The repo is now paused; don't fire its remaining jobs this pass.
@@ -127,7 +166,25 @@ export class DispatcherService {
                 }
             }
         }
-        return { fired, failed };
+        this.logChanges(reports);
+        return { fired, failed, repos: reports };
+    }
+
+    private logChanges(reports: RepoDispatchReport[]): void {
+        const seen = new Set<string>();
+        for (const r of reports) {
+            seen.add(r.repoId);
+            const key = [r.reason, r.detail, r.waitingOnDependencies, r.waitingOnRevisions].join('|');
+            const previousKey = this.lastKeys.get(r.repoId) ?? 'none||0|0';
+            if (key === previousKey) continue;
+            this.logger.log(describeRepo(r, this.lastReasons.get(r.repoId)));
+            this.lastKeys.set(r.repoId, key);
+            this.lastReasons.set(r.repoId, r.reason);
+        }
+        // A repo without queued jobs starts from a clean slate the next time it has some.
+        for (const id of [...this.lastKeys.keys()]) {
+            if (!seen.has(id)) { this.lastKeys.delete(id); this.lastReasons.delete(id); }
+        }
     }
 
     private async dailyBudget(project: Project): Promise<number> {
@@ -219,9 +276,55 @@ export class DispatcherService {
 
 }
 
+export type DispatchReason =
+    | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'none';
+
+export interface RepoDispatchReport {
+    repoId: string;
+    fullName: string;
+    queued: number;
+    fired: number;
+    reason: DispatchReason;
+    /** pausedReason, manifestError, `active/max` or `used/limit`; null otherwise. */
+    detail: string | null;
+    /** Next UTC midnight (ISO) when the reason is daily_limit; null otherwise. */
+    resetsAt: string | null;
+    waitingOnDependencies: number;
+    waitingOnRevisions: number;
+}
+
 export interface DispatchResult {
     fired: number;
     failed: number;
+    repos: RepoDispatchReport[];
+}
+
+export interface DispatchStatus {
+    at: string | null;
+    result: DispatchResult | null;
+}
+
+/** One log line per repo state change; nothing while the state stays the same. */
+export function describeRepo(r: RepoDispatchReport, previous: DispatchReason | undefined): string {
+    let text: string;
+    switch (r.reason) {
+        case 'repo_paused': text = `repo paused${r.detail ? `: ${r.detail}` : ''}`; break;
+        case 'project_paused': text = 'project paused'; break;
+        case 'no_routine': text = 'no routine configured'; break;
+        case 'no_manifest': text = `no cached .gilde.json (${r.detail ?? 'not refreshed yet'})`; break;
+        case 'no_slots': text = `no free slots (${r.detail})`; break;
+        case 'daily_limit': text = `daily limit reached (${r.detail}, resets ${r.resetsAt?.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC)`; break;
+        default: text = previous && previous !== 'none' ? 'dispatching again' : 'dispatching';
+    }
+    const waiting: string[] = [];
+    if (r.waitingOnDependencies > 0) waiting.push(`${r.waitingOnDependencies} waiting on dependencies`);
+    if (r.waitingOnRevisions > 0) waiting.push(`${r.waitingOnRevisions} waiting on proposals`);
+    return `${r.fullName}: ${text}${waiting.length ? `, ${waiting.join(', ')}` : ''}`;
+}
+
+function nextUtcMidnight(): Date {
+    const now = new Date();
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1));
 }
 
 function errorMessage(e: unknown): string {

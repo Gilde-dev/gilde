@@ -9,6 +9,7 @@ import { NewJobDialog } from './new-job-dialog';
 import { PauseToggle } from './pause-toggle';
 import { Badge } from './ui/badge';
 import { Board } from './board';
+import { DispatchStrip } from './dispatch-strip';
 import { JobModal } from './job-modal';
 import { Sidebar } from './sidebar';
 
@@ -34,6 +35,7 @@ export function Dashboard() {
   const repos = usePolling(fetchRepos, POLL_MS);
   const features = usePolling(fetchFeatures, POLL_MS);
   const jobs = usePolling(fetchJobs, POLL_MS);
+  const dispatch = usePolling(api.getDispatchStatus, POLL_MS);
 
   const project = projects.data?.find((p) => p.id === projectId);
   const refreshAll = async () => {
@@ -100,6 +102,7 @@ export function Dashboard() {
             </button>
           </div>
         )}
+        {projectId && <DispatchStrip repos={(dispatch.data?.result?.repos ?? []).filter((d) => repos.data?.some((r) => r.id === d.repoId))} />}
         {projectId && (
           <Board
             jobs={jobs.data ?? []}

@@ -253,14 +253,14 @@ describe('dispatch with revisions', () => {
         );
         const job = await seedJob('queued');
         const rev = await seedRevision(job, { task: 'a revised task text' });
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
         await revisionService.reject(rev.id);
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
 
         const second = await seedJob('queued');
         const pending = await seedRevision(second, { title: 'Another title' });
         await revisionService.accept(pending.id);
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
         expect(fire.mock.calls[1][1]).toMatchObject({ title: 'Another title' });
     });
 });
