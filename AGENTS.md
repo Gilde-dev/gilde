@@ -15,6 +15,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); calls `/api/gilde`, a server-side proxy (`app/api/gilde/[...path]/route.ts`) that adds the token from the httpOnly `gilde_session` cookie and forwards to `GILDE_API_URL` (server-only, default `http://localhost:4100/api`). The browser must never read or store the token. `middleware.ts` redirects to `/login` without the cookie. The proxy streams responses (`text/event-stream` is not buffered)
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
   - pages: job board (`/`), `/features`, `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
+- `apps/channels/` — a separate Node process (`@gilde/channels`) that runs the co-pilot in chat platforms (Slack first) with CopilotKit Channels, over AG-UI against `/api/v1/mastra`, authenticated with an API key of a bot user (`GILDE_API_KEY`). Platform credentials (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`) live only in its env. Adapters are listed in `src/adapters.ts`; see its README
 - `packages/` — shared packages (none yet)
 - `.gilde.json` — Gilde manifest: stacks, test commands, and which gildeboek skills this repo gets
 
