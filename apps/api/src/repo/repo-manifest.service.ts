@@ -16,12 +16,18 @@ export const MANIFEST_PATH = '.gilde.json';
 @Injectable()
 export class RepoManifestService {
     private readonly logger = new Logger(RepoManifestService.name);
+    private readonly refreshListeners: Array<(repoId: string) => void> = [];
 
     constructor(
         private readonly repoMapper: RepoMapper,
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @Inject(GITHUB_PORT) private readonly github: GitHubPort,
     ) { }
+
+    /** Calls `listener` with the repo id after every manifest refresh (successful or not). */
+    onRefreshed(listener: (repoId: string) => void): void {
+        this.refreshListeners.push(listener);
+    }
 
     @Cron(CronExpression.EVERY_HOUR)
     async refreshAll(): Promise<void> {
@@ -59,7 +65,9 @@ export class RepoManifestService {
             repo.manifestSyncedAt = new Date();
             repo.manifestError = null;
         }
-        return this.repoMapper.toDTO(await this.repoRepository.save(repo));
+        const saved = await this.repoRepository.save(repo);
+        for (const listener of this.refreshListeners) listener(repoId);
+        return this.repoMapper.toDTO(saved);
     }
 
     private async load(repo: Repo): Promise<{ error: string } | { manifest: Manifest; sha: string }> {
