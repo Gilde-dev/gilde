@@ -138,6 +138,25 @@ Request changes on a job's PR and Gilde sends the job back to its agent with you
 
 Both only work while the job is `pr_open` or `awaiting_review`; the agent continues on the same branch and PR, and each send-back uses one attempt (the job is parked at the project's max attempts).
 
+## Notifications
+
+Gilde stores platform-neutral factory events for exactly one consumer process (`apps/channels`). This is deliberately simple: one row per event in `notifications`, with the delivery state on the same row. There is no consumer registration, subscription, per-destination table, claim, lease, fencing token, send-intent or "uncertain" state, and the API holds no platform credentials or routing. Run one consumer loop only.
+
+**Event row.** `occurrenceKey` (database-unique, built by the producer from stable source identity, never from the clock or a row id), `kind`, `occurredAt`, `projectId`/`jobId`/`featureId`, `title`, `repos` (full names), `reason`, `prLinks` (`{ repo, number, url }`), plus delivery fields `status`, `attempts`, `nextRetryAt`, `lastError`, `deliveredAt`. Kinds: `job.awaiting_review`, `job.parked`, `job.approval_needed`, `revision.waiting`, `feature.ready_to_close`.
+
+**Recording.** `NotificationService.recordQuietly(envelope | () => envelope)` does one insert after the caller's domain write succeeded. A unique-key conflict means "already recorded"; every other error, including a throwing envelope function, is caught and logged, so a notification problem never fails or rolls back the domain change. There are no transaction wrappers, event buses, source retries or historical reconstruction.
+
+**Endpoints** (JWT or API key like every other route):
+
+- `GET /api/v1/notifications?kinds=job.parked,revision.waiting&limit=20` returns `pending` rows and `failed` rows whose `nextRetryAt` is due, oldest first (`createdAt`, then `id`). `kinds` is a comma-separated list (default: all kinds); `limit` is 1-100 (default 20). Delivered, permanently failed and not-yet-due rows are never returned.
+- `POST /api/v1/notifications/:id/delivered` marks the row `delivered` (terminal, idempotent; repeating it changes nothing).
+- `POST /api/v1/notifications/:id/failed` with `{ "reason": string, "retryable"?: boolean, "retryAfterSeconds"?: 1..86400 }` sets `failed`, increments `attempts`, stores a redacted, 500-character `lastError`, and sets `nextRetryAt = now + retryAfterSeconds` (default 60). `retryable: false` is a permanent failure: `nextRetryAt` is null and the row is not polled again. On a `delivered` row it is a no-op that returns the row.
+- Both POSTs return the notification (404 for an unknown id, 400 for a non-UUID id or invalid body). Timing is persisted, so a restart of either process keeps the backoff.
+
+**Delivery transitions:** `pending` -> `delivered`; `pending`/`failed` -> `failed` (retry later or permanent); `failed` -> `delivered`; `delivered` never changes. The consumer picks backoff (`retryAfterSeconds`), so it can honour Slack's `Retry-After`.
+
+**Trade-offs.** Capture is best effort: a crash or failed insert after a successful domain write loses that notification, and lost captures are not reconstructed. Delivery is at-least-once for recorded events: if the consumer crashes, or its acknowledgement is lost, after the platform accepted a post, the event is sent again (rare duplicate). Neither window has recovery machinery.
+
 ## Agent instructions
 
 Agents get their working instructions from [`docs/agent-instructions.md`](docs/agent-instructions.md):
