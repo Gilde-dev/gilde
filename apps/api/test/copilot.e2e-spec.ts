@@ -100,6 +100,13 @@ describe('Co-pilot (e2e), configured', () => {
     expect(res.body).toEqual({ user: { id: user.id, name: user.name, email: user.email }, resourceId: user.id });
   });
 
+  it('runs Mastra routes as the owner of an API key', async () => {
+    const owner = await createTestUser(app, { name: 'Bot' });
+    const created = await request(app.getHttpServer()).post('/api/v1/api-keys').set({ Authorization: `Bearer ${tokenFor(app, owner)}` }).send({ name: 'channels' }).expect(201);
+    const res = await request(app.getHttpServer()).get('/api/v1/mastra/whoami').set({ Authorization: `Bearer ${created.body.key}` }).expect(200);
+    expect(res.body).toEqual({ user: { id: owner.id, name: 'Bot', email: owner.email }, resourceId: owner.id });
+  });
+
   it('ignores a user or resource id sent by the client', async () => {
     const user = await createTestUser(app);
     const res = await request(app.getHttpServer())
