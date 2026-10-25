@@ -6,12 +6,14 @@ import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeor
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { loadDownstream } from '../execution/downstream.js';
+import { selectJobLessons } from '../execution/job-lessons.js';
 import { buildJobPayload } from '../execution/job-payload.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
+import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
@@ -35,6 +37,7 @@ export class DispatcherService {
         @InjectRepository(JobRun) private readonly runRepository: Repository<JobRun>,
         private readonly repoService: RepoService,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
+        private readonly history: HistorySearchService,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -211,13 +214,16 @@ export class DispatcherService {
 
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
 
+        // Optional context: never throws, so a retrieval problem cannot fail the run or cost an attempt.
+        const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
+
         let runId: string | undefined;
         let session: ExecutionResult;
         try {
             runId = await this.startRun(job, project.id, repo.id);
             session = await this.execution.fire(
                 { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
-                buildJobPayload(job, repo, feature, runId, job.attempts, await loadDownstream(this.jobRepository.manager, job)),
+                buildJobPayload(job, repo, feature, runId, job.attempts, await loadDownstream(this.jobRepository.manager, job), lessons),
             );
         } catch (e) {
             const message = errorMessage(e);

@@ -5,8 +5,10 @@ import { Repository } from 'typeorm';
 import { ExecutionError } from '../execution/execution.error.js';
 import { EXECUTION_PORT, type ExecutionPort } from '../execution/execution.port.js';
 import { loadDownstream } from '../execution/downstream.js';
+import { selectJobLessons } from '../execution/job-lessons.js';
 import { buildJobPayload } from '../execution/job-payload.js';
 import { Feature } from '../feature/feature.entity.js';
+import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import type { JobPromptResponseDto } from './job.dto.js';
 import { Job } from './job.entity.js';
@@ -22,6 +24,7 @@ export class JobPromptService {
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
+        private readonly history: HistorySearchService,
     ) { }
 
     /** The exact text the next fire of this job would send. Reads only. */
@@ -30,9 +33,10 @@ export class JobPromptService {
         if (!job) throw new NotFoundException(`Job ${id} not found`);
         const repo = await this.repoRepository.findOneByOrFail({ id: job.repoId });
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
+        const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
         try {
             const { text, instructionsVersion } = this.execution.preview(
-                buildJobPayload(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstream(this.jobRepository.manager, job)),
+                buildJobPayload(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstream(this.jobRepository.manager, job), lessons),
             );
             return { text, instructionsVersion };
         } catch (e) {

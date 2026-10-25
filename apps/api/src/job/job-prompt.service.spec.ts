@@ -1,6 +1,6 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentInstructionsService } from '../execution/agent-instructions.service.js';
 import { User } from '../user/user.entity.js';
@@ -17,6 +17,7 @@ import { Job } from './job.entity.js';
 let ds: DataSource;
 let service: JobPromptService;
 let job: Job;
+let searchLessons: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
     ds = await new DataSource({
@@ -27,9 +28,10 @@ beforeEach(async () => {
     job = await ds.getRepository(Job).save({
         projectId: project.id, repoId: repo.id, title: 'T', task: 'do', acceptanceCriteria: ['a'], status: 'queued', attempts: 1,
     });
+    searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
     service = new JobPromptService(
         new RoutineExecutionAdapter(new AgentInstructionsService()),
-        ds.getRepository(Job), ds.getRepository(Repo), ds.getRepository(Feature),
+        ds.getRepository(Job), ds.getRepository(Repo), ds.getRepository(Feature), { searchLessons } as never,
     );
 });
 afterEach(async () => {
@@ -55,6 +57,27 @@ describe('JobPromptService', () => {
         await ds.getRepository(JobDependency).insert({ jobId: next.id, dependsOnJobId: job.id });
         const res = await service.get(job.id);
         expect(res.text).toContain(`"downstream":[{"jobId":"${next.id}","title":"Next","task":"follow up work","acceptanceCriteria":[],"dependsOn":["${job.id}"]}]`);
+    });
+
+    it('previews the same lessons a fire would send, without changing state', async () => {
+        searchLessons.mockResolvedValue({ status: 'ok', lessons: [
+            { lessonId: 'les1', projectId: job.projectId, targetRepoId: null, status: 'applied', score: 0.8, text: 'Stream large exports' },
+            { lessonId: 'foreign', projectId: 'other', targetRepoId: null, status: 'approved', score: 0.9, text: 'Foreign' },
+        ] });
+        const res = await service.get(job.id);
+        expect(searchLessons.mock.calls[0]![0]).toMatchObject({ projectId: job.projectId, repoId: job.repoId });
+        expect(res.text).toContain('"lessons":[{"id":"les1","text":"Stream large exports","scope":"project","status":"applied","relevance":0.8}]');
+        expect(res.text).not.toContain('Foreign');
+        expect(await ds.getRepository(JobRun).count()).toBe(0);
+        expect((await ds.getRepository(Job).findOneByOrFail({ id: job.id })).attempts).toBe(1);
+    });
+
+    it('previews without lessons when retrieval fails', async () => {
+        vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+        searchLessons.mockRejectedValue(new Error('429'));
+        const res = await service.get(job.id);
+        expect(res.text).not.toContain('lessons');
+        vi.restoreAllMocks();
     });
 
     it('404s for an unknown job', async () => {
