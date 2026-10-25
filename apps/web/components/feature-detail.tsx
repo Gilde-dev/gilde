@@ -17,6 +17,7 @@ import {
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
 import { FeatureProgressBar, ReadyToCloseBadge, STATUS_VARIANT } from './feature-progress';
+import { CopilotPageContext } from './copilot-provider';
 import { NewJobDialog } from './new-job-dialog';
 import { SidebarNav } from './sidebar-nav';
 import { Badge } from './ui/badge';
@@ -80,6 +81,7 @@ export function FeatureDetailView() {
 
   return (
     <div className="flex min-h-screen">
+      <CopilotPageContext description="The feature page open in the Gilde UI" value={{ featureId: id }} />
       <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
         <h1 className="text-lg font-bold">Gilde</h1>
         <SidebarNav current="/features" />

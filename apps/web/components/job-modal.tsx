@@ -5,6 +5,7 @@ import { api, type Job, type JobStatus, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { JobActions } from './job-actions';
 import { errorText } from '@/lib/job-actions';
+import { CopilotPageContext } from './copilot-provider';
 import { Button } from './ui/button';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -248,6 +249,7 @@ export function JobModal({
 
   return (
     <Dialog open={job !== null} onOpenChange={(open) => !open && onClose()}>
+      {job && <CopilotPageContext description="The job open in the job dialog" value={{ jobId: job.id, title: job.title }} />}
       <DialogContent>
         {shown && (
           <div className="space-y-4">

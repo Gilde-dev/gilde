@@ -20,6 +20,7 @@ import { SkillModule } from './skill/skill.module.js';
 import { RevisionModule } from './revision/revision.module.js';
 import { UserModule } from './user/user.module.js';
 import { AuthModule } from './auth/auth.module.js';
+import { CopilotModule } from './copilot/copilot.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -49,6 +50,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RevisionModule,
     UserModule,
     AuthModule,
+    CopilotModule,
   ],
 })
 export class AppModule { }

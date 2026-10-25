@@ -35,6 +35,9 @@ import { DispatcherService } from './dispatcher.service.js';
     ],
     providers: [
         DispatcherService
+    ],
+    exports: [
+        DispatcherService
     ]
 })
 export class DispatchModule { }

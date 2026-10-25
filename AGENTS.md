@@ -12,7 +12,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - `src/app.module.ts` — root module, TypeORM config (better-sqlite3 locally)
   - `test/` — e2e tests (`*.e2e-spec.ts`)
 - `apps/web/` — the Next.js (App Router) web UI (`@gilde/web`), Tailwind + shadcn-style components in `components/ui`
-  - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); calls `/api/gilde`, a server-side proxy (`app/api/gilde/[...path]/route.ts`) that adds the token from the httpOnly `gilde_session` cookie and forwards to `GILDE_API_URL` (server-only, default `http://localhost:4100/api`). The browser must never read or store the token. `middleware.ts` redirects to `/login` without the cookie
+  - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); calls `/api/gilde`, a server-side proxy (`app/api/gilde/[...path]/route.ts`) that adds the token from the httpOnly `gilde_session` cookie and forwards to `GILDE_API_URL` (server-only, default `http://localhost:4100/api`). The browser must never read or store the token. `middleware.ts` redirects to `/login` without the cookie. The proxy streams responses (`text/event-stream` is not buffered)
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
   - pages: job board (`/`), `/features`, `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `packages/` — shared packages (none yet)
@@ -46,6 +46,7 @@ One NestJS module per domain:
 - `lesson/` — lessons collected hourly from runs and feedback; review, merge and apply
 - `metrics/` — `GET /api/v1/metrics`
 - `health/` — `GET /api/health`, returns `{ status, checks }`, 503 when the DB is down
+- `copilot/` — the co-pilot: a Mastra agent (`gilde`) built in a Nest provider (`copilot.mastra.ts`) so its tools get the services by injection; `@mastra/nestjs` is mounted under `/api/v1/mastra` (RouterModule) and the CopilotKit/AG-UI route is `/api/v1/mastra/copilotkit`. Behind the global JWT guard; `CopilotContextInterceptor` puts `req.user` and the memory resourceId (the user id) into the Mastra request context on every Mastra route. Tools are in `copilot.tools.ts` (read-only, call services, return DTOs). `GET /api/v1/copilot/status` returns `{ enabled, model }`. Env: `OPENAI_API_KEY` and `COPILOT_MODEL` (`openai/<model>`, no default); without them the routes answer 503 and the API still starts. Memory: Postgres on `DATABASE_URL`, otherwise `mastra.db` (gitignored)
 - `common/` — shared pipes and helpers (zod validation, db errors)
 
 Each domain has: `*.entity.ts`, `*.dto.ts` (zod), `*.mapper.ts`, `*.service.ts`, `*.controller.ts`, `*.module.ts`.
@@ -56,7 +57,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Views and interactive components are client components (`'use client'`) in `components/`: kebab-case files, named exports. Shared primitives (button, badge, dialog) are in `components/ui/`. Import with the `@/` alias; merge classes with `cn` from `lib/utils.ts`.
 - All API calls go through the `api` object in `lib/api.ts`; failures throw `ApiError` (with zod `issues` for form fields). Keep its types and status lists in sync with the API DTOs you change. Poll with `usePolling`; no data-fetching or state library.
 - Job-status logic lives in `lib/lanes.ts` (board columns) and `lib/job-actions.ts` (which actions a status allows); update both when job statuses or transitions change.
-- Styling is Tailwind utility classes; no extra UI or chart libraries.
+- Styling is Tailwind utility classes; no extra UI or chart libraries, except CopilotKit (`@copilotkit/react-core`, `@copilotkit/react-ui`) for the co-pilot sidebar: `components/copilot-provider.tsx` wraps the app in `app/layout.tsx` (not on `/login`), talks to `/api/gilde/v1/mastra/copilotkit` and shows a note when `GET /v1/copilot/status` says disabled. Share page context with `CopilotPageContext`.
 - Tests: `*.spec.tsx` next to the component (Testing Library), shared test data in `*.fixture.ts`.
 
 ## Routes
@@ -77,6 +78,8 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Every route requires a JWT unless marked `@Public()` (from `common/`). Only mark routes public that authenticate in another way (like the webhook signature) or must be reachable without login.
 - e2e tests: create an authenticated agent with `authedAgent(app)` from `test/helpers/auth.ts`; don't log in per test (login is throttled).
 - Job status changes only through the state machine in `job/job-state.ts`.
+- Co-pilot tools call existing services and return their DTOs; never query repositories or call the HTTP API from a tool. A tool that changes state must ask the user for confirmation first. The acting user comes from the Mastra request context (`copilotUser`), never from tool input.
+- Keep routes of the co-pilot under `/api/v1/mastra`; Mastra's catch-all controller must not shadow other routes.
 
 ## Rules for agents
 - Make the smallest change that satisfies the task and its acceptance criteria.

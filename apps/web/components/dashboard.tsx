@@ -11,6 +11,7 @@ import { Badge } from './ui/badge';
 import { Board } from './board';
 import { DispatchStrip } from './dispatch-strip';
 import { JobModal } from './job-modal';
+import { CopilotPageContext } from './copilot-provider';
 import { Sidebar } from './sidebar';
 
 const POLL_MS = 5000;
@@ -125,6 +126,7 @@ export function Dashboard() {
           />
         )}
       </main>
+      {projectId && <CopilotPageContext description="The project selected in the Gilde UI" value={{ projectId }} />}
       <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={() => setSelected(null)} onChanged={jobs.refresh} onEnqueued={setWarnings} />
       <NewJobDialog
         open={creating}
