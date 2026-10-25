@@ -1,0 +1,120 @@
+import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
+
+export const NOTIFICATION_KINDS = [
+    'job.awaiting_review',
+    'job.parked',
+    'job.approval_needed',
+    'revision.waiting',
+    'feature.ready_to_close',
+] as const;
+export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+export const NOTIFICATION_STATUSES = ['pending', 'delivered', 'failed'] as const;
+export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
+export interface NotificationPr {
+    repo: string;
+    number: number;
+    url: string;
+}
+
+/**
+ * One factory event, with the delivery state of the single consumer on the same row. The envelope is
+ * platform-neutral; formatting and destinations belong to the consumer.
+ */
+@Entity({ name: 'notifications' })
+@Index(['status', 'nextRetryAt'])
+@Index(['createdAt', 'id'])
+export class Notification {
+
+    @PrimaryGeneratedColumn('uuid')
+    id: string;
+
+    /** Stable identity of the source occurrence; unique, so replays record at most once. */
+    @Index({ unique: true })
+    @Column({
+        name: 'occurrence_key',
+        type: 'varchar',
+        length: 500
+    })
+    occurrenceKey: string;
+
+    @Column({ type: 'simple-enum', enum: NOTIFICATION_KINDS })
+    kind: NotificationKind;
+
+    @Column({
+        name: 'occurred_at',
+        type: Date
+    })
+    occurredAt: Date;
+
+    @Column({
+        name: 'project_id',
+        type: 'varchar',
+        nullable: true
+    })
+    projectId: string | null;
+
+    @Column({
+        name: 'job_id',
+        type: 'varchar',
+        nullable: true
+    })
+    jobId: string | null;
+
+    @Column({
+        name: 'feature_id',
+        type: 'varchar',
+        nullable: true
+    })
+    featureId: string | null;
+
+    @Column({ type: 'varchar', length: 500 })
+    title: string;
+
+    /** Full repo names involved. */
+    @Column({ type: 'simple-json' })
+    repos: string[];
+
+    @Column({ type: 'text' })
+    reason: string;
+
+    @Column({
+        name: 'pr_links',
+        type: 'simple-json'
+    })
+    prLinks: NotificationPr[];
+
+    @Column({ type: 'simple-enum', enum: NOTIFICATION_STATUSES, default: 'pending' })
+    status: NotificationStatus;
+
+    @Column({ type: 'integer', default: 0 })
+    attempts: number;
+
+    /** When a failed row becomes due again; null for pending, delivered and permanently failed rows. */
+    @Column({
+        name: 'next_retry_at',
+        type: Date,
+        nullable: true
+    })
+    nextRetryAt: Date | null;
+
+    @Column({
+        name: 'last_error',
+        type: 'text',
+        nullable: true
+    })
+    lastError: string | null;
+
+    @Column({
+        name: 'delivered_at',
+        type: Date,
+        nullable: true
+    })
+    deliveredAt: Date | null;
+
+    @CreateDateColumn({
+        name: 'created_at'
+    })
+    createdAt: Date;
+}

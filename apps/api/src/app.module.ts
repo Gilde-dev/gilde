@@ -24,6 +24,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { CopilotModule } from './copilot/copilot.module.js';
 import { MemoryModule } from './memory/memory.module.js';
 import { HistoryModule } from './memory/history/history.module.js';
+import { NotificationModule } from './notification/notification.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -57,6 +58,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ApiKeyModule,
     AuthModule,
     CopilotModule,
+    NotificationModule,
   ],
 })
 export class AppModule { }
