@@ -43,6 +43,7 @@ Steps:
    - Jobs in the style of earlier Gilde jobs: each task starts with: First run \`git fetch origin && git rebase origin/main\`. Then numbered steps, the files and endpoints involved, and what must not change.
    - Concrete, testable acceptance criteria per job (behaviour, tests that must exist, commands that must pass).
    - Split the work so each job is reviewable on its own and can run in parallel where possible; use dependsOn (draft keys) only for real ordering.
+   Plan efficiently: read only the files you need, do not re-read AGENTS.md when it is already in your context, and move to planFeature as soon as you have enough.
 4. Call planFeature with the draft right away. Fix every problem it reports and call it again until it returns valid.
 5. Then call createPlannedFeature with the same draft. The user sees the plan and approves or cancels it; if they cancel, nothing is created and you ask what to change.
 6. After it is created, tell the user to review the jobs in triage and start the feature themselves. You never start the feature or enqueue jobs.

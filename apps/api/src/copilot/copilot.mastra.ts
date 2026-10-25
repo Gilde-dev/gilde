@@ -1,4 +1,5 @@
 import { registerCopilotKit } from '@ag-ui/mastra/copilotkit';
+import { Logger } from '@nestjs/common';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
@@ -7,7 +8,7 @@ import { LibSQLStore } from '@mastra/libsql';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 
-import type { CopilotConfig } from './copilot.config.js';
+import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig } from './copilot.config.js';
 import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, copilotResourceId, copilotUser, extractProjectId } from './copilot.context.js';
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
@@ -24,6 +25,24 @@ export function createMemoryStorage(databaseUrl: string | undefined = process.en
         return new PostgresStore({ id: 'gilde-copilot', connectionString: databaseUrl });
     }
     return new LibSQLStore({ id: 'gilde-copilot', url: 'file:mastra.db' });
+}
+
+const STEP_LIMIT_NOTE =
+    'You are out of steps. Do not call any more tools. Reply with a short text: say you ran out of steps, what you have done and found so far, and what is left, so the user can continue.';
+
+/**
+ * Default options for every call path (CopilotKit route, remote calls from the channels app): the step limit,
+ * and on the last step tools are switched off so the run ends with a message instead of silently.
+ */
+export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STEPS, logger: Pick<Logger, 'warn'> = new Logger('Copilot')) {
+    return {
+        maxSteps,
+        prepareStep: ({ stepNumber, systemMessages, requestContext }: { stepNumber: number; systemMessages?: unknown[]; requestContext?: { get(key: string): unknown } }) => {
+            if (stepNumber < maxSteps - 1) return undefined;
+            logger.warn(`Co-pilot reached the step limit of ${maxSteps}; forcing a final message (thread ${String(requestContext?.get('threadId') ?? 'unknown')})`);
+            return { toolChoice: 'none' as const, systemMessages: [...(systemMessages ?? []), { role: 'system' as const, content: STEP_LIMIT_NOTE }] };
+        },
+    };
 }
 
 /**
@@ -47,6 +66,7 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
         model: config.model as `openai/${string}`,
         tools: createCopilotTools(services),
         memory: new Memory({ options: { lastMessages: 20 } }),
+        defaultOptions: copilotDefaultOptions(config.maxSteps) as never,
     });
 
     return new Mastra({
