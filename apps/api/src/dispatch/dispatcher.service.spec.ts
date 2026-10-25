@@ -27,6 +27,7 @@ let repos: Repository<Repo>;
 let jobs: Repository<Job>;
 let runs: Repository<JobRun>;
 let repoService: RepoService;
+let searchLessons: ReturnType<typeof vi.fn>;
 
 beforeEach(async () => {
     ds = await new DataSource({
@@ -39,10 +40,11 @@ beforeEach(async () => {
     repos = ds.getRepository(Repo);
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
+    searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) };
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature));
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never);
 });
 
 afterEach(() => ds.destroy());
@@ -187,7 +189,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature));
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never);
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);
@@ -466,5 +468,95 @@ describe('DispatcherService report', () => {
         } finally {
             log.mockRestore();
         }
+    });
+
+    describe('lessons', () => {
+        const lessonHit = { lessonId: 'les1', projectId: '', targetRepoId: null, status: 'approved', score: 0.9, text: 'Stream large exports' };
+        const sentPayload = () => (fire.mock.calls[0] as [unknown, { lessons?: unknown[] }])[1];
+
+        it('adds relevant approved lessons, queried with title, task, criteria and stacks and scoped to project and repo', async () => {
+            const project = await seedProject();
+            const repo = await seedRepo(project, { stacks: ['nestjs'] });
+            searchLessons.mockResolvedValue({ status: 'ok', lessons: [{ ...lessonHit, projectId: project.id }] });
+            await seedJob(repo, 'queued', { title: 'Export invoices', task: 'stream them', acceptanceCriteria: ['no buffering'] });
+
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
+            expect(searchLessons).toHaveBeenCalledOnce();
+            const arg = searchLessons.mock.calls[0]![0] as { projectId: string; repoId: string; query: string };
+            expect(arg).toMatchObject({ projectId: project.id, repoId: repo.id });
+            for (const part of ['Export invoices', 'stream them', 'no buffering', 'nestjs']) expect(arg.query).toContain(part);
+            expect(sentPayload().lessons).toEqual([{ id: 'les1', text: 'Stream large exports', scope: 'project', status: 'approved', relevance: 0.9 }]);
+        });
+
+        it('leaves out lessons of another project or repo and revoked ones', async () => {
+            const project = await seedProject();
+            const repo = await seedRepo(project);
+            searchLessons.mockResolvedValue({ status: 'ok', lessons: [
+                { ...lessonHit, lessonId: 'foreign', projectId: 'other-project' },
+                { ...lessonHit, lessonId: 'other-repo', projectId: project.id, targetRepoId: 'other-repo' },
+                { ...lessonHit, lessonId: 'revoked', projectId: project.id, status: 'rejected' },
+            ] });
+            await seedJob(repo);
+            await dispatcher.dispatch();
+            expect(sentPayload()).not.toHaveProperty('lessons');
+        });
+
+        it.each([
+            ['unavailable', () => searchLessons.mockResolvedValue({ status: 'unavailable', reason: 'no key', lessons: [] })],
+            ['empty', () => searchLessons.mockResolvedValue({ status: 'ok', lessons: [] })],
+            ['a 429', () => searchLessons.mockRejectedValue(new Error('429 rate limit'))],
+            ['a vector error', () => searchLessons.mockRejectedValue(new Error('pgvector down'))],
+            ['a hang', () => { vi.stubEnv('DISPATCH_LESSONS_TIMEOUT_MS', '100'); searchLessons.mockReturnValue(new Promise(() => undefined)); }],
+        ])('still fires with no lessons, one attempt and no pause on %s', async (_name, arrange) => {
+            vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+            try {
+                arrange();
+                const repo = await seedRepo(await seedProject());
+                const job = await seedJob(repo);
+                expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
+                expect(sentPayload()).not.toHaveProperty('lessons');
+                const after = await reload(job.id);
+                expect(after).toMatchObject({ status: 'dispatched', attempts: 1 });
+                expect(await runs.count()).toBe(1);
+                expect(await runs.count({ where: { status: 'fire_failed' } })).toBe(0);
+                expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(false);
+            } finally {
+                vi.unstubAllEnvs();
+                vi.restoreAllMocks();
+            }
+        });
+
+        it('does not search for jobs that policy keeps from firing (paused, dependencies, limits)', async () => {
+            const paused = await seedRepo(await seedProject(), { paused: true });
+            await seedJob(paused);
+            const limited = await seedRepo(await seedProject({ dailyRunLimit: 0 }));
+            await seedJob(limited);
+            const blocked = await seedRepo(await seedProject());
+            const dep = await seedJob(blocked, 'pr_open');
+            const waiting = await seedJob(blocked);
+            await ds.getRepository(JobDependency).save({ jobId: waiting.id, dependsOnJobId: dep.id });
+
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
+            expect(searchLessons).not.toHaveBeenCalled();
+        });
+
+        it('keeps a config error behaviour: attempt given back and repo paused, lessons or not', async () => {
+            searchLessons.mockResolvedValue({ status: 'ok', lessons: [] });
+            fire.mockRejectedValue(new ExecutionError('bad token', 'config'));
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(true);
+        });
+
+        it('adds lessons when continuing a PR and keeps continuation context', async () => {
+            const project = await seedProject();
+            const repo = await seedRepo(project);
+            searchLessons.mockResolvedValue({ status: 'ok', lessons: [{ ...lessonHit, projectId: project.id }] });
+            await seedJob(repo, 'queued', { prNumber: 9, branch: 'claude/x', lastReason: 'CI failed' });
+            await dispatcher.dispatch();
+            expect(sentPayload()).toMatchObject({ continueOn: { branch: 'claude/x', prNumber: 9, reason: 'CI failed' }, lessons: [{ id: 'les1' }] });
+        });
     });
 });

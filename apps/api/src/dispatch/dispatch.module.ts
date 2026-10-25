@@ -5,6 +5,7 @@ import { ExecutionModule } from '../execution/execution.module.js';
 import { Feature } from '../feature/feature.entity.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
+import { HistoryModule } from '../memory/history/history.module.js';
 import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -27,6 +28,7 @@ import { DispatcherService } from './dispatcher.service.js';
             JobRevision
         ]),
         ExecutionModule,
+        HistoryModule,
         RepoModule,
         RunModule
     ],

@@ -156,6 +156,26 @@ Gilde stores platform-neutral factory events for exactly one consumer process (`
 **Delivery transitions:** `pending` -> `delivered`; `pending`/`failed` -> `failed` (retry later or permanent); `failed` -> `delivered`; `delivered` never changes. The consumer picks backoff (`retryAfterSeconds`), so it can honour Slack's `Retry-After`.
 
 **Trade-offs.** Capture is best effort: a crash or failed insert after a successful domain write loses that notification, and lost captures are not reconstructed. Delivery is at-least-once for recorded events: if the consumer crashes, or its acknowledgement is lost, after the platform accepted a post, the event is sent again (rare duplicate). Neither window has recovery machinery.
+### Lessons in dispatched jobs
+
+When a job fires, Gilde looks up relevant lessons in the history index and adds them to the job payload as an optional `lessons` array
+(`{ id, text, scope, status, relevance }`; `id` is the lesson id, `scope` is `project` or `repo`). The agent instructions tell agents that lessons are
+advisory: they never override the task, acceptance criteria, repo instructions or safety rules.
+
+- **What is eligible.** Only lessons that are approved, applying or applied (re-checked against the database at fire time, so a revoked lesson is
+  not sent even if the index has not caught up), in the job's own project, and either project-wide or targeting the job's repo. Raw retros, reviews,
+  other projects and personal co-pilot memory are never sent.
+- **Query and bounds.** The query is the job title, task, acceptance criteria and the repo stacks (at most 2000 characters). Lessons below the
+  relevance threshold are left out rather than filling a quota; duplicates are removed. At most 5 lessons, 800 characters each and 3000 in total.
+  Environment: `DISPATCH_LESSONS_TOP_K` (default and maximum 5; `0` switches lessons off), `DISPATCH_LESSONS_MIN_SCORE` (0 to 1, default 0.5) and
+  `DISPATCH_LESSONS_TIMEOUT_MS` (hard timeout, default 3000, at least 100).
+- **Fail-open.** A timeout, rate limit, missing `OPENAI_API_KEY` or index, vector error or no match gives no lessons and one bounded (200 characters)
+  warning in the API log. The job still fires: no failed run, no parked job, no repo pause and no extra attempt. Dispatch never embeds or indexes
+  inline; it only reads what the history reconciliation already indexed.
+- **Prompt size.** The prompt limit (60000 characters) still applies to the whole text. If lessons would push it over, the least relevant ones are dropped
+  until it fits; instructions, task and criteria are never shortened.
+- **Preview.** `GET /api/v1/jobs/:id/prompt` uses the same selection and shows the lessons a fire would send. It fires nothing and changes no state.
+  Continued PRs get lessons too.
 
 ## Agent instructions
 
