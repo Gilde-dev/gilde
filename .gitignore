@@ -57,3 +57,9 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Local SQLite database (apps/api/db.sqlite)
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
