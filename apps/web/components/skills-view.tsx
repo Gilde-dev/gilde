@@ -12,6 +12,7 @@ import {
 } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
+import { PromoteSkillDialog } from './promote-skill-dialog';
 import { SidebarNav } from './sidebar-nav';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -124,7 +125,7 @@ export function SkillsView() {
               </p>
               <ul className="space-y-3">
                 {repos.data?.map((r) => (
-                  <RepoSkillsCard key={r.id} repo={r} />
+                  <RepoSkillsCard key={r.id} repo={r} canPromote={project?.skillsLibrary !== 'none'} onPromoted={catalog.refresh} />
                 ))}
               </ul>
             </section>
@@ -188,7 +189,8 @@ function LibrarySettings({ project, repos, onSaved }: { project: Project; repos:
   );
 }
 
-function RepoSkillsCard({ repo }: { repo: Repo }) {
+function RepoSkillsCard({ repo, canPromote, onPromoted }: { repo: Repo; canPromote: boolean; onPromoted: () => void | Promise<void> }) {
+  const [promoting, setPromoting] = useState<string | null>(null);
   const fetchSkills = useCallback(() => api.getRepoSkills(repo.id), [repo.id]);
   const skills = usePolling<RepoSkills>(fetchSkills, POLL_MS);
   return (
@@ -209,10 +211,26 @@ function RepoSkillsCard({ repo }: { repo: Repo }) {
                 <span>{s.name}</span>
                 <Badge variant={STATUS_VARIANTS[s.status]}>{s.status}</Badge>
                 {s.managedBy && <span className="text-xs text-muted-foreground">{s.managedBy}</span>}
+                {canPromote && s.source === 'repo' && s.status === 'repo' && (
+                  <Button size="sm" variant="outline" aria-label={`Promote ${s.name}`} onClick={() => setPromoting(s.name)}>
+                    Promote
+                  </Button>
+                )}
               </li>
             ))}
           </ul>
         </>
+      )}
+      {promoting && (
+        <PromoteSkillDialog
+          repo={repo}
+          skillName={promoting}
+          onClose={() => setPromoting(null)}
+          onPromoted={async () => {
+            await onPromoted();
+            await skills.refresh();
+          }}
+        />
       )}
     </li>
   );

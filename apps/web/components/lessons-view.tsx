@@ -198,7 +198,7 @@ function LessonCard({
   };
 
   const locked = lesson.status === 'applying' || lesson.status === 'applied';
-  const canApply = (lesson.targetKind === 'skill' || lesson.targetKind === 'agents_md') && !!lesson.targetRepoId;
+  const canApply = (lesson.targetKind === 'skill' || lesson.targetKind === 'repo_skill' || lesson.targetKind === 'agents_md') && !!lesson.targetRepoId;
 
   return (
     <li aria-label={lesson.text.slice(0, 60)} className="space-y-2 rounded-md border border-border p-3">
@@ -245,8 +245,8 @@ function LessonCard({
         <select
           aria-label="Target kind"
           className={SELECT}
-          value={lesson.targetKind ?? ''}
-          onChange={(e) => onUpdate({ targetKind: (e.target.value || null) as Lesson['targetKind'] })}
+          value={lesson.targetKind === 'skill' ? 'repo_skill' : (lesson.targetKind ?? '')}
+          onChange={(e) => onUpdate({ targetKind: (e.target.value || null) as UpdateLessonInput['targetKind'] })}
         >
           <option value="">Target kind…</option>
           {LESSON_TARGET_KINDS.map((k) => (
@@ -283,7 +283,7 @@ function LessonCard({
         )}
         {lesson.status === 'approved' && (
           <>
-            <Button size="sm" disabled={busy || !canApply} onClick={onApply} title={canApply ? undefined : 'Needs a skill or agents_md target kind and a target repo'}>
+            <Button size="sm" disabled={busy || !canApply} onClick={onApply} title={canApply ? undefined : 'Needs a repo_skill or agents_md target kind and a target repo'}>
               Apply
             </Button>
             <Button size="sm" variant="outline" disabled={busy} onClick={onMarkApplied}>

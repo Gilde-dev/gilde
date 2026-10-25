@@ -2,8 +2,10 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 
 import { LESSON_STATUSES, type LessonStatus } from './lesson-state.js';
 
-export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'routine_prompt', 'other'] as const;
+/** `skill` is legacy: rows that have it still load and apply like `repo_skill`, but it can no longer be set. */
+export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
 export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number];
+export const SETTABLE_LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
 
 @Entity({ name: 'lessons' })
 @Index(['projectId', 'status'])

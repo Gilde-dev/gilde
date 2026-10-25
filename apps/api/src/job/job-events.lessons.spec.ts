@@ -24,7 +24,7 @@ const lesson = (over: Partial<Lesson> = {}) =>
 beforeEach(async () => {
     ds = await memoryDb();
     const lessons = new LessonService(
-        new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), {} as JobService,
+        new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), {} as JobService, {} as never, {} as never,
     );
     events = new JobEventsService(ds.getRepository(Job), ds.getRepository(JobRun), ds.getRepository(Project), lessons);
 });

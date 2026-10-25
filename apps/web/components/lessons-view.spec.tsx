@@ -74,7 +74,7 @@ describe('LessonsView', () => {
     expect(within(items[1]).getByText('Tests were slow')).toBeInTheDocument();
     expect(within(items[1]).getByRole('link', { name: 'PR' })).toHaveAttribute('href', 'https://github.com/o/r/pull/7');
     fireEvent.click(screen.getByRole('tab', { name: 'approved (1)' }));
-    expect(screen.getByLabelText('Target kind')).toHaveValue('skill');
+    expect(screen.getByLabelText('Target kind')).toHaveValue('repo_skill');
     expect(screen.getByRole('button', { name: 'Reopen' })).toBeInTheDocument();
   });
 

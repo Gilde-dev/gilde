@@ -72,4 +72,31 @@ describe('SkillsView', () => {
     fireEvent.click(save);
     await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { skillsLibrary: 'repo', skillsLibraryRepoId: 'r1' }));
   });
+
+  it('offers Promote on repo-owned skills only, and shows the created jobs after promoting', async () => {
+    const promote = vi.spyOn(api, 'promoteSkill').mockResolvedValue({ libraryJobId: 'aaaaaaaa-1', cleanupJobId: 'bbbbbbbb-2' });
+    render(<SkillsView />);
+    await screen.findByText('mine');
+    expect(screen.queryByRole('button', { name: 'Promote alpha' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Promote mine' }));
+
+    fireEvent.click(screen.getByLabelText('Stack'));
+    const submit = screen.getByRole('button', { name: 'Promote' });
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('nestjs'));
+    fireEvent.click(screen.getByLabelText('nextjs'));
+    fireEvent.click(submit);
+
+    await waitFor(() => expect(promote).toHaveBeenCalledWith('r1', 'mine', { scope: 'stack', stacks: ['nestjs', 'nextjs'] }));
+    expect(await screen.findByText('Library job aaaaaaaa')).toBeInTheDocument();
+    expect(screen.getByText('Cleanup job bbbbbbbb').closest('a')).toHaveAttribute('href', expect.stringContaining('/?project='));
+  });
+
+  it('shows API errors in the promote dialog', async () => {
+    vi.spyOn(api, 'promoteSkill').mockRejectedValue(new ApiError('The library already has a skill named mine', 409));
+    render(<SkillsView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Promote mine' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Promote' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('already has a skill');
+  });
 });

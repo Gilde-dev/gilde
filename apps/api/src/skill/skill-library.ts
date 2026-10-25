@@ -19,7 +19,7 @@ export interface CatalogSkill {
     files: SkillFile[];
 }
 
-/** A source of skills. Implementations only read; they never write to the library. */
+/** A source of skills. This interface only reads; the one write path is FolderSkillLibrary.addSkill. */
 export interface SkillLibrary {
     getCatalog(): Promise<CatalogSkill[]>;
     /** Drops cached state so the next getCatalog() reads the source again. */
@@ -27,7 +27,7 @@ export interface SkillLibrary {
 }
 
 /** Skill names become folder names, so they can't contain path separators or dots at the start. */
-const skillName = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/, 'Use lowercase letters, digits, dots, dashes and underscores');
+export const skillName = z.string().regex(/^[a-z0-9][a-z0-9._-]*$/, 'Use lowercase letters, digits, dots, dashes and underscores');
 
 const RegistrySchema = z.object({
     skills: z.array(

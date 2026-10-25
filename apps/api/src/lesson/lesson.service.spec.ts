@@ -4,15 +4,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
+import { UpdateLessonSchema } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
 import { LessonService } from './lesson.service.js';
 import { LessonSource } from './lesson-source.entity.js';
 import { J1, J2, P1, P2, memoryDb } from './lesson.fixture.js';
 import type { JobService } from '../job/job.service.js';
+import type { ProjectService } from '../project/project.service.js';
+import type { SkillLibraryResolver } from '../skill/skill-library.resolver.js';
 
 let ds: DataSource;
 let service: LessonService;
+let projectInfo: { skillsLibrary: string } | Error;
+let libraryNames: string[] | Error;
+const projects = { getById: async () => { if (projectInfo instanceof Error) throw projectInfo; return { id: P1, ...projectInfo }; } } as unknown as ProjectService;
+const resolver = {
+    resolve: async () => ({ library: { getCatalog: async () => { if (libraryNames instanceof Error) throw libraryNames; return libraryNames.map((name) => ({ name })); } } }),
+} as unknown as SkillLibraryResolver;
 let n = 0;
 
 /** Stands in for JobService.create: saves a queued job on the repo. */
@@ -29,7 +38,9 @@ const source = (lessonId: string, jobId = J1) =>
 
 beforeEach(async () => {
     ds = await memoryDb();
-    service = new LessonService(new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), fakeJobs(ds));
+    service = new LessonService(new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), fakeJobs(ds), projects, resolver);
+    projectInfo = { skillsLibrary: 'none' };
+    libraryNames = [];
 });
 afterEach(() => ds.destroy());
 
@@ -64,7 +75,7 @@ describe('LessonService', () => {
     });
 
     it('follows the transition table and returns 409 otherwise', async () => {
-        const l = await lesson({ targetKind: 'skill' });
+        const l = await lesson({ targetKind: 'repo_skill' });
         await expect(service.reopen(l.id)).rejects.toBeInstanceOf(ConflictException);
         await service.approve(l.id);
         await expect(service.approve(l.id)).rejects.toBeInstanceOf(ConflictException);
@@ -129,7 +140,7 @@ describe('LessonService', () => {
     describe('apply', () => {
         const approved = async (over: Partial<Lesson> = {}) => {
             const repo = await ds.getRepository(Repo).save({ projectId: P1, fullName: `o/r${++n}`, testCommands: ['t'] });
-            return { repo, l: await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: repo.id, text: 'Always run pnpm install first', ...over }) };
+            return { repo, l: await lesson({ status: 'approved', targetKind: 'repo_skill', targetRepoId: repo.id, text: 'Always run pnpm install first', ...over }) };
         };
 
         it('creates one job on the target repo with the instruction and evidence, and moves the lesson to applying', async () => {
@@ -144,12 +155,51 @@ describe('LessonService', () => {
             expect(created[0].title).toBe('Apply lesson: Always run pnpm install first');
             expect(created[0].task).toContain('Always run pnpm install first');
             expect(created[0].task).toContain(l.id);
-            expect(created[0].task).toContain('most fitting skill');
+            expect(created[0].task).toContain('.claude/skills/<name>/');
+            expect(created[0].task).toContain('no `managed-by` line');
+            expect(created[0].task).toContain('Never edit a skill that has a `managed-by` line');
+            expect(created[0].task).toContain('outcome blocked');
+            expect(created[0].task).not.toContain('are taken');
             expect(created[0].task).toContain('https://github.com/o/r/pull/1');
             expect(created[0].task).toContain('outcome blocked');
             expect(created[0].task.match(/excerpt \d/g)).toHaveLength(5);
             expect(created[0].acceptanceCriteria.join('\n')).toContain(l.id);
             expect(dto).toMatchObject({ status: 'applying', appliedJobId: created[0].id, appliedAt: null });
+        });
+
+        it('lists the library skill names as taken, and skips the list without a library or when it cannot be read', async () => {
+            projectInfo = { skillsLibrary: 'repo' };
+            libraryNames = ['alpha', 'beta'];
+            const first = await approved();
+            await service.apply(first.l.id);
+            expect((await ds.getRepository(Job).findOneByOrFail({ repoId: first.repo.id })).task).toContain('are taken, so do not use them for a new skill: alpha, beta');
+
+            libraryNames = new Error('unreadable');
+            const second = await approved();
+            await service.apply(second.l.id);
+            const task = (await ds.getRepository(Job).findOneByOrFail({ repoId: second.repo.id })).task;
+            expect(task).not.toContain('are taken');
+            expect(task).toContain('Verify the lesson');
+
+            projectInfo = { skillsLibrary: 'none' };
+            libraryNames = ['alpha'];
+            const third = await approved();
+            await service.apply(third.l.id);
+            expect((await ds.getRepository(Job).findOneByOrFail({ repoId: third.repo.id })).task).not.toContain('are taken');
+        });
+
+        it('applies a legacy skill lesson exactly like repo_skill', async () => {
+            const { repo, l } = await approved({ targetKind: 'skill' });
+            await service.apply(l.id);
+            expect((await ds.getRepository(Job).findOneByOrFail({ repoId: repo.id })).task).toContain('no `managed-by` line');
+        });
+
+        it('rejects setting or approving the legacy skill kind with 400', async () => {
+            const l = await lesson();
+            expect(UpdateLessonSchema.safeParse({ targetKind: 'skill' }).success).toBe(false);
+            expect(UpdateLessonSchema.safeParse({ targetKind: 'repo_skill' }).success).toBe(true);
+            await ds.getRepository(Lesson).update({ id: l.id }, { targetKind: 'skill' });
+            await expect(service.approve(l.id)).rejects.toBeInstanceOf(BadRequestException);
         });
 
         it('truncates the title to 60 characters of text and uses the AGENTS.md instruction', async () => {
@@ -174,10 +224,10 @@ describe('LessonService', () => {
                 const { l } = await approved({ targetKind });
                 await expect(service.apply(l.id)).rejects.toBeInstanceOf(BadRequestException);
             }
-            const noRepo = await lesson({ status: 'approved', targetKind: 'skill' });
+            const noRepo = await lesson({ status: 'approved', targetKind: 'repo_skill' });
             await expect(service.apply(noRepo.id)).rejects.toBeInstanceOf(BadRequestException);
             const foreign = await ds.getRepository(Repo).save({ projectId: P2, fullName: 'o/x', testCommands: ['t'] });
-            const cross = await lesson({ status: 'approved', targetKind: 'skill', targetRepoId: foreign.id });
+            const cross = await lesson({ status: 'approved', targetKind: 'repo_skill', targetRepoId: foreign.id });
             await expect(service.apply(cross.id)).rejects.toBeInstanceOf(BadRequestException);
             expect(await ds.getRepository(Job).count()).toBe(0);
         });
