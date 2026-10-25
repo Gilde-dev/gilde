@@ -45,6 +45,14 @@ export class JobRun {
     })
     sessionUrl: string | null;
 
+    @Column({
+        name: 'instructions_version',
+        type: 'varchar',
+        length: 16,
+        nullable: true
+    })
+    instructionsVersion: string | null;
+
     @Column({ type: 'text', nullable: true })
     error: string | null;
 

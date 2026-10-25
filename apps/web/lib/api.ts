@@ -162,6 +162,7 @@ export interface Run {
   status: RunStatus;
   sessionId: string | null;
   sessionUrl: string | null;
+  instructionsVersion: string | null;
   error: string | null;
   ciConclusion: string | null;
   result: RunResult | null;
@@ -302,6 +303,14 @@ export interface Metrics {
     byCiConclusion: Record<string, number>;
     gateFailures: number;
   };
+  byInstructionsVersion: {
+    /** "none" for runs fired without instructions. */
+    version: string;
+    runs: number;
+    mergedJobs: number;
+    firstPassRate: number | null;
+    avgAttempts: number | null;
+  }[];
   daily: { date: string; created: number; merged: number; parked: number }[];
 }
 

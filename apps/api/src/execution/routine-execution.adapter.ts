@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 
+import { AgentInstructionsService } from './agent-instructions.service.js';
 import { ExecutionError, type ExecutionErrorKind } from './execution.error.js';
 import {
     JobPayloadSchema,
@@ -9,6 +10,7 @@ import {
     type ExecutionResult,
     type JobPayload,
 } from './execution.port.js';
+import { buildJobPrompt, type JobPrompt } from './job-prompt.js';
 
 const FIRE_TIMEOUT_MS = 30_000;
 
@@ -26,6 +28,12 @@ function httpErrorKind(status: number): ExecutionErrorKind {
 
 @Injectable()
 export class RoutineExecutionAdapter implements ExecutionPort {
+    constructor(private readonly instructions: AgentInstructionsService) { }
+
+    preview(payload: JobPayload): JobPrompt {
+        return buildJobPrompt(JobPayloadSchema.parse(payload), this.instructions.get());
+    }
+
     async fire(repo: ExecutionRepo, payload: JobPayload): Promise<ExecutionResult> {
         if (!repo.routineFireUrl || !repo.routineTokenEnv) {
             throw new ExecutionError(`Repo ${repo.fullName} has no routine configured`, 'config');
@@ -38,10 +46,7 @@ export class RoutineExecutionAdapter implements ExecutionPort {
             );
         }
 
-        const parsed = JobPayloadSchema.parse(payload);
-        const text =
-            `Gilde job ${parsed.jobId} (attempt ${parsed.attempt}). Execute it as described in your routine instructions.\n\n` +
-            JSON.stringify(parsed);
+        const { text, instructionsVersion } = this.preview(payload);
 
         let res: Response;
         try {
@@ -82,6 +87,7 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         return {
             sessionId: result.data.claude_code_session_id,
             sessionUrl: result.data.claude_code_session_url,
+            instructionsVersion,
         };
     }
 }

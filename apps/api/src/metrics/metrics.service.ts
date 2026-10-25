@@ -87,6 +87,7 @@ export class MetricsService {
             avgAttempts: decided.length ? round(decided.reduce((n, j) => n + j.attempts, 0) / decided.length) : null,
             timeToMerge: { median: median(mergeTimes), p90: percentile(mergeTimes, 0.9) },
             runs: { total: runs.length, byOutcome, byCiConclusion, gateFailures: jobs.filter((j) => j.needsApproval).length },
+            byInstructionsVersion: byInstructionsVersion(runs, jobs, lastRun),
             daily,
         };
     }
@@ -98,6 +99,42 @@ export class MetricsService {
         }
         return runs;
     }
+}
+
+/**
+ * Runs are counted per version. A job counts towards the version of its last run, the one that
+ * led to its outcome; jobs without runs are left out. The null version is reported as "none".
+ */
+function byInstructionsVersion(runs: JobRun[], jobs: Job[], lastRun: Map<string, JobRun>): MetricsResponseDto['byInstructionsVersion'] {
+    const groups = new Map<string, { runs: number; latest: number; jobs: Job[] }>();
+    const group = (v: string | null) => {
+        const key = v ?? 'none';
+        let g = groups.get(key);
+        if (!g) groups.set(key, g = { runs: 0, latest: 0, jobs: [] });
+        return g;
+    };
+    for (const r of runs) {
+        const g = group(r.instructionsVersion);
+        g.runs++;
+        g.latest = Math.max(g.latest, r.createdAt.getTime());
+    }
+    for (const j of jobs) {
+        const last = lastRun.get(j.id);
+        if (last) group(last.instructionsVersion).jobs.push(j);
+    }
+    return [...groups.entries()]
+        .sort((a, b) => b[1].latest - a[1].latest)
+        .map(([version, g]) => {
+            const merged = g.jobs.filter((j) => j.status === 'merged');
+            const decided = g.jobs.filter((j) => DECIDED.has(j.status));
+            return {
+                version,
+                runs: g.runs,
+                mergedJobs: merged.length,
+                firstPassRate: ratio(merged.filter((j) => j.attempts === 1).length, merged.length),
+                avgAttempts: decided.length ? round(decided.reduce((n, j) => n + j.attempts, 0) / decided.length) : null,
+            };
+        });
 }
 
 const startOfUtcDay = (d: Date) => new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));

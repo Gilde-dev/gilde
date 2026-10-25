@@ -38,7 +38,7 @@ beforeEach(async () => {
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
-    const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> };
+    const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) };
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
     dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature));
 });
@@ -131,6 +131,14 @@ describe('DispatcherService', () => {
         expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
     });
 
+    it('stores the instructions version the fire used on the run', async () => {
+        fire.mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1', instructionsVersion: 'abc123def456' });
+        const repo = await seedRepo(await seedProject());
+        const job = await seedJob(repo);
+        await dispatcher.dispatch();
+        expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fired', instructionsVersion: 'abc123def456' });
+    });
+
     it('sends continueOn only when the job has a PR', async () => {
         const repo = await seedRepo(await seedProject());
         await seedJob(repo, 'queued', { prNumber: 7, branch: 'claude/x', lastReason: 'CI failure' });
@@ -165,7 +173,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']> }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature));
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature));
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);

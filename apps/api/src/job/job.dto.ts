@@ -81,6 +81,11 @@ export const EnqueueResponseSchema = JobResponseSchema.extend({
     warnings: z.array(EnqueueWarningSchema),
 });
 
+export interface JobPromptResponseDto {
+    text: string;
+    instructionsVersion: string | null;
+}
+
 export type UpdateJobDto = z.infer<typeof UpdateJobSchema>;
 export type BulkEnqueueDto = z.infer<typeof BulkEnqueueSchema>;
 export type EnqueueWarningDto = z.infer<typeof EnqueueWarningSchema>;

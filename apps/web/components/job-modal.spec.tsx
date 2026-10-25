@@ -38,6 +38,7 @@ const detail: JobDetail = {
       status: 'ci_passed',
       sessionId: 's',
       sessionUrl: 'https://claude.ai/code/s',
+      instructionsVersion: 'abc123def456',
       error: null,
       ciConclusion: 'success',
       result: { outcome: 'done', summary: 'All good' },
@@ -64,6 +65,7 @@ describe('JobModal', () => {
     expect(screen.getByRole('link', { name: 'PR #5' })).toHaveAttribute('href', base.prUrl);
 
     await waitFor(() => expect(screen.getByText('All good')).toBeInTheDocument());
+    expect(screen.getByText('Instructions abc123def456')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Session' })).toHaveAttribute('href', 'https://claude.ai/code/s');
     expect(screen.getByText('CI success')).toBeInTheDocument();
     expect(screen.getByText('done')).toBeInTheDocument();

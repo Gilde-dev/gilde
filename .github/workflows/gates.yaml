@@ -14,5 +14,5 @@ jobs:
         if: startsWith(github.head_ref, 'claude/') && !contains(github.event.pull_request.labels.*.name, 'gilde:allow-protected')
         run: |
           CHANGED=$(git diff --name-only origin/${{ github.base_ref }}...HEAD)
-          BLOCKED=$(echo "$CHANGED" | grep -E '^(\.github/|\.claude/|AGENTS\.md|CLAUDE\.md|\.gilde\.json|apps/api/src/job/job-state\.ts|apps/api/src/.*migrations/)' || true)
+          BLOCKED=$(echo "$CHANGED" | grep -E '^(\.github/|\.claude/|AGENTS\.md|CLAUDE\.md|docs/agent-instructions\.md|\.gilde\.json|apps/api/src/job/job-state\.ts|apps/api/src/.*migrations/)' || true)
           if [ -n "$BLOCKED" ]; then echo "Agent PR touches protected paths:"; echo "$BLOCKED"; exit 1; fi
