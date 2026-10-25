@@ -23,6 +23,7 @@ import { ApiKeyModule } from './api-key/api-key.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CopilotModule } from './copilot/copilot.module.js';
 import { MemoryModule } from './memory/memory.module.js';
+import { HistoryModule } from './memory/history/history.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -38,6 +39,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ScheduleModule.forRoot(),
     HealthModule,
     MemoryModule,
+    HistoryModule,
     ProjectModule,
     RepoModule,
     RunModule,
