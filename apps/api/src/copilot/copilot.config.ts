@@ -1,7 +1,9 @@
 export const COPILOT_MODEL_PREFIX = 'openai/';
 
+export const DEFAULT_COPILOT_MAX_STEPS = 30;
+
 export type CopilotConfig =
-    | { enabled: true; model: string }
+    | { enabled: true; model: string; maxSteps?: number }
     | { enabled: false; model: null; reason: string };
 
 /**
@@ -17,7 +19,13 @@ export function copilotConfig(env: NodeJS.ProcessEnv = process.env): CopilotConf
         return disabled(`COPILOT_MODEL must be an OpenAI model id in the form ${COPILOT_MODEL_PREFIX}<model>`);
     }
     if (!key) return disabled('OPENAI_API_KEY is not set');
-    return { enabled: true, model };
+    return { enabled: true, model, maxSteps: copilotMaxSteps(env) };
+}
+
+/** COPILOT_MAX_STEPS: a positive integer, otherwise the default. */
+export function copilotMaxSteps(env: NodeJS.ProcessEnv = process.env): number {
+    const value = Number(env.COPILOT_MAX_STEPS?.trim());
+    return Number.isInteger(value) && value > 0 ? value : DEFAULT_COPILOT_MAX_STEPS;
 }
 
 function disabled(reason: string): CopilotConfig {
