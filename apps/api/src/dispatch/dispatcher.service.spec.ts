@@ -8,6 +8,7 @@ import type { ExecutionPort } from '../execution/execution.port.js';
 import type { JobStatus } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
 import { RepoMapper } from '../repo/repo.mapper.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -30,7 +31,7 @@ beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
-        entities: [Project, Repo, Job, JobRun, JobDependency, Feature],
+        entities: [Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision],
         synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);

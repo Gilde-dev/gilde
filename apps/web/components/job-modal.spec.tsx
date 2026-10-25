@@ -20,7 +20,7 @@ const base: Job = {
     needsApproval: false,
     approvalReason: null,
     dependsOn: [],
-    blockedBy: [],
+    blockedBy: [], pendingRevisions: 0, revision: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };

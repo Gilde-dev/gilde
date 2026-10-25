@@ -5,12 +5,14 @@ import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeor
 
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
+import { loadDownstream } from '../execution/downstream.js';
 import { buildJobPayload } from '../execution/job-payload.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
@@ -84,6 +86,13 @@ export class DispatcherService {
                 .where('d.jobId = job.id')
                 .andWhere("dep.status <> 'merged'")
                 .getQuery();
+            // A job with a proposed revision waits for a human to accept or reject it.
+            const revised = (qb: SelectQueryBuilder<Job>) => qb.subQuery()
+                .select('1')
+                .from(JobRevision, 'rev')
+                .where('rev.jobId = job.id')
+                .andWhere("rev.status = 'proposed'")
+                .getQuery();
             const waiting = await this.jobRepository.createQueryBuilder('job')
                 .where('job.repoId = :repoId', { repoId })
                 .andWhere("job.status = 'queued'")
@@ -100,6 +109,7 @@ export class DispatcherService {
                 .where('job.repoId = :repoId', { repoId })
                 .andWhere("job.status = 'queued'")
                 .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
+                .andWhere((qb) => `NOT EXISTS ${revised(qb)}`)
                 .orderBy('job.queuedAt', 'ASC')
                 .limit(slots)
                 .getMany();
@@ -150,7 +160,7 @@ export class DispatcherService {
             runId = await this.startRun(job, project.id, repo.id);
             session = await this.execution.fire(
                 { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
-                buildJobPayload(job, repo, feature, runId, job.attempts),
+                buildJobPayload(job, repo, feature, runId, job.attempts, await loadDownstream(this.jobRepository.manager, job)),
             );
         } catch (e) {
             const message = errorMessage(e);

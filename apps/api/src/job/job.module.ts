@@ -6,6 +6,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { FeedbackModule } from '../feedback/feedback.module.js';
 import { ExecutionModule } from '../execution/execution.module.js';
 import { Repo } from '../repo/repo.entity.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { RunModule } from '../run/run.module.js';
 
@@ -22,7 +23,8 @@ import { JobController } from './job.controller.js';
             Job,
             JobDependency,
             Feature,
-            Repo
+            Repo,
+            JobRevision
         ]),
         ExecutionModule,
         RepoModule,

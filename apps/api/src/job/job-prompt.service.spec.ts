@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { AgentInstructionsService } from '../execution/agent-instructions.service.js';
 import { RoutineExecutionAdapter } from '../execution/routine-execution.adapter.js';
 import { Feature } from '../feature/feature.entity.js';
+import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
@@ -18,7 +19,7 @@ let job: Job;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun, JobDependency, Feature], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision], synchronize: true,
     }).initialize();
     const project = await ds.getRepository(Project).save({ slug: 'p', name: 'P' });
     const repo = await ds.getRepository(Repo).save({ projectId: project.id, fullName: 'o/r', stacks: ['node'], testCommands: ['pnpm test'] });
@@ -44,6 +45,15 @@ describe('JobPromptService', () => {
         expect(res.text).toContain('"stacks":["node"]');
         expect(await ds.getRepository(JobRun).count()).toBe(0);
         expect((await ds.getRepository(Job).findOneByOrFail({ id: job.id })).attempts).toBe(1);
+    });
+
+    it('lists downstream jobs', async () => {
+        const next = await ds.getRepository(Job).save({
+            projectId: job.projectId, repoId: job.repoId, title: 'Next', task: 'follow up work', status: 'queued',
+        });
+        await ds.getRepository(JobDependency).insert({ jobId: next.id, dependsOnJobId: job.id });
+        const res = await service.get(job.id);
+        expect(res.text).toContain(`"downstream":[{"jobId":"${next.id}","title":"Next","task":"follow up work","acceptanceCriteria":[],"dependsOn":["${job.id}"]}]`);
     });
 
     it('404s for an unknown job', async () => {

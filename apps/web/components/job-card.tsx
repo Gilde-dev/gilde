@@ -97,6 +97,11 @@ export function JobCard({
             {featureTitle ?? 'feature'}
           </span>
         )}
+        {job.pendingRevisions > 0 && (
+          <span className="rounded bg-sky-100 px-1.5 py-0.5 font-medium text-sky-900" title="An agent proposed a change to this job">
+            proposal pending
+          </span>
+        )}
         {job.needsApproval && (
           <span
             className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"

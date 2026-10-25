@@ -17,6 +17,7 @@ import { MetricsModule } from './metrics/metrics.module.js';
 import { FeatureModule } from './feature/feature.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
 import { SkillModule } from './skill/skill.module.js';
+import { RevisionModule } from './revision/revision.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -43,6 +44,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     MetricsModule,
     LessonModule,
     SkillModule,
+    RevisionModule,
   ],
 })
 export class AppModule { }
