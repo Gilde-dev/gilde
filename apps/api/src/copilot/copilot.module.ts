@@ -6,6 +6,8 @@ import { DispatchModule } from '../dispatch/dispatch.module.js';
 import { DispatcherService } from '../dispatch/dispatcher.service.js';
 import { FeatureModule } from '../feature/feature.module.js';
 import { FeatureService } from '../feature/feature.service.js';
+import { GitHubModule } from '../github/github.module.js';
+import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
 import { JobModule } from '../job/job.module.js';
 import { JobService } from '../job/job.service.js';
 import { LessonModule } from '../lesson/lesson.module.js';
@@ -30,7 +32,7 @@ import type { CopilotServices } from './copilot.tools.js';
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule],
+    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule],
     providers: [
         {
             provide: COPILOT_CONFIG,
@@ -55,11 +57,12 @@ import type { CopilotServices } from './copilot.tools.js';
                 skills: SkillService,
                 projects: ProjectService,
                 repos: RepoService,
+                github: GitHubPort,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github };
                 return createMastra(config, services);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT],
         },
     ],
     exports: [COPILOT_CONFIG, COPILOT_MASTRA],
