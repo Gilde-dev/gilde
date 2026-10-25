@@ -73,20 +73,19 @@ async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<J
 const reload = (id: string) => jobs.findOneByOrFail({ id });
 
 describe('DispatcherService', () => {
-    it('skips repos without a cached manifest and logs the manifest error', async () => {
-        const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+    it('skips repos without a cached manifest and reports the manifest error', async () => {
         const repo = await seedRepo(await seedProject(), { testCommands: [], stacks: [], manifestError: '.gilde.json not found on main' });
         await seedJob(repo);
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        const result = await dispatcher.dispatch();
+        expect(result).toMatchObject({ fired: 0, failed: 0 });
         expect(fire).not.toHaveBeenCalled();
-        expect(warn).toHaveBeenCalledWith(expect.stringContaining('.gilde.json not found on main'));
-        warn.mockRestore();
+        expect(result.repos[0]).toMatchObject({ reason: 'no_manifest', detail: '.gilde.json not found on main', queued: 1 });
     });
 
     it('never fires triage jobs', async () => {
         const repo = await seedRepo(await seedProject());
         const triage = await seedJob(repo, 'triage', { queuedAt: null });
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
         expect(fire).not.toHaveBeenCalled();
         expect((await reload(triage.id)).status).toBe('triage');
     });
@@ -100,15 +99,15 @@ describe('DispatcherService', () => {
             const job = await seedJob(repo);
             await link(job, dep);
 
-            expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
             expect(fire).not.toHaveBeenCalled();
 
             await jobs.update({ id: dep.id }, { status: 'merged' });
-            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
             expect((await reload(job.id)).status).toBe('dispatched');
         });
 
-        it('lets a newer unblocked job fire past an older blocked one, and logs the waiting count', async () => {
+        it('lets a newer unblocked job fire past an older blocked one, and reports the waiting count', async () => {
             const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
             const dep = await seedJob(repo, 'pr_open', { queuedAt: new Date(Date.UTC(2025, 0, 1)) });
             const blocked = await seedJob(repo);
@@ -118,10 +117,12 @@ describe('DispatcherService', () => {
             await repos.update({ id: repo.id }, { maxConcurrentJobs: 2 });
             const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
 
-            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            const result = await dispatcher.dispatch();
+            expect(result).toMatchObject({ fired: 1, failed: 0 });
             expect((await reload(free.id)).status).toBe('dispatched');
             expect((await reload(blocked.id)).status).toBe('queued');
-            expect(log).toHaveBeenCalledWith(`${repo.fullName}: 1 queued job(s) waiting on dependencies`);
+            expect(result.repos[0]).toMatchObject({ waitingOnDependencies: 1 });
+            expect(log).not.toHaveBeenCalledWith(expect.stringContaining('queued job(s) waiting'));
         });
     });
 
@@ -129,7 +130,7 @@ describe('DispatcherService', () => {
         const repo = await seedRepo(await seedProject());
         const job = await seedJob(repo);
 
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
 
         expect(fire).toHaveBeenCalledOnce();
         const [execRepo, payload] = fire.mock.calls[0] as [unknown, Record<string, unknown>];
@@ -201,7 +202,7 @@ describe('DispatcherService', () => {
         const oldest = await seedJob(repo);
         const newer = await seedJob(repo);
 
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
 
         expect((await reload(oldest.id)).status).toBe('dispatched');
         expect((await reload(newer.id)).status).toBe('queued');
@@ -223,8 +224,8 @@ describe('DispatcherService', () => {
         await seedJob(r2);
         await seedJob(r2);
 
-        expect(await dispatcher.dispatch()).toEqual({ fired: 2, failed: 0 });
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 2, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
     });
 
     it.each([
@@ -234,7 +235,7 @@ describe('DispatcherService', () => {
         ['no routine token env', async () => seedRepo(await seedProject(), { routineTokenEnv: null })],
     ])('fires nothing when %s', async (_name, setup) => {
         const job = await seedJob(await setup());
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
         expect(fire).not.toHaveBeenCalled();
         expect((await reload(job.id)).status).toBe('queued');
     });
@@ -287,7 +288,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockResolvedValueOnce({ sessionId: 's', sessionUrl: 'u' }).mockRejectedValueOnce(new Error('kaput'));
 
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 1 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 1 });
     });
 
     it('returns immediately while a pass is running, and releases the guard after an error', async () => {
@@ -299,14 +300,14 @@ describe('DispatcherService', () => {
         const first = dispatcher.dispatch();
         await vi.waitFor(() => expect(fire).toHaveBeenCalledOnce());
         await seedJob(repo);
-        expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
         expect(fire).toHaveBeenCalledOnce();
         release();
-        expect(await first).toEqual({ fired: 1, failed: 0 });
+        expect(await first).toMatchObject({ fired: 1, failed: 0 });
 
         vi.spyOn(jobs, 'find').mockRejectedValueOnce(new Error('db down'));
         await expect(dispatcher.dispatch()).rejects.toThrow('db down');
-        expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
     });
 
     describe('configuration errors', () => {
@@ -317,7 +318,7 @@ describe('DispatcherService', () => {
             fire.mockRejectedValue(new ExecutionError(message, 'config'));
             const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
-            expect(await dispatcher.dispatch()).toEqual({ fired: 0, failed: 1 });
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
 
             expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0, lastReason: message });
             expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: true, pausedReason: message });
@@ -350,7 +351,7 @@ describe('DispatcherService', () => {
             const resumed = await repoService.resume(repo.id);
             expect(resumed).toMatchObject({ paused: false, pausedReason: null });
 
-            expect(await dispatcher.dispatch()).toEqual({ fired: 1, failed: 0 });
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
             expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
         });
 
@@ -363,5 +364,106 @@ describe('DispatcherService', () => {
 
             expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false, pausedReason: null });
         });
+    });
+});
+
+describe('DispatcherService report', () => {
+    const only = async () => (await dispatcher.dispatch()).repos[0]!;
+
+    it('reports a paused repo with its reason', async () => {
+        const repo = await seedRepo(await seedProject(), { paused: true, pausedReason: 'token expired' });
+        await seedJob(repo);
+        expect(await only()).toMatchObject({ reason: 'repo_paused', detail: 'token expired', queued: 1, fired: 0 });
+    });
+
+    it('reports a paused project', async () => {
+        await seedJob(await seedRepo(await seedProject({ paused: true })));
+        expect(await only()).toMatchObject({ reason: 'project_paused' });
+    });
+
+    it('reports a missing routine', async () => {
+        await seedJob(await seedRepo(await seedProject(), { routineFireUrl: null, routineTokenEnv: null }));
+        expect(await only()).toMatchObject({ reason: 'no_routine' });
+    });
+
+    it('reports no free slots with active/max', async () => {
+        const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
+        await seedJob(repo, 'dispatched');
+        await seedJob(repo);
+        expect(await only()).toMatchObject({ reason: 'no_slots', detail: '1/1' });
+    });
+
+    it('reports the daily limit with the next UTC midnight', async () => {
+        vi.useFakeTimers({ toFake: ['Date'], now: new Date('2026-03-04T10:00:00Z') });
+        try {
+            const project = await seedProject({ dailyRunLimit: 1 });
+            const repo = await seedRepo(project);
+            await seedJob(repo);
+            await seedJob(repo);
+            expect((await only())).toMatchObject({ reason: 'none', fired: 1 });
+            expect(await only()).toMatchObject({ reason: 'daily_limit', detail: '1/1', resetsAt: '2026-03-05T00:00:00.000Z' });
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it('reports none, and counts jobs held by dependencies and proposals', async () => {
+        const repo = await seedRepo(await seedProject());
+        const blocker = await seedJob(repo, 'pr_open');
+        const dependent = await seedJob(repo);
+        await ds.getRepository(JobDependency).save({ jobId: dependent.id, dependsOnJobId: blocker.id });
+        const revised = await seedJob(repo);
+        await ds.getRepository(JobRevision).save(ds.getRepository(JobRevision).create({
+            jobId: revised.id, status: 'proposed', reason: 'r',
+        } as never));
+        await seedJob(repo);
+        expect(await only()).toMatchObject({
+            reason: 'none', queued: 3, fired: 1, waitingOnDependencies: 1, waitingOnRevisions: 1,
+        });
+    });
+
+    it('serves the last pass from status() without running one', async () => {
+        expect(dispatcher.status()).toEqual({ at: null, result: null });
+        await seedJob(await seedRepo(await seedProject()));
+        await dispatcher.dispatch();
+        const status = dispatcher.status();
+        expect(status.at).toEqual(expect.any(String));
+        expect(status.result).toMatchObject({ fired: 1 });
+        expect(fire).toHaveBeenCalledTimes(1);
+        dispatcher.status();
+        expect(fire).toHaveBeenCalledTimes(1);
+    });
+
+    it('logs a repo line once per change, not every pass', async () => {
+        const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+        try {
+            const repo = await seedRepo(await seedProject(), { paused: true, pausedReason: 'token expired' });
+            await seedJob(repo);
+            await dispatcher.dispatch();
+            await dispatcher.dispatch();
+            const lines = () => log.mock.calls.map((c) => String(c[0])).filter((l) => l.startsWith(`${repo.fullName}:`));
+            expect(lines().filter((l) => l.includes('repo paused: token expired'))).toHaveLength(1);
+
+            await repos.update({ id: repo.id }, { paused: false, pausedReason: null });
+            await dispatcher.dispatch();
+            expect(lines().some((l) => l.endsWith(': dispatching again'))).toBe(true);
+        } finally {
+            log.mockRestore();
+        }
+    });
+
+    it('logs the daily limit once, in UTC', async () => {
+        const log = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+        try {
+            const project = await seedProject({ dailyRunLimit: 0 });
+            await seedJob(await seedRepo(project));
+            await dispatcher.dispatch();
+            await dispatcher.dispatch();
+            const limited = log.mock.calls.map((c) => String(c[0])).filter((l) => l.includes('daily limit reached') && l.includes('(0/0'));
+            expect(limited).toHaveLength(1);
+            expect(limited[0]).toMatch(/\(0\/0, resets \d{4}-\d\d-\d\d \d\d:\d\d:\d\d UTC\)/);
+        } finally {
+            log.mockRestore();
+        }
     });
 });

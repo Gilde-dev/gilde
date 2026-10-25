@@ -456,6 +456,27 @@ export interface UpdateLessonInput {
   note?: string | null;
 }
 
+export type DispatchReason =
+  | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'none';
+
+export interface RepoDispatchReport {
+  repoId: string;
+  fullName: string;
+  queued: number;
+  fired: number;
+  reason: DispatchReason;
+  detail: string | null;
+  /** Next UTC midnight (ISO) when the reason is daily_limit. */
+  resetsAt: string | null;
+  waitingOnDependencies: number;
+  waitingOnRevisions: number;
+}
+
+export interface DispatchStatus {
+  at: string | null;
+  result: { fired: number; failed: number; repos: RepoDispatchReport[] } | null;
+}
+
 const id = encodeURIComponent;
 
 export const api = {
@@ -468,6 +489,7 @@ export const api = {
     if (repoId) q.set('repoId', repoId);
     return request<Metrics>(`/v1/metrics?${q}`);
   },
+  getDispatchStatus: () => request<DispatchStatus>('/v1/dispatch/status'),
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),
   updateLesson: (lessonId: string, input: UpdateLessonInput) =>
