@@ -89,6 +89,21 @@ export class MemoryInfrastructure implements OnModuleDestroy {
         return this.historyIndex;
     }
 
+    /** Identifies what the history vectors were embedded with; when it changes the index must be rebuilt. */
+    get embeddingSignature(): string {
+        return this.config.embeddings ? `${this.config.model}|${this.config.dimension}` : 'off';
+    }
+
+    /** Drops the history index (all chunks) and creates it empty. Used by rebuild; the caller clears its own bookkeeping. */
+    async recreateHistoryIndex(): Promise<void> {
+        const dimension = this.embeddingDimension;
+        if (!dimension) throw new Error(`History index unavailable: ${this.degradedReason ?? 'no embedding dimension'}`);
+        this.historyIndex = undefined;
+        const existing = await this.historyVector.listIndexes();
+        if (existing.includes(this.historyIndexName)) await this.historyVector.deleteIndex({ indexName: this.historyIndexName });
+        await this.ensureHistoryIndex();
+    }
+
     async onModuleDestroy(): Promise<void> {
         for (const vector of [this.personalInstance, this.historyInstance]) {
             const closable = vector as { close?: () => Promise<void>; disconnect?: () => Promise<void> } | undefined;

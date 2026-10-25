@@ -26,6 +26,8 @@ import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 import { WorkspaceModule } from '../workspace/workspace.module.js';
 
 import { CopilotContextInterceptor } from './copilot-context.interceptor.js';
+import { HistoryModule } from '../memory/history/history.module.js';
+import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { MEMORY_INFRASTRUCTURE } from '../memory/memory.tokens.js';
 import type { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 
@@ -38,7 +40,7 @@ import type { CopilotServices } from './copilot.tools.js';
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule],
+    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule],
     providers: [
         RepoContextService,
         {
@@ -68,11 +70,12 @@ import type { CopilotServices } from './copilot.tools.js';
                 workspace: RepoWorkspaceService,
                 repoContext: RepoContextService,
                 memory: MemoryInfrastructure,
+                history: HistorySearchService,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history };
                 return createMastra(config, services, undefined, repoContext, memory);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService],
         },
     ],
     exports: [COPILOT_CONFIG, COPILOT_MASTRA],

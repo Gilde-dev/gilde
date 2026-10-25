@@ -24,10 +24,12 @@ describe('createMastra', () => {
         expect(Object.keys(mastra.listAgents())).toEqual([]);
     });
 
-    it('registers the gilde agent with its tools and the route inside the mastra prefix', async () => {
+    it('registers the gilde agent with its tools (including searchHistory) and the route inside the mastra prefix', async () => {
         const mastra = createMastra({ enabled: true, model: 'openai/test-model' }, {} as never, new LibSQLStore({ id: 't', url: 'file::memory:' }));
         const agent = mastra.getAgent(COPILOT_AGENT_ID);
-        expect(Object.keys(await agent.listTools()).length).toBe(16);
+        const tools = Object.keys(await agent.listTools());
+        expect(tools.length).toBe(17);
+        expect(tools).toContain('searchHistory');
         expect(mastra.getServer()?.apiRoutes?.map((r) => r.path)).toEqual(['/api/v1/mastra/copilotkit']);
     });
 });
