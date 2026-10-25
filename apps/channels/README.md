@@ -4,6 +4,9 @@ A separate long-running process that runs the Gilde co-pilot in chat platforms w
 [CopilotKit Channels](https://docs.copilotkit.ai/channels). It reaches the `gilde` agent of the API
 remotely over AG-UI (`MastraClient` + `@ag-ui/mastra`, base URL `${GILDE_API_URL}/v1/mastra`) and
 authenticates with the API key of a bot user. For now every chat user is served as that bot user.
+The bot user is both the acting user and the memory resource: at startup the process reads its id from
+`GET ${GILDE_API_URL}/v1/auth/me` and sends it as the `resourceId`, because the API rejects any other
+resource (403). Startup fails with a clear message when the key is invalid (401) or the API is unreachable.
 
 Slack (Socket Mode) is the first platform. An adapter is enabled when its credentials are set;
 without any adapter the process logs `No channel adapters configured (set SLACK_BOT_TOKEN and SLACK_APP_TOKEN)`
