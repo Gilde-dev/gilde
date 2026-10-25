@@ -8,6 +8,7 @@ import { RepoManifestService } from '../repo/repo-manifest.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
 import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
+import { NotificationCaptureService, type ParkCause } from '../notification/notification-capture.service.js';
 import { ProposalService } from '../revision/proposal.service.js';
 import { parsePrBody, type ParsedPrBody } from '../webhook/pr-body.js';
 
@@ -42,6 +43,7 @@ export class JobEventsService {
         @Optional() private readonly lessons?: LessonService,
         @Optional() private readonly manifests?: RepoManifestService,
         @Optional() private readonly proposals?: ProposalService,
+        @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -123,6 +125,7 @@ export class JobEventsService {
         }
         await this.lessons?.onJobEnded(job.id, to);
         if (merged) await this.manifests?.refreshQuietly(job.repoId);
+        if (merged) await this.capture?.featureReadiness(job.featureId);
         return `job ${to} with PR #${prNumber}`;
     }
 
@@ -142,6 +145,7 @@ export class JobEventsService {
                 `CI ${conclusion} on ${short(run.headSha)}. Fix the failing checks on the existing branch.`,
             );
         if (!to) return `ignored: job ${job.status} cannot take ${passed ? 'ci_passed' : 'retry'}`;
+        if (to === 'awaiting_review') await this.capture?.jobAwaitingReview(job);
 
         const jobRun = await this.findRun(job.id, null);
         if (jobRun) await this.runs.update({ id: jobRun.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
@@ -150,17 +154,18 @@ export class JobEventsService {
 
     /** Gates never retry or move the job; they only flag it for a human. */
     private async gateCompleted(job: Job, prNumber: number, passed: boolean): Promise<string> {
-        await this.jobs.update(
+        const res = await this.jobs.update(
             { id: job.id },
             passed ? { needsApproval: false, approvalReason: null } : { needsApproval: true, approvalReason: APPROVAL_REASON },
         );
+        if (!passed && res.affected === 1 && !TERMINAL.has(job.status)) await this.capture?.approvalNeeded(job, APPROVAL_REASON);
         return passed
             ? `gate passed: approval cleared for PR #${prNumber}`
             : `gate failed: job ${job.status} needs approval for PR #${prNumber}`;
     }
 
     /** Requeues the job on the existing PR while attempts are left, else parks it. PR, branch and head sha are kept. */
-    async retryOrParkJob(job: Job, reason: string): Promise<Job['status'] | null> {
+    async retryOrParkJob(job: Job, reason: string, cause: ParkCause = 'failure'): Promise<Job['status'] | null> {
         const project = await this.projects.findOneBy({ id: job.projectId });
         const event = retryOrPark(job.attempts, project?.maxAttempts ?? job.attempts);
         const to = await this.transition(job, event, {
@@ -169,6 +174,7 @@ export class JobEventsService {
         });
         if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
         if (to === 'parked') await this.lessons?.onJobEnded(job.id, to, reason);
+        if (to === 'parked') await this.capture?.jobParked(job, reason, cause);
         return to;
     }
 
@@ -177,7 +183,7 @@ export class JobEventsService {
         if (job.prNumber === null || (job.status !== 'pr_open' && job.status !== 'awaiting_review')) {
             throw new ConflictException(`Cannot send back a job that is ${job.status}${job.prNumber === null ? ' without a PR' : ''}`);
         }
-        const to = await this.retryOrParkJob(job, `Sent back by the reviewer: ${reason}`);
+        const to = await this.retryOrParkJob(job, `Sent back by the reviewer: ${reason}`, 'sent_back');
         if (!to) throw new ConflictException('Job changed in the meantime, try again');
         return to;
     }

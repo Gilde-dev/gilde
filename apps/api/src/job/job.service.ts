@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { ModuleRef } from '@nestjs/core';
 import { InjectRepository } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
@@ -8,6 +8,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { FEATURE_CLOSED } from '../feature/feature-state.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
 import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
@@ -30,6 +31,7 @@ export class JobService {
         @InjectRepository(JobDependency) private readonly dependencyRepository: Repository<JobDependency>,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly moduleRef?: ModuleRef,
+        @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
     /** `actor` is the user creating the job; null for system-created jobs. */
@@ -83,6 +85,11 @@ export class JobService {
         }
         const result = await this.jobRepository.update({ id, status: job.status }, changes);
         if (!result.affected) throw new ConflictException('Job changed in the meantime, try again');
+        if (featureId !== undefined && featureId !== job.featureId) {
+            // Leaving a feature can make the rest of it ready; joining one can't, but the check is cheap and exact.
+            await this.capture?.featureReadiness(job.featureId);
+            await this.capture?.featureReadiness(changes.featureId);
+        }
         return this.getById(id);
     }
 
@@ -251,6 +258,7 @@ export class JobService {
         const job = await this.apply(id, 'cancel');
         // Resolved lazily: LessonModule imports this module, so injecting it would be a cycle.
         await this.moduleRef?.get<LessonJobHook>(LESSON_JOB_HOOK, { strict: false })?.onJobEnded(id, 'cancelled');
+        await this.capture?.featureReadiness(job.featureId);
         return job;
     }
 

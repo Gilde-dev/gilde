@@ -35,6 +35,12 @@ describe('recordQuietly', () => {
         expect(errorLog).not.toHaveBeenCalled();
     });
 
+    it('records nothing when the source function has nothing to record', async () => {
+        expect(await service.recordQuietly(() => null)).toBe(false);
+        expect(await repo.count()).toBe(0);
+        expect(errorLog).not.toHaveBeenCalled();
+    });
+
     it('records at most once under concurrent attempts', async () => {
         await Promise.all(Array.from({ length: 5 }, () => service.recordQuietly(input('same'))));
         expect(await repo.count()).toBe(1);
