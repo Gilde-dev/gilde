@@ -107,10 +107,28 @@ describe('SkillPromoteService with a repo library', () => {
     });
 
     it('400s for skills over 30000 characters', async () => {
-        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: 'x'.repeat(30_001) }] })];
+        const sized = (n: number) => SKILL_MD + 'x'.repeat(n - SKILL_MD.length);
+        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: sized(30_001) }] })];
         await expect(service().promote('r1', 'mine', { scope: 'global' })).rejects.toBeInstanceOf(BadRequestException);
-        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: 'x'.repeat(30_000) }] })];
+        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: sized(30_000) }] })];
         await expect(service().promote('r1', 'mine', { scope: 'global' })).resolves.toBeDefined();
+    });
+    it('400s for names the library would reject, before reading anything', async () => {
+        for (const bad of ['My_Skill', '.hidden', 'a b', 'x/y']) {
+            repoSkills = [mine({ name: bad })];
+            await expect(service().promote('r1', bad, { scope: 'global' })).rejects.toBeInstanceOf(BadRequestException);
+        }
+        expect(jobs.create).not.toHaveBeenCalled();
+    });
+
+    it('400s when SKILL.md frontmatter name differs from the folder or the description is missing', async () => {
+        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: '---\nname: other\ndescription: d\n---\n' }] })];
+        await expect(service().promote('r1', 'mine', { scope: 'global' })).rejects.toThrow(/name: mine/);
+        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: '---\nname: mine\n---\n' }] })];
+        await expect(service().promote('r1', 'mine', { scope: 'global' })).rejects.toThrow(/description/);
+        repoSkills = [mine({ files: [{ path: 'SKILL.md', content: 'no frontmatter' }] })];
+        await expect(service().promote('r1', 'mine', { scope: 'global' })).rejects.toBeInstanceOf(BadRequestException);
+        expect(jobs.create).not.toHaveBeenCalled();
     });
 });
 

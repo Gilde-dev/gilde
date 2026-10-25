@@ -55,11 +55,18 @@ export class FolderSkillLibrary implements SkillLibrary {
             if (!inside(dir, target)) throw new BadRequestException(`File '${f.path}' resolves outside the library folder`);
             return { target, content: f.content };
         });
-        if (await exists(dir)) throw new ConflictException(`The library already has a skills/${entry.name} folder`);
-
         const registryPath = join(root, REGISTRY_FILE);
         const doc = parseDocument(await readFile(registryPath, 'utf8'));
         doc.addIn(['skills'], doc.createNode(entry.scope === 'stack' ? { name: entry.name, scope: entry.scope, stacks: entry.stacks ?? [] } : { name: entry.name, scope: entry.scope }));
+
+        // Creating the folder non-recursively is the existence check: it fails atomically when it is already there.
+        await mkdir(skillsDir, { recursive: true });
+        try {
+            await mkdir(dir);
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ConflictException(`The library already has a skills/${entry.name} folder`);
+            throw e;
+        }
 
         try {
             for (const t of targets) {
@@ -109,15 +116,5 @@ export class FolderSkillLibrary implements SkillLibrary {
         return Promise.all(
             paths.map(async (rel) => ({ path: rel.slice(base.length + 1), content: await readFile(join(this.root, rel), 'utf8') })),
         );
-    }
-}
-
-async function exists(path: string): Promise<boolean> {
-    try {
-        await stat(path);
-        return true;
-    } catch (e) {
-        if ((e as NodeJS.ErrnoException).code === 'ENOENT') return false;
-        throw e;
     }
 }

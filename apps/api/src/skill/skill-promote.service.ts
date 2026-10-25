@@ -9,7 +9,7 @@ import { FolderSkillLibrary } from './folder-skill-library.js';
 import { RepoSkillsReader, REPO_SKILLS_DIR } from './repo-skills.js';
 import { MAX_PROMOTE_CHARS, type PromoteSkillDto, type PromoteSkillResponseDto } from './skill.dto.js';
 import { SkillLibraryResolver } from './skill-library.resolver.js';
-import type { SkillFile } from './skill-library.js';
+import { parseFrontmatter, SKILL_ENTRY, skillName, type SkillFile } from './skill-library.js';
 
 /** Moves a repo-owned skill into the project's skills library. */
 @Injectable()
@@ -23,6 +23,10 @@ export class SkillPromoteService {
     ) { }
 
     async promote(repoId: string, name: string, dto: PromoteSkillDto): Promise<PromoteSkillResponseDto> {
+        // The library's registry only accepts these names; a promoted invalid name would make the whole catalog unreadable.
+        if (!skillName.safeParse(name).success) {
+            throw new BadRequestException(`'${name}' is not a valid library skill name: use lowercase letters, digits, dots, dashes and underscores, starting with a letter or digit`);
+        }
         const repo = await this.repos.getById(repoId);
         const project = await this.projects.getById(repo.projectId);
         if (project.skillsLibrary === 'none') throw new ConflictException('This project has no skills library to promote to');
@@ -30,6 +34,13 @@ export class SkillPromoteService {
         const skill = (await this.reader.read(repo)).find((s) => s.name === name);
         if (!skill) throw new NotFoundException(`Repo ${repo.fullName} has no skill '${name}'`);
         if (skill.source !== 'repo') throw new ConflictException(`Skill '${name}' is managed (${skill.managedBy}) and cannot be promoted`);
+        const meta = parseFrontmatter(skill.files.find((f) => f.path === SKILL_ENTRY)?.content ?? '')?.data;
+        if (meta?.name !== name) {
+            throw new BadRequestException(`${SKILL_ENTRY} of '${name}' needs YAML frontmatter with name: ${name} (equal to its folder name)`);
+        }
+        if (typeof meta.description !== 'string' || !meta.description.trim()) {
+            throw new BadRequestException(`${SKILL_ENTRY} of '${name}' needs a description in its frontmatter`);
+        }
 
         const { kind, library } = await this.resolver.resolve(project);
         const catalog = await library.getCatalog();
