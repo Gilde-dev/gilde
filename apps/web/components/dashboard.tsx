@@ -1,7 +1,7 @@
 'use client';
 
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Job } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { Button } from './ui/button';
@@ -40,11 +40,52 @@ export function Dashboard() {
   const dispatch = usePolling(api.getDispatchStatus, POLL_MS);
 
   const project = projects.data?.find((p) => p.id === projectId);
+
+  // Deep link /?project=<id>&job=<id>: fetch the job by id so it opens regardless of board filters.
+  const jobParam = params.get('job');
+  const currentProject = useRef<string | null>(null);
+  currentProject.current = projectId ?? requested;
+  useEffect(() => {
+    if (!jobParam) return;
+    let cancelled = false;
+    const withProject = (pid: string | null, jobId?: string) => {
+      const query = new URLSearchParams();
+      if (pid) query.set('project', pid);
+      if (jobId) query.set('job', jobId);
+      const qs = query.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname);
+    };
+    api
+      .getJob(jobParam)
+      .then((job) => {
+        if (cancelled) return;
+        setSelected(job);
+        if (job.projectId !== currentProject.current) withProject(job.projectId, jobParam);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setWarnings(['That job could not be opened: it does not exist or you cannot access it.']);
+        withProject(currentProject.current);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Only a changed job parameter should fetch; project switches and polling must not reopen the modal.
+  }, [jobParam]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const closeJob = () => {
+    setSelected(null);
+    if (jobParam) {
+      const pid = selected?.projectId ?? projectId;
+      router.replace(pid ? `${pathname}?project=${encodeURIComponent(pid)}` : pathname);
+    }
+  };
   const refreshAll = async () => {
     await Promise.all([projects.refresh(), repos.refresh(), jobs.refresh()]);
   };
 
   const selectProject = (id: string) => {
+    setSelected(null);
     setFeatureFilter('');
     router.replace(`${pathname}?project=${encodeURIComponent(id)}`);
   };
@@ -127,7 +168,7 @@ export function Dashboard() {
         )}
       </main>
       {projectId && <CopilotPageContext description="The project selected in the Gilde UI" value={{ projectId }} />}
-      <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={() => setSelected(null)} onChanged={jobs.refresh} onEnqueued={setWarnings} />
+      <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={closeJob} onChanged={jobs.refresh} onEnqueued={setWarnings} />
       <NewJobDialog
         open={creating}
         repos={repos.data ?? []}
