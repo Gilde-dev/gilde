@@ -8,6 +8,10 @@ export function canRetry(status: JobStatus): boolean {
   return status === 'parked';
 }
 
+export function canSendBack(status: JobStatus): boolean {
+  return status === 'pr_open' || status === 'awaiting_review';
+}
+
 export function canEnqueue(status: JobStatus): boolean {
   return status === 'triage';
 }

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -145,7 +145,24 @@ export class WebhookService {
             path: null, line: null, body: comment.body ?? '', url: comment.html_url ?? job.prUrl ?? '',
             createdAt: toDate(comment.created_at),
         });
-        return stored ? `stored comment for PR #${issue.number}` : `unchanged: comment ${comment.id} already stored`;
+        const text = stored ? `stored comment for PR #${issue.number}` : `unchanged: comment ${comment.id} already stored`;
+        const command = parseRetryCommand(comment.body);
+        if (command === null) return text;
+        if (!comment.author_association || !TRUSTED_REVIEWERS.has(comment.author_association)) {
+            return `${text}; /gilde retry ignored: ${comment.author_association ?? 'unknown'} commenter`;
+        }
+        if (!stored) return text; // redelivery: don't requeue twice
+        if (job.status !== 'pr_open' && job.status !== 'awaiting_review') {
+            return `${text}; /gilde retry ignored: job ${job.status} cannot be sent back`;
+        }
+        // Inline comments the agent has not pushed after yet.
+        const lastRun = await this.events.findRun(job.id, null);
+        const inline = await this.feedback.findReviewCommentsSince(job.id, lastRun?.firedAt ?? null);
+        let reason = command || 'Address the review comments on the PR.';
+        for (const c of inline) reason += `\n- ${c.path}:${c.line} ${c.body}`;
+        const result = await this.events.sendBack(job, reason).catch((e: unknown) => (e instanceof ConflictException ? null : Promise.reject(e)));
+        if (!result) return `${text}; /gilde retry ignored: job changed concurrently`;
+        return `job ${result} with PR #${issue.number} (sent back by @${comment.user?.login ?? 'unknown'})`;
     }
 
     private async onPullRequest(repoId: string, payload: WebhookPayload): Promise<string> {
@@ -222,3 +239,9 @@ const toPullInfo = (pr: PullRequestPayload): PullInfo => ({
 });
 
 const toDate = (iso: string | null | undefined) => (iso ? new Date(iso) : new Date());
+
+/** `/gilde retry [text]` at the start of a comment: the text after it (maybe empty), else null. */
+export const parseRetryCommand = (body: string | null | undefined): string | null => {
+    const m = /^\s*\/gilde\s+retry(?![\w-])([\s\S]*)$/i.exec(body ?? '');
+    return m ? m[1]!.trim() : null;
+};

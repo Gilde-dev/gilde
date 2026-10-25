@@ -1,4 +1,4 @@
-import { Injectable, Logger, Optional } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
@@ -169,6 +169,16 @@ export class JobEventsService {
         });
         if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
         if (to === 'parked') await this.lessons?.onJobEnded(job.id, to, reason);
+        return to;
+    }
+
+    /** Sends a job with an open PR back to its agent (reviewer action). Throws 409 when the job cannot take it. */
+    async sendBack(job: Job, reason: string): Promise<Job['status']> {
+        if (job.prNumber === null || (job.status !== 'pr_open' && job.status !== 'awaiting_review')) {
+            throw new ConflictException(`Cannot send back a job that is ${job.status}${job.prNumber === null ? ' without a PR' : ''}`);
+        }
+        const to = await this.retryOrParkJob(job, `Sent back by the reviewer: ${reason}`);
+        if (!to) throw new ConflictException('Job changed in the meantime, try again');
         return to;
     }
 

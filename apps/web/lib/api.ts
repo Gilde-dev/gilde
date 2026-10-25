@@ -575,6 +575,7 @@ export const api = {
   enqueueJobs: (ids: string[]) => request<EnqueueResult[]>('/v1/jobs/enqueue', 'POST', { ids }),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
+  sendBackJob: (jobId: string, reason: string) => request<Job>(`/v1/jobs/${id(jobId)}/send-back`, 'POST', { reason }),
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
