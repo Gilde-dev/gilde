@@ -1,10 +1,10 @@
 import { Test } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { DataSource } from 'typeorm';
 import { randomUUID } from 'node:crypto';
 
+import { authedAgent } from './helpers/auth.js';
 import { AppModule } from './../src/app.module.js';
 import { Feedback } from './../src/feedback/feedback.entity.js';
 import { JobRun } from './../src/run/run.entity.js';
@@ -24,7 +24,8 @@ describe('Lessons (e2e)', () => {
   });
 
   it('collects, lists, patches, approves and merges', async () => {
-    const http = () => request(app.getHttpServer());
+    const agent = await authedAgent(app);
+    const http = () => agent;
     const slug = `lessons-${randomUUID().slice(0, 8)}`;
     const project = (await http().post('/api/v1/projects').send({ slug, name: 'Lessons' }).expect(201)).body;
     const repo = (await http().post(`/api/v1/projects/${project.id}/repos`).send({ fullName: `o/${slug}` }).expect(201)).body;

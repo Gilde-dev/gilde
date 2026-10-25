@@ -9,11 +9,14 @@
 # or apps/api/.env.
 #
 # Env: GILDE_API (default http://localhost:4100/api)
+#      GILDE_TOKEN (optional) a Gilde login token, sent as a Bearer token on API calls
 # Needs: curl, jq, node
 set -euo pipefail
 
 JOB_ID="${1:?usage: $0 <JOB_ID>}"
 API="${GILDE_API:-http://localhost:4100/api}"
+AUTH_ARGS=()
+[[ -n "${GILDE_TOKEN:-}" ]] && AUTH_ARGS=(-H "Authorization: Bearer $GILDE_TOKEN")
 
 # Load apps/api/.env if present (for the routine token), without overriding exported vars.
 ENV_FILE="$(dirname "$0")/../apps/api/.env"
@@ -24,9 +27,9 @@ if [[ -f "$ENV_FILE" ]]; then
   set +a
 fi
 
-JOB=$(curl -fsS "$API/v1/jobs/$JOB_ID") || { echo "Job $JOB_ID not found (is the API running at $API?)" >&2; exit 1; }
+JOB=$(curl -fsS ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "$API/v1/jobs/$JOB_ID") || { echo "Job $JOB_ID not found (is the API running at $API?)" >&2; exit 1; }
 REPO_ID=$(jq -r '.repoId' <<<"$JOB")
-REPO=$(curl -fsS "$API/v1/repos/$REPO_ID")
+REPO=$(curl -fsS ${AUTH_ARGS[@]+"${AUTH_ARGS[@]}"} "$API/v1/repos/$REPO_ID")
 
 STATUS=$(jq -r '.status' <<<"$JOB")
 if [[ "$STATUS" != "queued" ]]; then

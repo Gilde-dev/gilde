@@ -1,12 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from './../src/app.module.js';
+import { authedAgent } from './helpers/auth.js';
 import { JOB_STATUSES } from './../src/job/job-state.js';
 
 describe('Metrics (e2e)', () => {
   let app: INestApplication<App>;
+  let http: Awaited<ReturnType<typeof authedAgent>>;
 
   beforeEach(async () => {
     const moduleFixture: TestingModule = await Test.createTestingModule({
@@ -16,6 +17,7 @@ describe('Metrics (e2e)', () => {
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('/api');
     await app.init();
+    http = await authedAgent(app);
   });
 
   afterEach(async () => {
@@ -23,7 +25,7 @@ describe('Metrics (e2e)', () => {
   });
 
   it('GET /api/v1/metrics returns the documented shape', async () => {
-    const res = await request(app.getHttpServer()).get('/api/v1/metrics?days=7').expect(200);
+    const res = await http.get('/api/v1/metrics?days=7').expect(200);
     expect(res.body.days).toBe(7);
     expect(Object.keys(res.body.jobs.countByStatus)).toEqual([...JOB_STATUSES]);
     expect(res.body).toHaveProperty('mergeRate');
@@ -39,12 +41,12 @@ describe('Metrics (e2e)', () => {
   });
 
   it('returns 404 for an unknown repoId', () => {
-    return request(app.getHttpServer())
+    return http
       .get('/api/v1/metrics?repoId=00000000-0000-4000-8000-000000000000')
       .expect(404);
   });
 
   it('returns 400 for days out of range', () => {
-    return request(app.getHttpServer()).get('/api/v1/metrics?days=366').expect(400);
+    return http.get('/api/v1/metrics?days=366').expect(400);
   });
 });

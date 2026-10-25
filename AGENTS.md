@@ -30,6 +30,8 @@ Run from the repo root unless noted.
 
 ## API domains (`apps/api/src/`)
 One NestJS module per domain:
+- `user/` — users (name, email, argon2id password hash); created with the `user:create` CLI (`pnpm --filter @gilde/api user:create --email <email> --name <name>`)
+- `auth/` — `POST /api/v1/auth/login` (passport-local, throttled 5/min per IP) issues a JWT; `GET /api/v1/auth/me`; the global `JwtAuthGuard`. Env: `JWT_SECRET` (≥ 32 chars), `JWT_EXPIRES_IN`, `AUTH_ENABLED`
 - `project/` — products; policies like daily run limit, max attempts, run timeout, retry on changes requested, pause
 - `repo/` — GitHub repos in a project; test command, routine fire URL and token env var name, concurrency, pause
 - `job/` — units of work; `job-state.ts` is the state machine (triage → queued → dispatched → pr_open → awaiting_review → merged, plus rejected/parked/cancelled); `job-dependency.entity.ts` for dependencies; `job-events.service.ts` applies GitHub events to jobs
@@ -72,6 +74,8 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Entities follow the `typeorm-snake-case-columns` skill (`.claude/skills/`): snake_case table and column names, camelCase TypeScript fields.
 - No `.default()` in schemas that get `.partial()`; rely on entity defaults.
 - Throw Nest HTTP exceptions (`NotFoundException`, `ConflictException`), never let TypeORM errors leak.
+- Every route requires a JWT unless marked `@Public()` (from `common/`). Only mark routes public that authenticate in another way (like the webhook signature) or must be reachable without login.
+- e2e tests: create an authenticated agent with `authedAgent(app)` from `test/helpers/auth.ts`; don't log in per test (login is throttled).
 - Job status changes only through the state machine in `job/job-state.ts`.
 
 ## Rules for agents
