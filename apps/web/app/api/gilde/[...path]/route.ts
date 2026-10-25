@@ -6,7 +6,7 @@ type Ctx = { params: Promise<{ path: string[] }> };
 async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const headers: Record<string, string> = { Accept: 'application/json' };
+  const headers: Record<string, string> = { Accept: req.headers.get('accept') ?? 'application/json' };
   if (token) headers.Authorization = `Bearer ${token}`;
   const contentType = req.headers.get('content-type');
   if (contentType) headers['Content-Type'] = contentType;
@@ -25,9 +25,16 @@ async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
     return NextResponse.json({ message: 'Could not reach the Gilde API' }, { status: 502 });
   }
 
-  const res = new NextResponse(upstream.status === 204 ? null : await upstream.text(), {
+  // Pass the body through as a stream so chat responses (text/event-stream) reach the browser as they are produced.
+  const responseType = upstream.headers.get('content-type') ?? 'application/json';
+  const responseHeaders: Record<string, string> = { 'Content-Type': responseType };
+  if (responseType.includes('text/event-stream')) {
+    responseHeaders['Cache-Control'] = 'no-cache, no-transform';
+    responseHeaders['X-Accel-Buffering'] = 'no';
+  }
+  const res = new NextResponse(upstream.status === 204 ? null : upstream.body, {
     status: upstream.status,
-    headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/json' },
+    headers: responseHeaders,
   });
   if (upstream.status === 401) {
     res.cookies.set(SESSION_COOKIE, '', { ...sessionCookieOptions(req.nextUrl.hostname), maxAge: 0 });

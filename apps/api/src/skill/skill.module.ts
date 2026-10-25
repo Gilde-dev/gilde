@@ -21,6 +21,6 @@ import { SkillService } from './skill.service.js';
         SkillLibraryResolver,
         { provide: RepoSkillsReader, useFactory: (github) => new RepoSkillsReader(github), inject: [GITHUB_PORT] },
     ],
-    exports: [SkillLibraryResolver],
+    exports: [SkillLibraryResolver, SkillService],
 })
 export class SkillModule { }

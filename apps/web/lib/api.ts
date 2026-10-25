@@ -321,6 +321,12 @@ export interface ApiIssue {
   message: string;
 }
 
+/** GET /v1/copilot/status: the co-pilot is enabled when an OpenAI key and model are configured. */
+export interface CopilotStatus {
+  enabled: boolean;
+  model: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -518,6 +524,7 @@ export const api = {
     request<CreatedApiKey>('/v1/api-keys', 'POST', input),
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
+  copilotStatus: () => request<CopilotStatus>('/v1/copilot/status'),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string, createdBy?: 'me') =>
     request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200${createdBy ? `&createdBy=${createdBy}` : ''}`),

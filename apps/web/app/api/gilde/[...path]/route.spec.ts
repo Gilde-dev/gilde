@@ -54,4 +54,52 @@ describe('api proxy', () => {
     const res = await call(GET, 'GET', 'v1/jobs/x', { cookie: 'tok' });
     expect(res.headers.get('set-cookie')).toBeNull();
   });
+
+  it('streams the response body through without buffering it', async () => {
+    let push!: (chunk: string) => void;
+    let close!: () => void;
+    const encoder = new TextEncoder();
+    const upstreamBody = new ReadableStream<Uint8Array>({
+      start(controller) {
+        push = (chunk) => controller.enqueue(encoder.encode(chunk));
+        close = () => controller.close();
+      },
+    });
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(new Response(upstreamBody, { status: 200, headers: { 'content-type': 'text/event-stream' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    // The handler resolves while the upstream is still open: it did not wait for the full text.
+    const res = await call(POST, 'POST', 'v1/mastra/copilotkit', { body: '{}', cookie: 'tok' });
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('text/event-stream');
+    expect(res.headers.get('cache-control')).toContain('no-transform');
+
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    push('data: one\n\n');
+    expect(decoder.decode((await reader.read()).value)).toBe('data: one\n\n');
+    push('data: two\n\n');
+    expect(decoder.decode((await reader.read()).value)).toBe('data: two\n\n');
+    close();
+    expect((await reader.read()).done).toBe(true);
+  });
+
+  it('forwards the Accept header of the client', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await handlerWithAccept('text/event-stream');
+    expect(fetchMock.mock.calls[0][1].headers.Accept).toBe('text/event-stream');
+  });
 });
+
+const handlerWithAccept = (accept: string) =>
+  POST(
+    new NextRequest('http://localhost:3000/api/gilde/v1/mastra/copilotkit', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept },
+      body: '{}',
+    }),
+    { params: Promise.resolve({ path: ['v1', 'mastra', 'copilotkit'] }) },
+  );

@@ -15,6 +15,6 @@ import { RevisionService } from './revision.service.js';
     imports: [TypeOrmModule.forFeature([JobRevision, Job, JobRun, JobDependency]), JobModule],
     controllers: [RevisionController],
     providers: [RevisionService, ProposalService],
-    exports: [ProposalService],
+    exports: [ProposalService, RevisionService],
 })
 export class RevisionModule { }
