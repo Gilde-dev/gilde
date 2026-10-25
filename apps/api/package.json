@@ -45,6 +45,7 @@
     "@nestjs/typeorm": "^12.0.2",
     "argon2": "^0.45.1",
     "better-sqlite3": "^12.11.1",
+    "express": "^5.2.1",
     "passport": "^0.7.0",
     "passport-jwt": "^4.0.1",
     "passport-local": "^1.0.0",

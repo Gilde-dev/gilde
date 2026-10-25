@@ -49,6 +49,15 @@ describe('api proxy', () => {
     expect(set).toMatch(/Max-Age=0/i);
   });
 
+  it('turns a 413 from the co-pilot into a clear message, other routes keep theirs', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(() => Promise.resolve(new Response('{"message":"request entity too large"}', { status: 413 }))));
+    const copilot = await call(POST, 'POST', 'v1/mastra/copilotkit', { body: '{}', cookie: 'tok' });
+    expect(copilot.status).toBe(413);
+    expect(await copilot.json()).toEqual({ message: 'The conversation is too long; start a new conversation.' });
+    const other = await call(POST, 'POST', 'v1/projects', { body: '{}', cookie: 'tok' });
+    expect(await other.json()).toEqual({ message: 'request entity too large' });
+  });
+
   it('does not clear the cookie on other errors', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{}', { status: 404 })));
     const res = await call(GET, 'GET', 'v1/jobs/x', { cookie: 'tok' });

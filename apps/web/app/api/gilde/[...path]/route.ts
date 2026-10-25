@@ -1,6 +1,8 @@
 import { NextResponse, type NextRequest } from 'next/server';
 import { SESSION_COOKIE, apiBaseUrl, sessionCookieOptions } from '@/lib/auth';
 
+const CONVERSATION_TOO_LONG = 'The conversation is too long; start a new conversation.';
+
 type Ctx = { params: Promise<{ path: string[] }> };
 
 async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
@@ -23,6 +25,11 @@ async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
     });
   } catch {
     return NextResponse.json({ message: 'Could not reach the Gilde API' }, { status: 502 });
+  }
+
+  // A request body over the API's co-pilot limit: say what to do instead of showing the raw error.
+  if (upstream.status === 413 && path.slice(0, 2).join('/') === 'v1/mastra') {
+    return NextResponse.json({ message: CONVERSATION_TOO_LONG }, { status: 413 });
   }
 
   // Pass the body through as a stream so chat responses (text/event-stream) reach the browser as they are produced.
