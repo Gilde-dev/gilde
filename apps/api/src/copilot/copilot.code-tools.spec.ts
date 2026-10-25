@@ -1,7 +1,7 @@
 import { RequestContext } from '@mastra/core/request-context';
 
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
-import { createCodeTools, fragmentLines, MAX_FILE_CHARS, MAX_SEARCH_RESULTS } from './copilot.code-tools.js';
+import { createCodeTools, MAX_FILE_CHARS } from './copilot.code-tools.js';
 
 const REPO = '3f2b8a4e-1c5d-4e7a-9b60-0d1e2f3a4b5c';
 
@@ -14,22 +14,29 @@ function setup() {
             { name: '.env', path: 'src/.env', type: 'file' },
             { name: 'tls.pem', path: 'src/tls.pem', type: 'file' },
         ]),
-        searchCode: vi.fn().mockResolvedValue([]),
         getPull: vi.fn(),
         listRecentPulls: vi.fn(),
         listWorkflowRuns: vi.fn(),
     };
     const repos = { getById: vi.fn().mockResolvedValue({ id: REPO, fullName: 'o/r', defaultBranch: 'main' }) };
-    const tools = createCodeTools({ repos, github } as never);
+    // Default: no usable clone, so the GitHub port is used.
+    const workspace = {
+        ensure: vi.fn().mockResolvedValue(null),
+        status: vi.fn().mockReturnValue({ cloned: false, headSha: null, fetchedAt: null, error: 'clone failed' }),
+        listDirectory: vi.fn(),
+        readFile: vi.fn(),
+        grep: vi.fn(),
+    };
+    const tools = createCodeTools({ repos, github, workspace } as never);
     const run = (tool: keyof typeof tools, input: Record<string, unknown>) =>
         (tools[tool].execute as (i: unknown, c: unknown) => Promise<any>)({ repoId: REPO, ...input }, { requestContext: new RequestContext() });
-    return { github, repos, run };
+    return { github, repos, workspace, run };
 }
 
 describe('code tools', () => {
     it('listRepoFiles lists a directory on the default branch and hides secret files', async () => {
         const { github, run } = setup();
-        const res = await run('listRepoFiles', { path: '/src/' });
+        const res = await run('listRepoFiles', { path: 'src/' });
         expect(github.listDirectory).toHaveBeenCalledWith('o/r', 'src', 'main');
         expect(res.entries.map((e: { path: string }) => e.path)).toEqual(['src/a.ts']);
     });
@@ -62,13 +69,29 @@ describe('code tools', () => {
         await expect(run('readRepoFile', { path: 'f.ts', startLine: 9 })).rejects.toThrow('Invalid line range');
     });
 
-    it('searchRepoCode adds line numbers of the matches', async () => {
-        const { github, run } = setup();
-        github.searchCode.mockResolvedValue([{ path: 'src/a.ts', fragments: ['two\nthree'] }]);
-        github.getFileContent.mockResolvedValue({ content: 'one\ntwo\nthree\nfour', sha: 'x' });
-        const res = await run('searchRepoCode', { query: 'two' });
-        expect(res.results[0].matches).toEqual([{ startLine: 2, endLine: 3 }]);
-        expect(fragmentLines('a\nb', ['zzz'])).toEqual([]);
+    it('searchRepoCode greps the local clone', async () => {
+        const { workspace, run } = setup();
+        workspace.ensure.mockResolvedValue('/clone');
+        workspace.grep.mockResolvedValue({ matches: [{ path: 'src/a.ts', line: 2, text: 'foo', context: [] }], truncated: false });
+        const res = await run('searchRepoCode', { query: 'foo', regex: true, path: '/src/'.slice(1) });
+        expect(workspace.grep).toHaveBeenCalledWith('/clone', { query: 'foo', regex: true, path: 'src' });
+        expect(res.matches).toHaveLength(1);
+    });
+
+    it('searchRepoCode returns a clear error without a clone', async () => {
+        const { run } = setup();
+        await expect(run('searchRepoCode', { query: 'foo' })).rejects.toThrow(/Code search is unavailable.*clone failed/);
+    });
+
+    it('listRepoFiles and readRepoFile use the clone when there is one', async () => {
+        const { github, workspace, run } = setup();
+        workspace.ensure.mockResolvedValue('/clone');
+        workspace.listDirectory.mockResolvedValue([{ name: 'a.ts', path: 'src/a.ts', type: 'file' }]);
+        workspace.readFile.mockResolvedValue('a\nb\nc');
+        expect((await run('listRepoFiles', { path: 'src' })).entries).toHaveLength(1);
+        expect(await run('readRepoFile', { path: 'src/a.ts', startLine: 2, endLine: 3 })).toMatchObject({ content: 'b\nc' });
+        expect(github.listDirectory).not.toHaveBeenCalled();
+        expect(github.getFileContent).not.toHaveBeenCalled();
     });
 
     it('readRepoFile reports a missing file', async () => {
@@ -81,6 +104,8 @@ describe('code tools', () => {
         const { github, run } = setup();
         await expect(run('listRepoFiles', { path: 'src/../..' })).rejects.toThrow('..');
         await expect(run('readRepoFile', { path: '../etc/passwd' })).rejects.toThrow('..');
+        await expect(run('readRepoFile', { path: '/etc/passwd' })).rejects.toThrow('Absolute');
+        await expect(run('searchRepoCode', { query: 'x', path: '../x' })).rejects.toThrow('..');
         expect(github.listDirectory).not.toHaveBeenCalled();
         expect(github.getFileContent).not.toHaveBeenCalled();
     });
@@ -89,18 +114,6 @@ describe('code tools', () => {
         const { github, run } = setup();
         await expect(run('readRepoFile', { path })).rejects.toThrow('secret');
         expect(github.getFileContent).not.toHaveBeenCalled();
-    });
-
-    it('searchRepoCode caps results and drops secret files', async () => {
-        const { github, run } = setup();
-        github.searchCode.mockResolvedValue([
-            { path: '.env', fragments: ['TOKEN=abc'] },
-            ...Array.from({ length: 30 }, (_, i) => ({ path: `src/f${i}.ts`, fragments: ['x'] })),
-        ]);
-        const res = await run('searchRepoCode', { query: 'Foo' });
-        expect(github.searchCode).toHaveBeenCalledWith('o/r', 'Foo', MAX_SEARCH_RESULTS);
-        expect(res.results).toHaveLength(MAX_SEARCH_RESULTS);
-        expect(res.results.some((r: { path: string }) => r.path === '.env')).toBe(false);
     });
 
     it('fails for unknown repos and when GitHub is not configured, and never writes', async () => {

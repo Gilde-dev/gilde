@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -6,6 +6,8 @@ import { Repository } from 'typeorm';
 import { GITHUB_PORT, type GitHubFile, type GitHubPort } from '../github/github.port.js';
 
 import { ManifestSchema, type Manifest } from './manifest.schema.js';
+import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
+
 import type { RepoResponseDto } from './repo.dto.js';
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
@@ -22,6 +24,7 @@ export class RepoManifestService {
         private readonly repoMapper: RepoMapper,
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @Inject(GITHUB_PORT) private readonly github: GitHubPort,
+        @Optional() private readonly workspace?: RepoWorkspaceService,
     ) { }
 
     /** Calls `listener` with the repo id after every manifest refresh (successful or not). */
@@ -53,6 +56,8 @@ export class RepoManifestService {
         const repo = await this.repoRepository.findOneBy({ id: repoId });
         if (!repo) throw new NotFoundException(`Repo ${repoId} not found`);
 
+        // Keep the local clone in step with the default branch (never throws).
+        await this.workspace?.sync(repo);
         const result = await this.load(repo);
         if ('error' in result) {
             repo.manifestError = result.error;

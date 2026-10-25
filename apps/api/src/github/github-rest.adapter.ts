@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
-import type { GitHubCodeHit, GitHubDirEntry, GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
+import type { GitHubDirEntry, GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -24,10 +24,6 @@ interface ContentJson {
     encoding?: string;
     content: string;
     sha: string;
-}
-
-interface CodeSearchJson {
-    items: { path: string; text_matches?: { fragment: string }[] }[];
 }
 
 interface ContentEntryJson {
@@ -82,25 +78,15 @@ export class GitHubRestAdapter implements GitHubPort {
             .map((e) => ({ name: e.name, path: e.path, type: e.type === 'dir' ? 'dir' : 'file' }));
     }
 
-    async searchCode(fullName: string, query: string, limit: number): Promise<GitHubCodeHit[]> {
-        const q = encodeURIComponent(`${query} repo:${fullName}`);
-        const body = await this.get<CodeSearchJson>(
-            `/search/code?q=${q}&per_page=${limit}`,
-            false,
-            'application/vnd.github.text-match+json',
-        );
-        return body.items.slice(0, limit).map((i) => ({ path: i.path, fragments: (i.text_matches ?? []).map((m) => m.fragment) }));
-    }
-
-    private async get<T>(path: string, nullOn404?: false, accept?: string): Promise<T>;
+    private async get<T>(path: string, nullOn404?: false): Promise<T>;
     private async get<T>(path: string, nullOn404: true): Promise<T | null>;
-    private async get<T>(path: string, nullOn404 = false, accept = 'application/vnd.github+json'): Promise<T | null> {
+    private async get<T>(path: string, nullOn404 = false): Promise<T | null> {
         const token = process.env.GITHUB_TOKEN;
         if (!token) throw new Error('GITHUB_TOKEN is not set');
         const res = await fetch(`${API}${path}`, {
             headers: {
                 Authorization: `Bearer ${token}`,
-                Accept: accept,
+                Accept: 'application/vnd.github+json',
                 'X-GitHub-Api-Version': '2022-11-28',
             },
             signal: AbortSignal.timeout(TIMEOUT_MS),

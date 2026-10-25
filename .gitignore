@@ -66,3 +66,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Mastra memory store (apps/api/mastra.db, used when DATABASE_URL is not Postgres)
 mastra.db*
+
+# Local clones of registered repos (GILDE_WORKSPACE_DIR)
+/.gilde-workspace
+/apps/api/.gilde-workspace
