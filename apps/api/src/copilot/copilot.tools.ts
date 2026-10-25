@@ -16,6 +16,7 @@ import type { RevisionService } from '../revision/revision.service.js';
 import type { SkillService } from '../skill/skill.service.js';
 
 import { copilotUser } from './copilot.context.js';
+import { dependencyOrder, FeaturePlanSchema, graphProblems, type FeaturePlan } from './copilot.plan.js';
 
 /** The existing services the co-pilot tools call. Tools never query repositories or the HTTP API. */
 export interface CopilotServices {
@@ -32,7 +33,7 @@ export interface CopilotServices {
 
 const id = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);
 
-/** Read-only tools: none of them changes anything. */
+/** Read-only tools, plus planFeature (validates only) and createPlannedFeature (creates only after the user approves). */
 export function createCopilotTools(s: CopilotServices) {
     const listProjects = createTool({
         id: 'listProjects',
@@ -134,7 +135,125 @@ export function createCopilotTools(s: CopilotServices) {
         execute: async ({ repoId }) => s.skills.forRepo(repoId),
     });
 
-    return { listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
+    /** Validates a draft against the project and its repos. Writes nothing. */
+    async function validatePlan(input: unknown): Promise<{ valid: true; draft: FeaturePlan } | { valid: false; problems: string[] }> {
+        const parsed = FeaturePlanSchema.safeParse(input);
+        if (!parsed.success) {
+            return { valid: false, problems: parsed.error.issues.map((i) => `${i.path.join('.') || 'draft'}: ${i.message}`) };
+        }
+        const draft = parsed.data;
+        const problems = graphProblems(draft.jobs);
+        let repoIds: Set<string>;
+        try {
+            await s.projects.getById(draft.projectId);
+            repoIds = new Set((await s.repos.listForProject(draft.projectId)).map((r) => r.id));
+        } catch (e) {
+            return { valid: false, problems: [...problems, `Unknown project ${draft.projectId}: ${e instanceof Error ? e.message : String(e)}`] };
+        }
+        for (const j of draft.jobs) {
+            if (!repoIds.has(j.repoId)) problems.push(`Job "${j.key}": repo ${j.repoId} is not in the project`);
+        }
+        return problems.length ? { valid: false, problems } : { valid: true, draft };
+    }
+
+    const planFeature = createTool({
+        id: 'planFeature',
+        description:
+            'Validate a draft of a feature with linked jobs WITHOUT creating anything. Job keys are local to the draft and dependsOn lists keys. ' +
+            'Checks that the repos belong to the project, dependency keys exist, there are no cycles and titles, tasks and criteria fit the limits. ' +
+            'Returns { valid: true, draft } or { valid: false, problems }. Fix every problem and call again; only a valid draft may go to createPlannedFeature.',
+        inputSchema: z.object({
+            projectId: id('project'),
+            title: z.string().describe('Feature title, 3-200 characters'),
+            spec: z.string().describe('What the feature is and why, up to 20000 characters'),
+            acceptanceCriteria: z.array(z.string()).describe('Testable criteria of the whole feature'),
+            jobs: z.array(z.object({
+                key: z.string().describe('Short key, local to this draft (e.g. "api")'),
+                repoId: id('repo'),
+                title: z.string().describe('3-200 characters'),
+                task: z.string().describe('The full task for the agent, at least 10 characters'),
+                acceptanceCriteria: z.array(z.string()).describe('Concrete, testable criteria'),
+                dependsOn: z.array(z.string()).describe('Keys of jobs in this draft that must be merged first; [] when none'),
+            })),
+        }),
+        execute: async (input) => validatePlan(input),
+    });
+
+    const createPlannedFeature = createTool({
+        id: 'createPlannedFeature',
+        description:
+            'Create a validated draft: a feature (draft) and its jobs (triage, with dependencies, created by the current user). ' +
+            'The user is asked to approve the plan in the UI first; if they cancel, nothing is created. Never starts the feature or enqueues jobs. ' +
+            'Call planFeature first and pass the same draft. Returns the feature id and its link.',
+        inputSchema: z.object({
+            projectId: id('project'),
+            title: z.string(),
+            spec: z.string(),
+            acceptanceCriteria: z.array(z.string()),
+            jobs: z.array(z.object({
+                key: z.string(),
+                repoId: id('repo'),
+                title: z.string(),
+                task: z.string(),
+                acceptanceCriteria: z.array(z.string()),
+                dependsOn: z.array(z.string()),
+            })),
+        }),
+        // The run suspends until the user approves or declines; a declined call never reaches execute.
+        requireApproval: true,
+        execute: async (input, { requestContext }) => {
+            const checked = await validatePlan(input);
+            if (!checked.valid) return { created: false as const, problems: checked.problems };
+            const { draft } = checked;
+            const actor = copilotUser(requestContext);
+
+            let featureId: string | null = null;
+            const created: string[] = [];
+            const idByKey = new Map<string, string>();
+            try {
+                featureId = (await s.features.create(draft.projectId, {
+                    title: draft.title,
+                    spec: draft.spec,
+                    acceptanceCriteria: draft.acceptanceCriteria,
+                })).id;
+                for (const j of dependencyOrder(draft.jobs)) {
+                    const job = await s.jobs.create(
+                        j.repoId,
+                        {
+                            title: j.title,
+                            task: j.task,
+                            acceptanceCriteria: j.acceptanceCriteria,
+                            dependsOn: j.dependsOn.map((k) => idByKey.get(k)!),
+                            status: 'triage',
+                            featureId,
+                        },
+                        actor,
+                    );
+                    created.push(job.id);
+                    idByKey.set(j.key, job.id);
+                }
+            } catch (e) {
+                const error = e instanceof Error ? e.message : String(e);
+                const cleanupFailures: string[] = [];
+                // Dependents were created last, so cancel in reverse order.
+                for (const jobId of [...created].reverse()) {
+                    try { await s.jobs.cancel(jobId); } catch (c) { cleanupFailures.push(`job ${jobId}: ${c instanceof Error ? c.message : String(c)}`); }
+                }
+                if (featureId) {
+                    try { await s.features.cancel(featureId); } catch (c) { cleanupFailures.push(`feature ${featureId}: ${c instanceof Error ? c.message : String(c)}`); }
+                }
+                return { created: false as const, error, cancelledJobs: created.length - cleanupFailures.filter((f) => f.startsWith('job')).length, cleanupFailures };
+            }
+            return {
+                created: true as const,
+                featureId: featureId!,
+                link: `/features/${featureId}`,
+                jobs: draft.jobs.map((j) => ({ key: j.key, jobId: idByKey.get(j.key)!, status: 'triage' as const })),
+            };
+        },
+    });
+
+    return { planFeature, createPlannedFeature, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
 }
 
 export type CopilotTools = ReturnType<typeof createCopilotTools>;

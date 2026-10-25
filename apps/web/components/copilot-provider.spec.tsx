@@ -14,6 +14,7 @@ vi.mock('@copilotkit/react-core', () => ({
   ),
   useCopilotReadable: readable,
 }));
+vi.mock('@copilotkit/react-core/v2/headless', () => ({ useInterrupt: vi.fn() }));
 vi.mock('@copilotkit/react-ui', () => ({
   CopilotSidebar: ({ children, defaultOpen, labels }: { children: React.ReactNode; defaultOpen: boolean; labels: { title: string } }) => (
     <aside data-testid="sidebar" data-open={String(defaultOpen)} data-title={labels.title}>{children}</aside>
