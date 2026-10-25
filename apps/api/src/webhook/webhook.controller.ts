@@ -2,6 +2,7 @@ import { Body, Controller, Headers, HttpCode, Logger, Post, Req, UnauthorizedExc
 import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 
+import { Public } from '../common/public.decorator.js';
 import { WebhookService } from './webhook.service.js';
 import { verifySignature } from './webhook-signature.js';
 
@@ -11,6 +12,8 @@ export class WebhookController {
 
     private readonly logger = new Logger(WebhookController.name);
 
+    // Authenticated by the HMAC signature, not a JWT.
+    @Public()
     @Post('/github')
     @HttpCode(200)
     async github(
