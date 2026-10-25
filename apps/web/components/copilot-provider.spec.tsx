@@ -20,6 +20,11 @@ vi.mock('@copilotkit/react-ui', () => ({
     <aside data-testid="sidebar" data-open={String(defaultOpen)} data-title={labels.title}>{children}</aside>
   ),
 }));
+vi.mock('@/components/copilot-tool-renderers', () => ({
+  CopilotToolRenderers: () => null,
+  CopilotBusyIndicator: () => null,
+  GroupedMessage: () => null,
+}));
 
 import { CopilotPageContext, CopilotProvider } from './copilot-provider';
 

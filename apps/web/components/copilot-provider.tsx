@@ -6,6 +6,7 @@ import '@copilotkit/react-ui/styles.css';
 import { usePathname } from 'next/navigation';
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
 import { CopilotPlanApproval } from '@/components/copilot-plan-approval';
+import { CopilotBusyIndicator, CopilotToolRenderers, GroupedMessage } from '@/components/copilot-tool-renderers';
 import { api } from '@/lib/api';
 
 /** Same-origin proxy route; it adds the session token, so the browser never holds a token or an LLM key. */
@@ -55,7 +56,9 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
     <EnabledContext.Provider value>
       <CopilotKit runtimeUrl={COPILOT_RUNTIME_URL} agent={COPILOT_AGENT} useSingleEndpoint>
         <CopilotPlanApproval />
-        <CopilotSidebar defaultOpen={false} labels={{ title: 'Gilde co-pilot' }}>
+        <CopilotToolRenderers />
+        <CopilotBusyIndicator />
+        <CopilotSidebar defaultOpen={false} labels={{ title: 'Gilde co-pilot' }} RenderMessage={GroupedMessage}>
           {children}
         </CopilotSidebar>
       </CopilotKit>
