@@ -6,9 +6,10 @@ import { join } from 'node:path';
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { RepoWorkspaceService, type WorkspaceRepo } from './repo-workspace.service.js';
+import { gitAuthHeader, RepoWorkspaceService, type WorkspaceRepo } from './repo-workspace.service.js';
 
 const TOKEN = 'ghp_supersecrettoken123';
+const TOKEN_B64 = Buffer.from(`x-access-token:${TOKEN}`).toString('base64');
 
 let tmp: string;
 let remote: string;
@@ -87,6 +88,13 @@ describe('RepoWorkspaceService', () => {
         expect(calls.length).toBe(n);
     });
 
+    it('gitAuthHeader sends Basic auth with x-access-token, not Bearer', () => {
+        const header = gitAuthHeader(TOKEN);
+        expect(header).toBe(`Authorization: Basic ${TOKEN_B64}`);
+        expect(header).not.toContain('Bearer');
+        expect(Buffer.from(TOKEN_B64, 'base64').toString()).toBe(`x-access-token:${TOKEN}`);
+    });
+
     it('serializes operations per repo', async () => {
         const ws = new TestWorkspace();
         await Promise.all([ws.sync(repo), ws.sync(repo), ws.sync(repo)]);
@@ -100,11 +108,13 @@ describe('RepoWorkspaceService', () => {
         const ws = new TestWorkspace();
         const dir = (await ws.ensure(repo))!;
         await ws.sync(repo);
-        expect(sh(dir, 'config', '--local', '--list')).not.toContain(TOKEN);
-        expect(sh(dir, 'remote', '-v')).not.toContain(TOKEN);
-        expect(logs.join('\n')).not.toContain(TOKEN);
+        for (const secret of [TOKEN, TOKEN_B64]) {
+            expect(sh(dir, 'config', '--local', '--list')).not.toContain(secret);
+            expect(sh(dir, 'remote', '-v')).not.toContain(secret);
+            expect(logs.join('\n')).not.toContain(secret);
+        }
         // The token is passed only as an http.extraHeader of the commands that talk to the remote.
-        const withToken = calls.filter((a) => a.some((x) => x.includes(TOKEN)));
+        const withToken = calls.filter((a) => a.some((x) => x.includes(TOKEN) || x.includes(TOKEN_B64)));
         expect(withToken.length).toBe(0); // recorded args are pre-auth; the header is added inside git()
     });
 
@@ -121,6 +131,7 @@ describe('RepoWorkspaceService', () => {
         expect(st).toMatchObject({ cloned: false });
         expect(st.error).toBeTruthy();
         expect(`${st.error}${logs.join('')}`).not.toContain(TOKEN);
+        expect(`${st.error}${logs.join('')}`).not.toContain(TOKEN_B64);
     });
 
     it('reports a missing clone, a missing token and unknown state', async () => {
