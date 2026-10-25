@@ -51,7 +51,8 @@ PAYLOAD=$(jq -cn --argjson job "$JOB" --argjson repo "$REPO" --arg runId "$RUN_I
   title: $job.title,
   task: $job.task,
   acceptanceCriteria: $job.acceptanceCriteria,
-  testCommand: $repo.testCommand
+  testCommands: $repo.testCommands,
+  stacks: $repo.stacks
 }')
 
 TEXT="Gilde job $JOB_ID (attempt $(jq -r .attempt <<<"$PAYLOAD")). Execute it as described in your routine instructions.

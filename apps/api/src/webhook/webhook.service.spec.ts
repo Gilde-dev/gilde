@@ -33,7 +33,7 @@ beforeEach(async () => {
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
     const project = await projects.save(projects.create({ slug: 'p', name: 'P' }));
-    repo = await repos.save(repos.create({ projectId: project.id, fullName: 'gilde-dev/gilde', testCommand: 'pnpm test' }));
+    repo = await repos.save(repos.create({ projectId: project.id, fullName: 'gilde-dev/gilde', testCommands: ['pnpm test'] }));
     const repoService = {
         findByFullName: (n: string) => repos.findOneBy({ fullName: n.toLowerCase() }),
     } as unknown as RepoService;
@@ -147,7 +147,7 @@ describe('WebhookService', () => {
         });
 
         it('ignores a marker for a job of another repo or an unknown job', async () => {
-            const other = await repos.save(repos.create({ projectId: repo.projectId, fullName: 'o/other', testCommand: 'x' }));
+            const other = await repos.save(repos.create({ projectId: repo.projectId, fullName: 'o/other', testCommands: ['x'] }));
             const job = await seedJob('dispatched', { repoId: other.id });
             expect(await service.handle('pull_request', prPayload('opened', { body: body(job, null) })))
                 .toBe('ignored: PR #12 references unknown job');

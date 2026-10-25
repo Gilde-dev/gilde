@@ -29,11 +29,24 @@ export class Repo {
     })
     defaultBranch: string;
 
-    @Column({ type: 'simple-enum', enum: STACKS, default: 'other' })
-    stack: Stack;
+    /** Cached from .gilde.json in the repo; empty until the first successful manifest refresh. */
+    @Column({ type: 'simple-json', default: '[]' })
+    stacks: Stack[];
 
-    @Column()
-    testCommand: string;
+    @Column({ name: 'test_commands', type: 'simple-json', default: '[]' })
+    testCommands: string[];
+
+    @Column({ type: 'simple-json', nullable: true })
+    skills: { include?: string[]; exclude?: string[] } | null;
+
+    @Column({ name: 'manifest_sha', type: 'text', nullable: true })
+    manifestSha: string | null;
+
+    @Column({ name: 'manifest_synced_at', type: 'datetime', nullable: true })
+    manifestSyncedAt: Date | null;
+
+    @Column({ name: 'manifest_error', type: 'text', nullable: true })
+    manifestError: string | null;
 
     @Column({
         name: 'routine_fire_url',

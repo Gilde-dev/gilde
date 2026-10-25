@@ -9,11 +9,15 @@ import {
     type RepoResponseDto,
     type UpdateRepoDto,
 } from './repo.dto.js';
+import { RepoManifestService } from './repo-manifest.service.js';
 import { RepoService } from './repo.service.js';
 
 @Controller('/v1')
 export class RepoController {
-    constructor(private readonly repoService: RepoService) { }
+    constructor(
+        private readonly repoService: RepoService,
+        private readonly manifests: RepoManifestService,
+    ) { }
 
     @Get('projects/:projectId/repos')
     listForProject(@Param('projectId', ParseUUIDPipe) projectId: string): Promise<RepoResponseDto[]> {
@@ -41,6 +45,12 @@ export class RepoController {
         @Body(new ZodValidationPipe(UpdateRepoSchema)) dto: UpdateRepoDto,
     ): Promise<RepoResponseDto> {
         return this.repoService.update(id, dto);
+    }
+
+    @Post('repos/:id/manifest/refresh')
+    @HttpCode(200)
+    refreshManifest(@Param('id', ParseUUIDPipe) id: string): Promise<RepoResponseDto> {
+        return this.manifests.refresh(id);
     }
 
     @Post('repos/:id/pause')

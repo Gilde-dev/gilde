@@ -21,7 +21,7 @@ beforeEach(async () => {
         type: 'better-sqlite3', database: ':memory:', entities: [Project, Repo, Job, JobRun, JobDependency, Feature], synchronize: true,
     }).initialize();
     const project = await ds.getRepository(Project).save({ slug: 'p', name: 'P' });
-    const repo = await ds.getRepository(Repo).save({ projectId: project.id, fullName: 'o/r', testCommand: 'pnpm test' });
+    const repo = await ds.getRepository(Repo).save({ projectId: project.id, fullName: 'o/r', stacks: ['node'], testCommands: ['pnpm test'] });
     job = await ds.getRepository(Job).save({
         projectId: project.id, repoId: repo.id, title: 'T', task: 'do', acceptanceCriteria: ['a'], status: 'queued', attempts: 1,
     });
@@ -40,6 +40,8 @@ describe('JobPromptService', () => {
         const res = await service.get(job.id);
         expect(res.instructionsVersion).toBeNull();
         expect(res.text).toContain(`Gilde job ${job.id} (attempt 2)`);
+        expect(res.text).toContain('"testCommands":["pnpm test"]');
+        expect(res.text).toContain('"stacks":["node"]');
         expect(await ds.getRepository(JobRun).count()).toBe(0);
         expect((await ds.getRepository(Job).findOneByOrFail({ id: job.id })).attempts).toBe(1);
     });

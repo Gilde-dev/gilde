@@ -44,11 +44,15 @@ export interface Repo {
   projectId: string;
   fullName: string;
   defaultBranch: string;
-  stack: string;
-  testCommand: string;
   routineFireUrl: string | null;
   routineTokenEnv: string | null;
   maxConcurrentJobs: number;
+  stacks: string[];
+  testCommands: string[];
+  skills: { include?: string[]; exclude?: string[] } | null;
+  manifestSha: string | null;
+  manifestSyncedAt: string | null;
+  manifestError: string | null;
   paused: boolean;
   pausedReason: string | null;
   createdAt: string;
@@ -409,6 +413,7 @@ export const api = {
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
+  refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
   setProjectPaused: (projectId: string, paused: boolean) =>
     request<Project>(`/v1/projects/${id(projectId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
 };

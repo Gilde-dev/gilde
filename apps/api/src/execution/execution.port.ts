@@ -12,7 +12,8 @@ export const JobPayloadSchema = z.object({
     title: z.string(),
     task: z.string(),
     acceptanceCriteria: z.array(z.string()),
-    testCommand: z.string(),
+    testCommands: z.array(z.string()),
+    stacks: z.array(z.string()),
     feature: z.object({ title: z.string(), spec: z.string(), acceptanceCriteria: z.array(z.string()) }).optional(),
     continueOn: z.object({ branch: z.string(), prNumber: z.number().int(), reason: z.string() }).optional(),
 });

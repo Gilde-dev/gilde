@@ -18,7 +18,8 @@ const payload: JobPayload = {
     title: 'T',
     task: 'Do it',
     acceptanceCriteria: ['a'],
-    testCommand: 'pnpm test',
+    testCommands: ['pnpm test'],
+    stacks: ['node'],
 };
 const okBody = { type: 'routine_fire', claude_code_session_id: 'sess_1', claude_code_session_url: 'https://claude.ai/code/sess_1' };
 

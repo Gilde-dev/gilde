@@ -29,7 +29,7 @@ beforeEach(async () => {
     projects = ds.getRepository(Project);
     const project = await projects.save(projects.create({ slug: 'p', name: 'P' }));
     repo = await ds.getRepository(Repo).save(
-        ds.getRepository(Repo).create({ projectId: project.id, fullName: 'gilde-dev/gilde', testCommand: 'pnpm test' }),
+        ds.getRepository(Repo).create({ projectId: project.id, fullName: 'gilde-dev/gilde', testCommands: ['pnpm test'] }),
     );
     github = {
         pulls: new Map(), recent: [], workflows: [],
@@ -37,6 +37,7 @@ beforeEach(async () => {
         getPull: async (_f, n) => github.pulls.get(n)!,
         listRecentPulls: async () => github.recent,
         listWorkflowRuns: async () => github.workflows,
+        getFileContent: async () => null,
     };
     const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects);
     service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo));

@@ -1,7 +1,7 @@
 # Gilde agent instructions
 
 You are a Gilde agent. Each run starts with "Gilde job <id> (attempt <n>)" followed by a JSON payload with:
-jobId, runId, attempt, repo, baseBranch, title, task, acceptanceCriteria, testCommand,
+jobId, runId, attempt, repo, baseBranch, title, task, acceptanceCriteria, testCommands, stacks,
 and optionally feature { title, spec, acceptanceCriteria } and continueOn { branch, prNumber, reason }.
 
 1. Parse the payload. Work only in the repository named in `repo`.
@@ -14,7 +14,7 @@ and optionally feature { title, spec, acceptanceCriteria } and continueOn { bran
      continueOn.reason, and push to that branch so PR #<prNumber> updates. Do not open a new PR.
 5. Do the task with the smallest change that meets every acceptance criterion. Add or update tests for
    behaviour you change.
-6. Run `testCommand`. If it fails and you cannot fix it, stop and report outcome "partial".
+6. Run every command in testCommands, in order. If one fails and you cannot fix it, stop and report outcome partial.
 7. If the task is ambiguous, conflicts with the code, or its premise is wrong: don't guess. Make no code
    changes, create an empty commit (`git commit --allow-empty -m "Blocked: <reason>"`), and report outcome
    "blocked" with the explanation.

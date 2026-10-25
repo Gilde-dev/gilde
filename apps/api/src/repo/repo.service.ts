@@ -1,5 +1,5 @@
 // repo.service.ts
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -9,6 +9,7 @@ import { ProjectService } from '../project/project.service.js';
 import type { CreateRepoDto, RepoResponseDto, UpdateRepoDto } from './repo.dto.js';
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
+import { RepoManifestService } from './repo-manifest.service.js';
 
 @Injectable()
 export class RepoService {
@@ -16,6 +17,7 @@ export class RepoService {
         private readonly repoMapper: RepoMapper,
         private readonly projectService: ProjectService,
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
+        @Optional() private readonly manifests?: RepoManifestService,
     ) { }
 
     async listForProject(projectId: string): Promise<RepoResponseDto[]> {
@@ -35,7 +37,7 @@ export class RepoService {
         }
         try {
             const entity = await this.repoRepository.save(this.repoRepository.create({ ...dto, projectId }));
-            return this.repoMapper.toDTO(entity);
+            return (await this.manifests?.refresh(entity.id)) ?? this.repoMapper.toDTO(entity);
         } catch (e) {
             if (isUniqueViolation(e)) throw new ConflictException(`Repository ${dto.fullName} is already registered`);
             throw e;

@@ -31,8 +31,8 @@ beforeEach(async () => {
     const repos = ds.getRepository(Repo);
     const project = await projects.save(projects.create({ slug: 'p', name: 'P' }));
     const other = await projects.save(projects.create({ slug: 'q', name: 'Q' }));
-    repo = await repos.save(repos.create({ projectId: project.id, fullName: 'o/a', testCommand: 't' }));
-    otherRepo = await repos.save(repos.create({ projectId: other.id, fullName: 'o/b', testCommand: 't' }));
+    repo = await repos.save(repos.create({ projectId: project.id, fullName: 'o/a', testCommands: ['t'] }));
+    otherRepo = await repos.save(repos.create({ projectId: other.id, fullName: 'o/b', testCommands: ['t'] }));
     const projectService = {
         assertExists: async (id: string) => { if (!(await projects.existsBy({ id }))) throw new NotFoundException(); },
     } as unknown as ProjectService;
