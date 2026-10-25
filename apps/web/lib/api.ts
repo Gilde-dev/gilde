@@ -298,6 +298,24 @@ export interface CurrentUser {
   email: string;
 }
 
+export interface ApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  createdAt: string;
+  lastUsedAt: string | null;
+  expiresAt: string | null;
+}
+
+/** Returned once, on creation: `key` is never shown again. */
+export interface CreatedApiKey {
+  id: string;
+  name: string;
+  prefix: string;
+  key: string;
+  expiresAt: string | null;
+}
+
 export interface ApiIssue {
   path: string;
   message: string;
@@ -317,7 +335,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' = 'GET', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -352,6 +370,7 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT'
     }
     throw new ApiError(`${method} ${path} failed: ${res.status} ${detail}`.trim(), res.status, detail, issues);
   }
+  if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
 
@@ -494,6 +513,10 @@ const id = encodeURIComponent;
 
 export const api = {
   me: () => request<CurrentUser>('/v1/auth/me'),
+  listApiKeys: () => request<ApiKey[]>('/v1/api-keys'),
+  createApiKey: (input: { name: string; expiresInDays?: number }) =>
+    request<CreatedApiKey>('/v1/api-keys', 'POST', input),
+  revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string, createdBy?: 'me') =>

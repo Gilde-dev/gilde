@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { ThrottlerModule } from '@nestjs/throttler';
 
+import { ApiKeyModule } from '../api-key/api-key.module.js';
 import { UserModule } from '../user/user.module.js';
 
 import { jwtExpiresIn, jwtSecret } from './auth.config.js';
@@ -16,6 +17,7 @@ import { LocalStrategy } from './local.strategy.js';
 @Module({
     imports: [
         UserModule,
+        ApiKeyModule,
         PassportModule.register({}),
         JwtModule.registerAsync({
             useFactory: () => ({

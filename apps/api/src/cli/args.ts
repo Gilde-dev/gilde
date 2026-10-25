@@ -11,3 +11,15 @@ export function parseUserCreateArgs(argv: string[]): { email: string; name: stri
     }
     return { email: values.email, name: values.name };
 }
+
+export function parseApiKeyCreateArgs(argv: string[]): { email: string; name: string } {
+    const { values } = parseArgs({
+        args: argv,
+        options: { email: { type: 'string' }, name: { type: 'string' } },
+        strict: true,
+    });
+    if (!values.email || !values.name) {
+        throw new Error('Usage: pnpm --filter @gilde/api apikey:create --email <user email> --name <name>');
+    }
+    return { email: values.email, name: values.name };
+}
