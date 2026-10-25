@@ -22,3 +22,12 @@ GitHub delivers webhooks to a [smee.io](https://smee.io) channel; the `webhooks`
    - Events: Pull requests, Check suites, Pull request reviews, Pull request review comments, Issue comments
 
 Anyone with the channel URL can read the payloads, so keep it private; the API's signature check rejects forged deliveries. smee.io is meant for development; for 24/7 operation, run Gilde on a server with its own domain.
+
+## Agent instructions
+
+Routines get their working instructions from [`docs/agent-instructions.md`](docs/agent-instructions.md):
+how to read the job payload, branch, test, and format the PR body that Gilde parses
+(`gilde-job`, `gilde-run`, the `gilde-result` block and `## Retro`).
+
+For now, paste the file's content into each routine's instructions at claude.ai/code (Routines → edit).
+When you change the job payload or the PR body format, update this file in the same PR and re-paste it.
