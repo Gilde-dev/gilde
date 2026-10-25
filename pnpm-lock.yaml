@@ -70,6 +70,9 @@ importers:
       better-sqlite3:
         specifier: ^12.11.1
         version: 12.11.1
+      express:
+        specifier: ^5.2.1
+        version: 5.2.1
       passport:
         specifier: ^0.7.0
         version: 0.7.0
