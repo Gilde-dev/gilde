@@ -19,7 +19,7 @@ const LINKS = [
 export function SidebarNav({
   current,
 }: {
-  current: '/' | '/features' | '/metrics' | '/proposals' | '/lessons' | '/skills';
+  current: '/' | '/features' | '/metrics' | '/proposals' | '/lessons' | '/skills' | '/settings/api-keys';
 }) {
   const proposed = usePolling(fetchProposed, 30_000);
   const count = proposed.data?.length ?? 0;

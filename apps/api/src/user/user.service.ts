@@ -48,6 +48,11 @@ export class UserService {
         return this.mapper.toDTO(user);
     }
 
+    async findByEmail(email: string): Promise<UserResponseDto | null> {
+        const user = await this.users.findOneBy({ email: normalizeEmail(email) });
+        return user ? this.mapper.toDTO(user) : null;
+    }
+
     /** Internal: the only place the password hash is loaded. Returns the entity, not a DTO. */
     findByEmailWithPassword(email: string): Promise<User | null> {
         return this.users
