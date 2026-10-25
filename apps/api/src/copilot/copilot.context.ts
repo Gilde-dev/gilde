@@ -13,9 +13,59 @@ export function copilotUser(requestContext: Pick<RequestContext, 'get'> | undefi
     return (requestContext?.get(COPILOT_USER_KEY) as CopilotUser | null | undefined) ?? null;
 }
 
-/** Memory resource of a user: conversations are stored and read per user. */
+/** Placeholder default for routes that need a resourceId at registration; every request replaces it with the user id. */
+export const UNAUTHENTICATED_RESOURCE = 'unauthenticated';
+
+/**
+ * Memory resource of a user: conversations, working memory and semantic recall are stored and read per user.
+ * There is no shared fallback: without an authenticated account this throws.
+ */
 export function copilotResourceId(user: CopilotUser | null): string {
-    return user?.id ?? 'anonymous';
+    if (!user?.id) throw new Error('Co-pilot memory needs an authenticated user');
+    return user.id;
+}
+
+export interface MemoryReferences {
+    resourceIds: string[];
+    threadIds: string[];
+    messageIds: string[];
+}
+
+const RESOURCE_KEYS = new Set(['resourceId', 'resource_id']);
+const THREAD_KEYS = new Set(['threadId', 'thread_id']);
+const MESSAGE_KEYS = new Set(['messageId', 'messageIds']);
+
+/**
+ * Every memory resource, thread and message id a Mastra request names: path (`/threads/:id`), query and JSON body
+ * (including the AG-UI `threadId` and `memory: { resource, thread }` options). Used to check them against the caller.
+ */
+export function memoryReferences(path: string, query: unknown, body: unknown): MemoryReferences {
+    const refs: MemoryReferences = { resourceIds: [], threadIds: [], messageIds: [] };
+    const fromPath = /\/threads\/([^/?#]+)/.exec(path);
+    if (fromPath) refs.threadIds.push(decodeURIComponent(fromPath[1]));
+    const push = (list: string[], value: unknown) => {
+        for (const v of Array.isArray(value) ? value : [value]) {
+            if (typeof v === 'string' && v) list.push(v);
+            else if (typeof v === 'object' && v !== null && typeof (v as { id?: unknown }).id === 'string') list.push((v as { id: string }).id);
+        }
+    };
+    const walk = (node: unknown, depth: number) => {
+        if (depth > 8 || typeof node !== 'object' || node === null) return;
+        if (Array.isArray(node)) { for (const item of node) walk(item, depth + 1); return; }
+        for (const [key, value] of Object.entries(node)) {
+            if (RESOURCE_KEYS.has(key)) push(refs.resourceIds, value);
+            else if (THREAD_KEYS.has(key)) push(refs.threadIds, value);
+            else if (MESSAGE_KEYS.has(key)) push(refs.messageIds, value);
+            else if (key === 'memory' && typeof value === 'object' && value !== null) {
+                push(refs.resourceIds, (value as { resource?: unknown }).resource);
+                push(refs.threadIds, (value as { thread?: unknown }).thread);
+            }
+            walk(value, depth + 1);
+        }
+    };
+    walk(query, 0);
+    walk(body, 0);
+    return refs;
 }
 
 /** Request-context key with the id of the project the user has selected in the UI (or undefined). */

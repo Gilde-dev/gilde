@@ -22,6 +22,7 @@ import { UserModule } from './user/user.module.js';
 import { ApiKeyModule } from './api-key/api-key.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CopilotModule } from './copilot/copilot.module.js';
+import { MemoryModule } from './memory/memory.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -36,6 +37,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     TypeOrmModule.forRoot(databaseConfig()),
     ScheduleModule.forRoot(),
     HealthModule,
+    MemoryModule,
     ProjectModule,
     RepoModule,
     RunModule,

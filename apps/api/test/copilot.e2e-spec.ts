@@ -5,6 +5,9 @@ import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import { registerApiRoute } from '@mastra/core/server';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { AppModule } from './../src/app.module.js';
 import { createMastra } from './../src/copilot/copilot.mastra.js';
@@ -137,4 +140,72 @@ describe('Co-pilot (e2e), CopilotKit route', () => {
   });
 
   it('is 401 without a token', () => request(app.getHttpServer()).post('/api/v1/mastra/copilotkit').send({ method: 'info' }).expect(401));
+});
+
+describe('Co-pilot (e2e), memory isolation on Mastra routes', () => {
+  let app: INestApplication;
+  let dir: string;
+  let mastra: Mastra;
+  let alice: Awaited<ReturnType<typeof createTestUser>>;
+  let bob: Awaited<ReturnType<typeof createTestUser>>;
+  let aliceAuth: { Authorization: string };
+  let bobAuth: { Authorization: string };
+  const http = () => request(app.getHttpServer());
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'gilde-e2e-memory-'));
+    const config = { enabled: true as const, model: 'openai/test-model' };
+    mastra = createMastra(config, {} as never, new LibSQLStore({ id: 'e2e-mem', url: `file:${join(dir, 'm.db')}` }));
+    app = await createApp({ config, mastra });
+    alice = await createTestUser(app);
+    bob = await createTestUser(app);
+    aliceAuth = { Authorization: `Bearer ${tokenFor(app, alice)}` };
+    bobAuth = { Authorization: `Bearer ${tokenFor(app, bob)}` };
+    const memory = await mastra.getStorage()!.getStore('memory');
+    await memory!.saveThread({ thread: { id: 'alice-thread', resourceId: alice.id, title: 'private', createdAt: new Date(), updatedAt: new Date(), metadata: {} } });
+  });
+  afterAll(async () => {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('lets the owner read their thread', async () => {
+    await http().get('/api/v1/mastra/memory/threads/alice-thread?agentId=gilde').set(aliceAuth).expect(200);
+  });
+
+  it('hides a foreign thread for reads, writes and deletes', async () => {
+    await http().get('/api/v1/mastra/memory/threads/alice-thread?agentId=gilde').set(bobAuth).expect(404);
+    await http().get('/api/v1/mastra/memory/threads/alice-thread/messages?agentId=gilde').set(bobAuth).expect(404);
+    await http().get('/api/v1/mastra/memory/threads/alice-thread/working-memory?agentId=gilde').set(bobAuth).expect(404);
+    await http().delete('/api/v1/mastra/memory/threads/alice-thread?agentId=gilde').set(bobAuth).expect(404);
+    await http().post('/api/v1/mastra/memory/save-messages?agentId=gilde').set(bobAuth).send({ messages: [{ id: 'm', threadId: 'alice-thread', role: 'user', content: 'x' }] }).expect(404);
+    await http().post('/api/v1/mastra/memory/threads/alice-thread/clone?agentId=gilde').set(bobAuth).send({}).expect(404);
+    const stillThere = await http().get('/api/v1/mastra/memory/threads/alice-thread?agentId=gilde').set(aliceAuth).expect(200);
+    expect(stillThere.body.title).toBe('private');
+  });
+
+  it('rejects a client-supplied foreign resourceId in query and body', async () => {
+    await http().get(`/api/v1/mastra/memory/threads?agentId=gilde&resourceId=${alice.id}`).set(bobAuth).expect(403);
+    await http().get(`/api/v1/mastra/memory/search?agentId=gilde&searchQuery=private&resourceId=${alice.id}`).set(bobAuth).expect(403);
+    await http().post('/api/v1/mastra/memory/threads?agentId=gilde').set(bobAuth).send({ resourceId: alice.id, title: 'x' }).expect(403);
+    await http().post('/api/v1/mastra/copilotkit').set(bobAuth).send({ method: 'info', memory: { resource: alice.id } }).expect(403);
+  });
+
+  it('pins thread listing to the caller when the client names no resource', async () => {
+    const bobs = await http().get('/api/v1/mastra/memory/threads?agentId=gilde').set(bobAuth).expect(200);
+    expect(JSON.stringify(bobs.body)).not.toContain('alice-thread');
+    const alices = await http().get('/api/v1/mastra/memory/threads?agentId=gilde').set(aliceAuth).expect(200);
+    expect(JSON.stringify(alices.body)).toContain('alice-thread');
+  });
+
+  it('rejects a foreign thread id on the CopilotKit route', async () => {
+    await http().post('/api/v1/mastra/copilotkit').set(bobAuth).send({ threadId: 'alice-thread', messages: [] }).expect(404);
+  });
+
+  it('applies the same rules to API keys', async () => {
+    const created = await http().post('/api/v1/api-keys').set(bobAuth).send({ name: 'bot' }).expect(201);
+    const keyAuth = { Authorization: `Bearer ${created.body.key}` };
+    await http().get('/api/v1/mastra/memory/threads/alice-thread?agentId=gilde').set(keyAuth).expect(404);
+    await http().get(`/api/v1/mastra/memory/threads?agentId=gilde&resourceId=${alice.id}`).set(keyAuth).expect(403);
+  });
 });

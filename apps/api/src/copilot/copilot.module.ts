@@ -26,6 +26,9 @@ import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 import { WorkspaceModule } from '../workspace/workspace.module.js';
 
 import { CopilotContextInterceptor } from './copilot-context.interceptor.js';
+import { MEMORY_INFRASTRUCTURE } from '../memory/memory.tokens.js';
+import type { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
+
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { createMastra, MASTRA_PREFIX } from './copilot.mastra.js';
@@ -64,11 +67,12 @@ import type { CopilotServices } from './copilot.tools.js';
                 github: GitHubPort,
                 workspace: RepoWorkspaceService,
                 repoContext: RepoContextService,
+                memory: MemoryInfrastructure,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace };
-                return createMastra(config, services, undefined, repoContext);
+                return createMastra(config, services, undefined, repoContext, memory);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE],
         },
     ],
     exports: [COPILOT_CONFIG, COPILOT_MASTRA],
