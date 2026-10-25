@@ -30,6 +30,8 @@ describe('parsePrBody', () => {
             result: { outcome: 'done', summary: 'Added it', testsRun: true, testsPassed: true, suggestedLesson: null },
             resultError: null,
             retro: '- What I changed: a\n- What slowed me down: b',
+            proposals: [],
+            proposalsError: null,
         });
     });
 
@@ -64,6 +66,8 @@ describe('parsePrBody', () => {
             result: null,
             resultError: 'missing gilde-result block',
             retro: null,
+            proposals: [],
+            proposalsError: null,
         });
     });
 
@@ -71,5 +75,34 @@ describe('parsePrBody', () => {
         expect(() => parsePrBody(null)).not.toThrow();
         expect(() => parsePrBody(undefined)).not.toThrow();
         expect(() => parsePrBody(42 as unknown as string)).not.toThrow();
+    });
+
+    describe('gilde-proposals', () => {
+        const proposals = (json: string) => `${full}\n\n\`\`\`gilde-proposals\n${json}\n\`\`\``;
+        const OTHER = '2d0e1f3a-4b5c-4d6e-8f70-819293a4b5c6';
+
+        it('parses valid entries', () => {
+            const parsed = parsePrBody(proposals(`[{"jobId":"${OTHER}","task":"Rename the endpoint to /v2/things","reason":"I renamed it"}]`));
+            expect(parsed.proposalsError).toBeNull();
+            expect(parsed.proposals).toEqual([{ jobId: OTHER, task: 'Rename the endpoint to /v2/things', reason: 'I renamed it' }]);
+            expect(parsed.result?.outcome).toBe('done');
+        });
+
+        it('reports invalid JSON without touching the result', () => {
+            const parsed = parsePrBody(proposals('[{oops'));
+            expect(parsed.proposals).toEqual([]);
+            expect(parsed.proposalsError).toBe('gilde-proposals is not valid JSON');
+            expect(parsed.result?.outcome).toBe('done');
+        });
+
+        it('keeps valid entries and reports the invalid ones', () => {
+            const parsed = parsePrBody(proposals(`[{"jobId":"${OTHER}","title":"New title","reason":"r"},{"jobId":"nope","reason":"r"},{"jobId":"${OTHER}","reason":"no change"}]`));
+            expect(parsed.proposals).toHaveLength(1);
+            expect(parsed.proposalsError).toMatch(/proposal 1: jobId.*proposal 2/);
+        });
+
+        it('rejects a block that is not an array', () => {
+            expect(parsePrBody(proposals('{}')).proposalsError).toBe('gilde-proposals must be a JSON array');
+        });
     });
 });

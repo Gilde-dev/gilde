@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { ExecutionError } from '../execution/execution.error.js';
 import { EXECUTION_PORT, type ExecutionPort } from '../execution/execution.port.js';
+import { loadDownstream } from '../execution/downstream.js';
 import { buildJobPayload } from '../execution/job-payload.js';
 import { Feature } from '../feature/feature.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -31,7 +32,7 @@ export class JobPromptService {
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
         try {
             const { text, instructionsVersion } = this.execution.preview(
-                buildJobPayload(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1),
+                buildJobPayload(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstream(this.jobRepository.manager, job)),
             );
             return { text, instructionsVersion };
         } catch (e) {

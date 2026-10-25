@@ -81,6 +81,10 @@ export interface Job {
   dependsOn: string[];
   /** Dependencies that are not merged yet. */
   blockedBy: BlockingJob[];
+  /** Revisions proposed by agents and waiting for a human. */
+  pendingRevisions: number;
+  /** Number of the last accepted revision; 0 when never revised. */
+  revision: number;
   /** Present (true) when any dependency is rejected, parked or cancelled. */
   failedDependency?: boolean;
   createdAt: string;
@@ -194,6 +198,37 @@ export interface Feedback {
   body: string;
   url: string;
   createdAt: string;
+}
+
+export const REVISION_STATUSES = ['proposed', 'accepted', 'rejected'] as const;
+export type RevisionStatus = (typeof REVISION_STATUSES)[number];
+
+/** A change to a job proposed by an agent; null content fields mean unchanged. */
+export interface Revision {
+  id: string;
+  jobId: string;
+  /** Assigned when accepted. */
+  revision: number | null;
+  title: string | null;
+  task: string | null;
+  acceptanceCriteria: string[] | null;
+  dependsOn: string[] | null;
+  reason: string;
+  sourceRunId: string | null;
+  status: RevisionStatus;
+  decidedAt: string | null;
+  createdAt: string;
+  /** The job as it is now, to diff against. */
+  job: {
+    id: string;
+    title: string;
+    task: string;
+    acceptanceCriteria: string[];
+    dependsOn: string[];
+    status: JobStatus;
+  };
+  /** PR of the run that proposed it. */
+  pr: { number: number; url: string } | null;
 }
 
 export interface JobDetail extends Job {
@@ -401,6 +436,15 @@ export const api = {
   doneFeature: (featureId: string) => request<FeatureDoneResult>(`/v1/features/${id(featureId)}/done`, 'POST'),
   cancelFeature: (featureId: string) => request<FeatureCancelResult>(`/v1/features/${id(featureId)}/cancel`, 'POST'),
   reopenFeature: (featureId: string) => request<Feature>(`/v1/features/${id(featureId)}/reopen`, 'POST'),
+  listRevisions: (status?: RevisionStatus, projectId?: string) => {
+    const q = new URLSearchParams();
+    if (status) q.set('status', status);
+    if (projectId) q.set('projectId', projectId);
+    return request<Revision[]>(`/v1/revisions?${q}`);
+  },
+  listJobRevisions: (jobId: string) => request<Revision[]>(`/v1/jobs/${id(jobId)}/revisions`),
+  acceptRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/accept`, 'POST'),
+  rejectRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/reject`, 'POST'),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   setJobDependencies: (jobId: string, dependsOn: string[]) =>

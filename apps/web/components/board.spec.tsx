@@ -22,7 +22,7 @@ function job(status: JobStatus, extra: Partial<Job> = {}): Job {
     needsApproval: false,
     approvalReason: null,
     dependsOn: [],
-    blockedBy: [],
+    blockedBy: [], pendingRevisions: 0, revision: 0,
     createdAt: '2026-01-01T00:00:00.000Z',
     updatedAt: new Date().toISOString(),
     ...extra,

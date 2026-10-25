@@ -15,6 +15,7 @@ import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
 import { nextStatus, type JobEvent } from './job-state.js';
+import { JobRevision } from '../revision/revision.entity.js';
 
 @Injectable()
 export class JobService {
@@ -153,7 +154,7 @@ export class JobService {
         return this.getById(id);
     }
 
-    private async validateDependencies(job: Job | null, projectId: string, dependsOn: string[]): Promise<void> {
+    async validateDependencies(job: Job | null, projectId: string, dependsOn: string[]): Promise<void> {
         if (new Set(dependsOn).size !== dependsOn.length) throw new BadRequestException('Duplicate dependencies');
         if (job && dependsOn.includes(job.id)) throw new BadRequestException('A job cannot depend on itself');
         if (!dependsOn.length) return;
@@ -191,13 +192,22 @@ export class JobService {
             ? await this.jobRepository.find({ where: { id: In(depIds) }, select: { id: true, title: true, status: true } })
             : [];
         const depById = new Map(deps.map((d) => [d.id, d]));
+        const revisions = await this.jobRepository.manager.getRepository(JobRevision).find({
+            where: { jobId: In(entities.map((e) => e.id)), status: In(['proposed', 'accepted']) },
+            select: { jobId: true, status: true, revision: true },
+        });
         return entities.map((e) => {
+            const own = revisions.filter((r) => r.jobId === e.id);
+            const revision = {
+                pendingRevisions: own.filter((r) => r.status === 'proposed').length,
+                revision: Math.max(0, ...own.map((r) => r.revision ?? 0)),
+            };
             const ids = links.filter((l) => l.jobId === e.id).map((l) => l.dependsOnJobId);
             const blockedBy: BlockingJobDto[] = ids
                 .map((id) => depById.get(id))
                 .filter((d): d is Job => !!d && d.status !== 'merged')
                 .map((d) => ({ id: d.id, title: d.title, status: d.status }));
-            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy });
+            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision });
         });
     }
 

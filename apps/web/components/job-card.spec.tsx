@@ -6,7 +6,7 @@ import { JobCard } from './job-card';
 const base = {
   id: 'j', projectId: 'p', repoId: 'r', featureId: null, title: 'Job', task: 't', acceptanceCriteria: [], status: 'queued',
   attempts: 0, queuedAt: '2026-01-01T00:00:00.000Z', prNumber: null, prUrl: null, branch: null, lastReason: null,
-  needsApproval: false, approvalReason: null, dependsOn: [], blockedBy: [],
+  needsApproval: false, approvalReason: null, dependsOn: [], blockedBy: [], pendingRevisions: 0, revision: 0,
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 } as Job;
 
@@ -38,5 +38,17 @@ describe('JobCard feature chip', () => {
   it('shows no chip without a feature', () => {
     render(<JobCard job={base} featureTitle="Checkout flow" onOpen={() => {}} />);
     expect(screen.queryByText('Checkout flow')).toBeNull();
+  });
+});
+
+describe('JobCard proposals', () => {
+  it('shows a badge while a proposal is pending', () => {
+    render(<JobCard job={{ ...base, pendingRevisions: 1 }} onOpen={() => {}} />);
+    expect(screen.getByText('proposal pending')).toBeInTheDocument();
+  });
+
+  it('shows no badge without pending proposals', () => {
+    render(<JobCard job={base} onOpen={() => {}} />);
+    expect(screen.queryByText('proposal pending')).toBeNull();
   });
 });
