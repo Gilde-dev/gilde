@@ -11,12 +11,14 @@ import {
 } from './repo.dto.js';
 import { RepoManifestService } from './repo-manifest.service.js';
 import { RepoService } from './repo.service.js';
+import { RepoWorkspaceService, type WorkspaceStatus } from '../workspace/repo-workspace.service.js';
 
 @Controller('/v1')
 export class RepoController {
     constructor(
         private readonly repoService: RepoService,
         private readonly manifests: RepoManifestService,
+        private readonly workspace: RepoWorkspaceService,
     ) { }
 
     @Get('projects/:projectId/repos')
@@ -37,6 +39,12 @@ export class RepoController {
     @Get('repos/:id')
     getById(@Param('id', ParseUUIDPipe) id: string): Promise<RepoResponseDto> {
         return this.repoService.getById(id);
+    }
+
+    /** State of the local code clone, for diagnosis. */
+    @Get('repos/:id/workspace')
+    async workspaceStatus(@Param('id', ParseUUIDPipe) id: string): Promise<WorkspaceStatus> {
+        return this.workspace.describe(await this.repoService.getById(id));
     }
 
     @Patch('repos/:id')

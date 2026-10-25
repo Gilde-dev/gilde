@@ -9,6 +9,16 @@ By default the API uses SQLite (`db.sqlite`). To use Postgres instead:
 1. Start Postgres: `docker compose up -d`
 2. Set `DATABASE_URL=postgres://gilde:gilde@localhost:5432/gilde` (see `apps/api/.env.example`) and run `pnpm dev`.
 
+## Code workspace
+
+The co-pilot searches and reads repo code from local clones (`git grep`), kept under `GILDE_WORKSPACE_DIR`
+(default `.gilde-workspace` in the API working directory, gitignored). There is one depth-1 clone of the default branch per
+registered repo, so disk use is about the size of each repo's checkout (usually tens of MB). Clones are created and updated
+with `GITHUB_TOKEN` (needs read access to *Contents*) on manifest refresh (hourly, on demand and after a PR merges) and at most every
+10 minutes on demand. Gilde never commits or pushes in them, and the directory can be deleted at any time.
+`GET /api/v1/repos/:id/workspace` shows `{ cloned, headSha, fetchedAt, error }`. Without a clone the co-pilot falls back to the GitHub API
+for listing and reading files; code search then reports an error.
+
 ## GitHub webhooks (local)
 
 GitHub delivers webhooks to a [smee.io](https://smee.io) channel; the `webhooks` compose service forwards them to the API on your machine. Only webhook deliveries are forwarded, so the API itself stays private.

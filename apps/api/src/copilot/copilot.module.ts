@@ -22,6 +22,8 @@ import { RevisionModule } from '../revision/revision.module.js';
 import { RevisionService } from '../revision/revision.service.js';
 import { SkillModule } from '../skill/skill.module.js';
 import { SkillService } from '../skill/skill.service.js';
+import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
+import { WorkspaceModule } from '../workspace/workspace.module.js';
 
 import { CopilotContextInterceptor } from './copilot-context.interceptor.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
@@ -33,7 +35,7 @@ import type { CopilotServices } from './copilot.tools.js';
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule],
+    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule],
     providers: [
         RepoContextService,
         {
@@ -60,12 +62,13 @@ import type { CopilotServices } from './copilot.tools.js';
                 projects: ProjectService,
                 repos: RepoService,
                 github: GitHubPort,
+                workspace: RepoWorkspaceService,
                 repoContext: RepoContextService,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace };
                 return createMastra(config, services, undefined, repoContext);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoContextService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService],
         },
     ],
     exports: [COPILOT_CONFIG, COPILOT_MASTRA],

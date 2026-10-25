@@ -7,6 +7,7 @@ import type { FeatureService } from '../feature/feature.service.js';
 import { FEATURE_STATUSES } from '../feature/feature-state.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import type { GitHubPort } from '../github/github.port.js';
+import type { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 import type { JobResponseDto } from '../job/job.dto.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
@@ -51,6 +52,7 @@ export interface CopilotServices {
     projects: ProjectService;
     repos: RepoService;
     github: GitHubPort;
+    workspace: RepoWorkspaceService;
 }
 
 const id = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);

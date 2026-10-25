@@ -4,6 +4,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { GitHubModule } from '../github/github.module.js';
 import { ProjectModule } from '../project/project.module.js';
+import { WorkspaceModule } from '../workspace/workspace.module.js';
 
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
@@ -18,7 +19,8 @@ import { RepoService } from './repo.service.js';
             Repo
         ]),
         ProjectModule,
-        GitHubModule
+        GitHubModule,
+        WorkspaceModule
     ],
     controllers: [
         RepoController
