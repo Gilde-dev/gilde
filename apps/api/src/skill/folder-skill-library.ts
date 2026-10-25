@@ -1,10 +1,14 @@
-import { ServiceUnavailableException } from '@nestjs/common';
-import { readdir, readFile, stat } from 'node:fs/promises';
-import { join } from 'node:path';
+import { BadRequestException, ConflictException, ServiceUnavailableException } from '@nestjs/common';
+import { mkdir, readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { dirname, join, resolve, sep } from 'node:path';
+import { parseDocument } from 'yaml';
 
-import { buildCatalog, REGISTRY_FILE, type CatalogSkill, type SkillFile, type SkillLibrary } from './skill-library.js';
+import { buildCatalog, REGISTRY_FILE, skillName, type CatalogSkill, type SkillFile, type SkillLibrary } from './skill-library.js';
 
-/** Reads a library from a folder on the server. Reloads when a file's mtime or size changed. Read-only. */
+/**
+ * Reads a library from a folder on the server. Reloads when a file's mtime or size changed.
+ * Reading only, except addSkill: the single place Gilde writes to the library folder.
+ */
 export class FolderSkillLibrary implements SkillLibrary {
     private cached: { signature: string; catalog: CatalogSkill[] } | null = null;
 
@@ -30,6 +34,51 @@ export class FolderSkillLibrary implements SkillLibrary {
 
     invalidate(): void {
         this.cached = null;
+    }
+
+    /**
+     * Writes skills/<name>/ and appends a registry.yaml entry. Existing registry comments and order are kept.
+     * Refuses an existing skill folder (409) and any path that would end up outside the library folder (400).
+     */
+    async addSkill(
+        entry: { name: string; scope: 'global' | 'stack'; stacks?: string[] },
+        files: SkillFile[],
+    ): Promise<void> {
+        if (!skillName.safeParse(entry.name).success) throw new BadRequestException(`Invalid skill name '${entry.name}'`);
+        const root = resolve(this.root);
+        const skillsDir = join(root, 'skills');
+        const dir = resolve(skillsDir, entry.name);
+        const inside = (base: string, p: string) => p !== base && p.startsWith(base + sep);
+        if (!inside(skillsDir, dir)) throw new BadRequestException(`Skill '${entry.name}' resolves outside the library folder`);
+        const targets = files.map((f) => {
+            const target = resolve(dir, f.path);
+            if (!inside(dir, target)) throw new BadRequestException(`File '${f.path}' resolves outside the library folder`);
+            return { target, content: f.content };
+        });
+        const registryPath = join(root, REGISTRY_FILE);
+        const doc = parseDocument(await readFile(registryPath, 'utf8'));
+        doc.addIn(['skills'], doc.createNode(entry.scope === 'stack' ? { name: entry.name, scope: entry.scope, stacks: entry.stacks ?? [] } : { name: entry.name, scope: entry.scope }));
+
+        // Creating the folder non-recursively is the existence check: it fails atomically when it is already there.
+        await mkdir(skillsDir, { recursive: true });
+        try {
+            await mkdir(dir);
+        } catch (e) {
+            if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new ConflictException(`The library already has a skills/${entry.name} folder`);
+            throw e;
+        }
+
+        try {
+            for (const t of targets) {
+                await mkdir(dirname(t.target), { recursive: true });
+                await writeFile(t.target, t.content, 'utf8');
+            }
+            await writeFile(registryPath, doc.toString(), 'utf8');
+        } catch (e) {
+            await rm(dir, { recursive: true, force: true });
+            throw e;
+        }
+        this.invalidate();
     }
 
     private async signature(): Promise<string> {

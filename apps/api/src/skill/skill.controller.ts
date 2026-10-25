@@ -1,11 +1,17 @@
-import { Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 
-import type { RepoSkillsResponseDto, SkillCatalogResponseDto } from './skill.dto.js';
+import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+
+import { PromoteSkillSchema, type PromoteSkillDto, type PromoteSkillResponseDto, type RepoSkillsResponseDto, type SkillCatalogResponseDto } from './skill.dto.js';
+import { SkillPromoteService } from './skill-promote.service.js';
 import { SkillService } from './skill.service.js';
 
 @Controller('/v1')
 export class SkillController {
-    constructor(private readonly skills: SkillService) { }
+    constructor(
+        private readonly skills: SkillService,
+        private readonly promoter: SkillPromoteService,
+    ) { }
 
     @Get('projects/:projectId/skills')
     catalog(@Param('projectId', ParseUUIDPipe) projectId: string): Promise<SkillCatalogResponseDto> {
@@ -21,5 +27,14 @@ export class SkillController {
     @Get('repos/:id/skills')
     forRepo(@Param('id', ParseUUIDPipe) id: string): Promise<RepoSkillsResponseDto> {
         return this.skills.forRepo(id);
+    }
+
+    @Post('repos/:id/skills/:name/promote')
+    promote(
+        @Param('id', ParseUUIDPipe) id: string,
+        @Param('name') name: string,
+        @Body(new ZodValidationPipe(PromoteSkillSchema)) dto: PromoteSkillDto,
+    ): Promise<PromoteSkillResponseDto> {
+        return this.promoter.promote(id, name, dto);
     }
 }

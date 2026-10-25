@@ -76,6 +76,20 @@ export interface RepoSkills {
   counts: Record<SkillStatus, number>;
 }
 
+export const STACKS = ['spring-boot', 'nestjs', 'nextjs', 'node', 'other'] as const;
+export type Stack = (typeof STACKS)[number];
+
+export interface PromoteSkillInput {
+  scope: 'global' | 'stack';
+  stacks?: Stack[];
+}
+
+export interface PromoteSkillResult {
+  /** Null when the library is a server folder: the skill was written directly. */
+  libraryJobId: string | null;
+  cleanupJobId: string;
+}
+
 export interface Repo {
   id: string;
   projectId: string;
@@ -399,8 +413,10 @@ export interface MetricsFilter {
 export const LESSON_STATUSES = ['candidate', 'approved', 'applying', 'applied', 'rejected'] as const;
 export type LessonStatus = (typeof LESSON_STATUSES)[number];
 
-export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'routine_prompt', 'other'] as const;
-export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number];
+/** The kinds the UI offers. */
+export const LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
+/** `skill` is a legacy value on old rows: it behaves like repo_skill and can no longer be set. */
+export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number] | 'skill';
 
 export interface LessonSource {
   id: string;
@@ -435,7 +451,7 @@ export interface Lesson {
 
 export interface UpdateLessonInput {
   text?: string;
-  targetKind?: LessonTargetKind | null;
+  targetKind?: Exclude<LessonTargetKind, 'skill'> | null;
   targetRepoId?: string | null;
   note?: string | null;
 }
@@ -500,6 +516,8 @@ export const api = {
   getSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills`),
   refreshSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills/refresh`, 'POST'),
   getRepoSkills: (repoId: string) => request<RepoSkills>(`/v1/repos/${id(repoId)}/skills`),
+  promoteSkill: (repoId: string, name: string, input: PromoteSkillInput) =>
+    request<PromoteSkillResult>(`/v1/repos/${id(repoId)}/skills/${id(name)}/promote`, 'POST', input),
   setProjectPaused: (projectId: string, paused: boolean) =>
     request<Project>(`/v1/projects/${id(projectId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
 };

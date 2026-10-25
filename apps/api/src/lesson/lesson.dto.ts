@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import { LESSON_STATUSES } from './lesson-state.js';
-import { LESSON_TARGET_KINDS } from './lesson.entity.js';
+import { LESSON_TARGET_KINDS, SETTABLE_LESSON_TARGET_KINDS } from './lesson.entity.js';
 import { LESSON_SOURCE_KINDS } from './lesson-source.entity.js';
 
 export const ListLessonsQuerySchema = z.object({
@@ -11,7 +11,7 @@ export const ListLessonsQuerySchema = z.object({
 
 export const UpdateLessonSchema = z.object({
     text: z.string().trim().min(1).max(10_000),
-    targetKind: z.enum(LESSON_TARGET_KINDS).nullable(),
+    targetKind: z.enum(SETTABLE_LESSON_TARGET_KINDS).nullable(),
     targetRepoId: z.string().uuid().nullable(),
     note: z.string().max(10_000).nullable(),
 }).partial();

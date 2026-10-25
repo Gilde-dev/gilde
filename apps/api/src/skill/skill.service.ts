@@ -1,6 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
-import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
 import { ProjectService } from '../project/project.service.js';
 import { RepoService } from '../repo/repo.service.js';
 
@@ -11,16 +10,12 @@ import { SkillLibraryResolver } from './skill-library.resolver.js';
 
 @Injectable()
 export class SkillService {
-    private readonly reader: RepoSkillsReader;
-
     constructor(
         private readonly projects: ProjectService,
         private readonly repos: RepoService,
         private readonly resolver: SkillLibraryResolver,
-        @Inject(GITHUB_PORT) github: GitHubPort,
-    ) {
-        this.reader = new RepoSkillsReader(github);
-    }
+        private readonly reader: RepoSkillsReader,
+    ) { }
 
     async catalog(projectId: string): Promise<SkillCatalogResponseDto> {
         const project = await this.projects.getById(projectId);

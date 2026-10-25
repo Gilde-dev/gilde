@@ -5,7 +5,9 @@ import { In, Repository, type FindOptionsWhere } from 'typeorm';
 import { Job } from '../job/job.entity.js';
 import type { JobStatus } from '../job/job-state.js';
 import { JobService } from '../job/job.service.js';
+import { ProjectService } from '../project/project.service.js';
 import { Repo } from '../repo/repo.entity.js';
+import { SkillLibraryResolver } from '../skill/skill-library.resolver.js';
 import type { LessonResponseDto, ListLessonsQuery, MergeLessonsDto, UpdateLessonDto } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
@@ -23,6 +25,8 @@ export class LessonService implements LessonJobHook {
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(Repo) private readonly repos: Repository<Repo>,
         private readonly jobService: JobService,
+        private readonly projects: ProjectService,
+        private readonly libraryResolver: SkillLibraryResolver,
     ) { }
 
     async list(q: ListLessonsQuery): Promise<LessonResponseDto[]> {
@@ -64,8 +68,8 @@ export class LessonService implements LessonJobHook {
     async apply(id: string): Promise<LessonResponseDto> {
         const lesson = await this.getOrFail(id);
         if (nextLessonStatus(lesson.status, 'apply') === null) throw new ConflictException(`Cannot apply a ${lesson.status} lesson`);
-        if (lesson.targetKind !== 'skill' && lesson.targetKind !== 'agents_md') {
-            throw new BadRequestException('Only skill and agents_md lessons can be applied as a job; use mark-applied for the rest');
+        if (lesson.targetKind !== 'repo_skill' && lesson.targetKind !== 'skill' && lesson.targetKind !== 'agents_md') {
+            throw new BadRequestException('Only repo_skill and agents_md lessons can be applied as a job; use mark-applied for the rest');
         }
         if (!lesson.targetRepoId) throw new BadRequestException('targetRepoId is required to apply a lesson');
         const repo = await this.repos.findOneBy({ id: lesson.targetRepoId });
@@ -77,7 +81,7 @@ export class LessonService implements LessonJobHook {
         const prUrls = await this.prUrls(sources.map((s) => s.jobId));
         const job = await this.jobService.create(repo.id, {
             title: `Apply lesson: ${lesson.text.slice(0, 60)}`,
-            task: applyTask(lesson, sources, prUrls),
+            task: applyTask(lesson, sources, prUrls, lesson.targetKind === 'agents_md' ? null : await this.libraryNames(lesson.projectId)),
             acceptanceCriteria: [
                 'The change is minimal and consistent with the existing content',
                 `The PR body cites the lesson id ${lesson.id}`,
@@ -142,6 +146,9 @@ export class LessonService implements LessonJobHook {
         const next = nextLessonStatus(lesson.status, event);
         if (!next) throw new ConflictException(`Cannot ${event} a ${lesson.status} lesson`);
         if (event === 'approve' && !lesson.targetKind) throw new BadRequestException('targetKind is required to approve a lesson');
+        if (event === 'approve' && lesson.targetKind === 'skill') {
+            throw new BadRequestException("targetKind 'skill' is no longer supported; use repo_skill");
+        }
         lesson.status = next;
         await this.lessons.save(lesson);
         return this.getById(id);
@@ -164,6 +171,18 @@ export class LessonService implements LessonJobHook {
         ));
     }
 
+    /** Names in the project's skills library, or null when there is no library or it cannot be read. */
+    private async libraryNames(projectId: string): Promise<string[] | null> {
+        try {
+            const project = await this.projects.getById(projectId);
+            if (project.skillsLibrary === 'none') return null;
+            const { library } = await this.libraryResolver.resolve(project);
+            return (await library.getCatalog()).map((s) => s.name);
+        } catch {
+            return null;
+        }
+    }
+
     private async prUrls(jobIds: string[]): Promise<Map<string, string | null>> {
         const jobs = await this.jobs.find({ where: { id: In([...new Set(jobIds)]) }, select: { id: true, prUrl: true } });
         return new Map(jobs.map((j) => [j.id, j.prUrl]));
@@ -172,19 +191,25 @@ export class LessonService implements LessonJobHook {
 
 const MAX_EVIDENCE = 5;
 
-const INSTRUCTIONS = {
-    skill: 'Add or update the most fitting skill in this repo (under `.claude/skills/`), following its existing structure and registry.',
-    agents_md: 'Update AGENTS.md with the smallest change that captures the lesson. This task explicitly allows changing AGENTS.md.',
-} as const;
+const AGENTS_MD_INSTRUCTION = 'Update AGENTS.md with the smallest change that captures the lesson. This task explicitly allows changing AGENTS.md.';
 
-function applyTask(lesson: Lesson, sources: LessonSource[], prUrls: Map<string, string | null>): string {
+function repoSkillInstruction(taken: string[] | null): string {
+    return [
+        'Add or update a repo-owned skill under `.claude/skills/<name>/` with a `SKILL.md` whose frontmatter has `name` (equal to the folder name) and `description`, and no `managed-by` line.',
+        'This task explicitly allows changing that one skill folder under `.claude/skills/`, and nothing else there.',
+        'Never edit a skill that has a `managed-by` line. If the lesson belongs in such a managed skill, report outcome blocked and say so: that skill must change in the library.',
+        taken?.length && `These names belong to library skills and are taken, so do not use them for a new skill: ${taken.join(', ')}.`,
+    ].filter(Boolean).join(' ');
+}
+
+function applyTask(lesson: Lesson, sources: LessonSource[], prUrls: Map<string, string | null>, taken: string[] | null): string {
     const evidence = sources
         .map((s) => `- "${s.excerpt}" (${prUrls.get(s.jobId) ?? 'no PR'})`)
         .join('\n');
     return [
         `Lesson (id ${lesson.id}):`,
         lesson.text,
-        INSTRUCTIONS[lesson.targetKind as 'skill' | 'agents_md'],
+        lesson.targetKind === 'agents_md' ? AGENTS_MD_INSTRUCTION : repoSkillInstruction(taken),
         evidence && `Evidence from earlier jobs:\n${evidence}`,
         'Verify the lesson against the current code first. If it does not hold or is already covered, report outcome blocked and explain instead of changing anything.',
     ].filter(Boolean).join('\n\n');
