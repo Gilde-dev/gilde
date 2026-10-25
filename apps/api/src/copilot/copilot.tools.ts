@@ -5,6 +5,7 @@ import type { DispatcherService } from '../dispatch/dispatcher.service.js';
 import type { FeatureService } from '../feature/feature.service.js';
 import { FEATURE_STATUSES } from '../feature/feature-state.js';
 import { JOB_STATUSES } from '../job/job-state.js';
+import type { GitHubPort } from '../github/github.port.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
@@ -15,6 +16,7 @@ import { REVISION_STATUSES } from '../revision/revision.entity.js';
 import type { RevisionService } from '../revision/revision.service.js';
 import type { SkillService } from '../skill/skill.service.js';
 
+import { createCodeTools } from './copilot.code-tools.js';
 import { copilotUser } from './copilot.context.js';
 import { dependencyOrder, FeaturePlanSchema, graphProblems, type FeaturePlan } from './copilot.plan.js';
 
@@ -29,6 +31,7 @@ export interface CopilotServices {
     skills: SkillService;
     projects: ProjectService;
     repos: RepoService;
+    github: GitHubPort;
 }
 
 const id = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);
@@ -253,7 +256,7 @@ export function createCopilotTools(s: CopilotServices) {
         },
     });
 
-    return { planFeature, createPlannedFeature, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
+    return { ...createCodeTools(s), planFeature, createPlannedFeature, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
 }
 
 export type CopilotTools = ReturnType<typeof createCopilotTools>;

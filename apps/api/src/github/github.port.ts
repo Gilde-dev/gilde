@@ -29,6 +29,12 @@ export interface GitHubDirEntry {
     type: 'file' | 'dir';
 }
 
+export interface GitHubCodeHit {
+    path: string;
+    /** The matching fragments of the file, as GitHub returns them. */
+    fragments: string[];
+}
+
 export interface GitHubPort {
     /** False when no GitHub credentials are configured; the other methods would fail. */
     isConfigured(): boolean;
@@ -41,4 +47,6 @@ export interface GitHubPort {
     getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null>;
     /** The entries of a directory at `ref`, or null when it does not exist. */
     listDirectory(fullName: string, path: string, ref: string): Promise<GitHubDirEntry[] | null>;
+    /** Code search scoped to one repo (default branch); at most `limit` hits. */
+    searchCode(fullName: string, query: string, limit: number): Promise<GitHubCodeHit[]>;
 }
