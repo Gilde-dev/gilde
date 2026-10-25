@@ -1,9 +1,12 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@copilotkit/react-core/v2/headless', () => ({ useInterrupt: vi.fn() }));
+vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn() } }));
 
-import { PlanApprovalCard, planFromInterrupt, type FeaturePlan } from './copilot-plan-approval';
+import { api } from '@/lib/api';
+import { useInterrupt } from '@copilotkit/react-core/v2/headless';
+import { CopilotPlanApproval, PlanApprovalCard, planFromInterrupt, type FeaturePlan } from './copilot-plan-approval';
 
 const plan: FeaturePlan = {
   projectId: 'p1',
@@ -11,7 +14,7 @@ const plan: FeaturePlan = {
   spec: 'Add a dark theme.',
   acceptanceCriteria: ['Toggle persists'],
   jobs: [
-    { key: 'api', repoId: 'r1', title: 'Store preference', task: 'task', acceptanceCriteria: ['PATCH works'], dependsOn: [] },
+    { key: 'api', repoId: 'r1', title: 'Store preference', task: 'Line one\nLine two', acceptanceCriteria: ['PATCH works'], dependsOn: [] },
     { key: 'web', repoId: 'r2', title: 'Add toggle', task: 'task', acceptanceCriteria: ['Toggle renders'], dependsOn: ['api'] },
   ],
 };
@@ -25,6 +28,21 @@ describe('PlanApprovalCard', () => {
     expect(screen.getByText('2 jobs')).toBeInTheDocument();
     expect(screen.getByText(/gilde-web · after Store preference/)).toBeInTheDocument();
     expect(screen.getByText('Toggle renders')).toBeInTheDocument();
+  });
+
+  it('shows the full task with line breaks, collapsed by default', () => {
+    const { container } = render(<PlanApprovalCard plan={plan} onApprove={vi.fn()} onCancel={vi.fn()} />);
+    const task = screen.getAllByText(/Line one/)[0];
+    expect(task.textContent).toBe('Line one\nLine two');
+    expect(task).toHaveClass('whitespace-pre-wrap');
+    const details = container.querySelectorAll('details')[1];
+    expect(details).not.toHaveAttribute('open');
+    expect(details).toContainElement(task);
+  });
+
+  it('falls back to the repo id and dependency key when unknown', () => {
+    render(<PlanApprovalCard plan={{ ...plan, jobs: [{ ...plan.jobs[1], dependsOn: ['missing'] }] }} onApprove={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText(/r2 · after missing/)).toBeInTheDocument();
   });
 
   it('collapses the job list by default', () => {
@@ -56,5 +74,20 @@ describe('planFromInterrupt', () => {
     expect(planFromInterrupt(interrupt('createPlannedFeature', plan, 'mastra:tool_suspend'))).toBeNull();
     expect(planFromInterrupt(interrupt('createPlannedFeature', { title: 'x' }))).toBeNull();
     expect(planFromInterrupt(null)).toBeNull();
+  });
+});
+
+describe('CopilotPlanApproval', () => {
+  it('resolves repo ids to full names from the plan project', async () => {
+    vi.mocked(api.listRepos).mockResolvedValue([{ id: 'r1', fullName: 'gilde-dev/gilde' }] as never);
+    render(<CopilotPlanApproval />);
+    const { render: renderInterrupt } = vi.mocked(useInterrupt).mock.calls[0][0] as never as {
+      render: (a: unknown) => JSX.Element;
+    };
+    const interrupt = { reason: 'mastra:tool_approval', metadata: { mastra: { toolName: 'createPlannedFeature', args: plan } } };
+    render(renderInterrupt({ interrupt, resolve: vi.fn(), cancel: vi.fn() }));
+    expect(screen.getAllByText(/r1/).length).toBeGreaterThan(0);
+    await waitFor(() => expect(screen.getByText(/gilde-dev\/gilde/)).toBeInTheDocument());
+    expect(api.listRepos).toHaveBeenCalledWith('p1');
   });
 });
