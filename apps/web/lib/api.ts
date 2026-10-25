@@ -289,7 +289,14 @@ export interface JobDetail extends Job {
   feedback: Feedback[];
 }
 
-export const API_BASE = (process.env.NEXT_PUBLIC_GILDE_API ?? 'http://localhost:4100/api').replace(/\/+$/, '');
+/** Same-origin server-side proxy; it adds the token from the httpOnly session cookie. */
+export const API_BASE = '/api/gilde';
+
+export interface CurrentUser {
+  id: string;
+  name: string;
+  email: string;
+}
 
 export interface ApiIssue {
   path: string;
@@ -323,6 +330,10 @@ async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT'
     });
   } catch {
     throw new ApiError(`Could not reach the Gilde API at ${API_BASE}`);
+  }
+  if (res.status === 401 && typeof window !== 'undefined' && window.location.pathname !== '/login') {
+    const here = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?next=${encodeURIComponent(here)}`);
   }
   if (!res.ok) {
     let detail = res.statusText;
@@ -482,6 +493,7 @@ export interface DispatchStatus {
 const id = encodeURIComponent;
 
 export const api = {
+  me: () => request<CurrentUser>('/v1/auth/me'),
   listProjects: () => request<Project[]>('/v1/projects'),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string, createdBy?: 'me') =>
