@@ -1,7 +1,7 @@
 import { LibSQLStore } from '@mastra/libsql';
 import { PostgresStore } from '@mastra/pg';
 
-import { createMastra, createMemoryStorage, copilotDefaultOptions, COPILOT_AGENT_ID } from './copilot.mastra.js';
+import { logRunUsage, createMastra, createMemoryStorage, copilotDefaultOptions, COPILOT_AGENT_ID } from './copilot.mastra.js';
 
 describe('createMemoryStorage', () => {
     it('uses Postgres for a postgres URL', () => {
@@ -45,5 +45,14 @@ describe('copilot step limit', () => {
         expect(result?.toolChoice).toBe('none');
         expect(result?.systemMessages[0].content).toContain('out of steps');
         expect(warn).toHaveBeenCalledWith(expect.stringContaining('thread-1'));
+    });
+});
+
+describe('logRunUsage', () => {
+    it('logs steps and token usage with the thread id', () => {
+        const log = vi.fn();
+        logRunUsage({ log }, 'thread-9', { steps: [{}, {}, {}], totalUsage: { inputTokens: 1000, cachedInputTokens: 400, outputTokens: 50 } });
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('thread-9'));
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('steps=3 inputTokens=1000 cachedInputTokens=400 outputTokens=50'));
     });
 });

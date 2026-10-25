@@ -1,7 +1,7 @@
 import { RequestContext } from '@mastra/core/request-context';
 
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
-import { createCodeTools, MAX_FILE_CHARS, MAX_SEARCH_RESULTS } from './copilot.code-tools.js';
+import { createCodeTools, fragmentLines, MAX_FILE_CHARS, MAX_SEARCH_RESULTS } from './copilot.code-tools.js';
 
 const REPO = '3f2b8a4e-1c5d-4e7a-9b60-0d1e2f3a4b5c';
 
@@ -42,6 +42,33 @@ describe('code tools', () => {
         expect(res.content).toHaveLength(MAX_FILE_CHARS);
         expect(res.truncated).toBe(true);
         expect(res.note).toContain('Truncated');
+    });
+
+    it('limits whole-file reads to 12000 characters and reports the total line count', async () => {
+        const { github, run } = setup();
+        expect(MAX_FILE_CHARS).toBe(12_000);
+        github.getFileContent.mockResolvedValue({ content: 'line\n'.repeat(5000), sha: 'x' });
+        const res = await run('readRepoFile', { path: 'big.txt' });
+        expect(res.content).toHaveLength(12_000);
+        expect(res.totalLines).toBe(5001);
+        expect(res.note).toContain('5001 lines');
+    });
+
+    it('readRepoFile reads a line range', async () => {
+        const { github, run } = setup();
+        github.getFileContent.mockResolvedValue({ content: 'a\nb\nc\nd\ne', sha: 'x' });
+        expect(await run('readRepoFile', { path: 'f.ts', startLine: 2, endLine: 4 })).toMatchObject({ content: 'b\nc\nd', startLine: 2, endLine: 4, totalLines: 5, truncated: false });
+        expect(await run('readRepoFile', { path: 'f.ts', startLine: 4 })).toMatchObject({ content: 'd\ne', endLine: 5 });
+        await expect(run('readRepoFile', { path: 'f.ts', startLine: 9 })).rejects.toThrow('Invalid line range');
+    });
+
+    it('searchRepoCode adds line numbers of the matches', async () => {
+        const { github, run } = setup();
+        github.searchCode.mockResolvedValue([{ path: 'src/a.ts', fragments: ['two\nthree'] }]);
+        github.getFileContent.mockResolvedValue({ content: 'one\ntwo\nthree\nfour', sha: 'x' });
+        const res = await run('searchRepoCode', { query: 'two' });
+        expect(res.results[0].matches).toEqual([{ startLine: 2, endLine: 3 }]);
+        expect(fragmentLines('a\nb', ['zzz'])).toEqual([]);
     });
 
     it('readRepoFile reports a missing file', async () => {
@@ -96,6 +123,15 @@ describe('planning instructions', () => {
     it('require reading AGENTS.md and files with the code tools before drafting', () => {
         expect(COPILOT_INSTRUCTIONS).toContain('AGENTS.md');
         for (const tool of ['listRepoFiles', 'readRepoFile', 'searchRepoCode']) expect(COPILOT_INSTRUCTIONS).toContain(tool);
+    });
+
+    it('require adherence to named technologies, tests in every job and a step budget', () => {
+        expect(COPILOT_INSTRUCTIONS).toContain('exactly the technologies, frameworks and approaches the user names');
+        expect(COPILOT_INSTRUCTIONS).toContain('built-in features of the frameworks already in the repo');
+        expect(COPILOT_INSTRUCTIONS).toContain('Every job includes its own tests and doc updates');
+        expect(COPILOT_INSTRUCTIONS).toContain('Never create a separate tests-only or docs-only job');
+        expect(COPILOT_INSTRUCTIONS).toContain('Budget your steps');
+        expect(COPILOT_INSTRUCTIONS).toContain('planFeature by about step 15');
     });
 
     it('contain an example job', () => {
