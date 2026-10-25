@@ -8,7 +8,7 @@ describe('api client', () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify([{ id: 'p' }]), { status: 200 }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(api.listProjects()).resolves.toEqual([{ id: 'p' }]);
-    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:4100/api/v1/projects');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/gilde/v1/projects');
   });
 
   it('throws a readable error on non-2xx', async () => {
