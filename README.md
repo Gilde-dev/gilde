@@ -13,6 +13,31 @@ pnpm dev
 
 Changes to source files reload automatically. Channels also restarts when its `.env` changes; for the API, restart `pnpm dev` after changing `.env`. Run `pnpm install` after a pull that changes dependencies.
 
+## Container images
+
+Each app has a multi-stage Dockerfile that is built with the repository root as context. The images run as the non-root `node` user and contain no `.env` files, databases, workspace clones or `.git` (see `.dockerignore`).
+
+```sh
+docker build -f apps/api/Dockerfile -t gilde-api .
+docker build -f apps/web/Dockerfile -t gilde-web .
+docker build -f apps/channels/Dockerfile -t gilde-channels .
+```
+
+Deployment is done from the separate `Gilde-dev/gilde-infra` repo (compose file, Caddy, env files, backups); this repo only produces the images.
+
+Environment variables per image:
+
+- **api** (listens on `PORT`, default 4100; healthcheck `GET /api/health`): `DATABASE_URL` (`postgres://`, migrations run on startup), `JWT_SECRET` (at least 32 chars), `WEB_ORIGIN`, `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `OPENAI_API_KEY` and `COPILOT_MODEL` (co-pilot). Preset in the image: `GILDE_WORKSPACE_DIR=/data/workspace` (mount a volume there; it is writable by the runtime user) and `AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md`. Optional: `JWT_EXPIRES_IN`, `GILDE_CI_WORKFLOWS`, `GILDE_GATE_WORKFLOWS`, `COPILOT_MAX_BODY`. The API trusts exactly one proxy hop (`trust proxy 1`), so run it behind one reverse proxy only.
+- **web** (listens on 3000, `HOSTNAME=0.0.0.0`): `GILDE_API_URL` (for example `http://api:4100/api`), read at runtime on the server, never baked into the build. The session cookie is `Secure` because `NODE_ENV=production`.
+- **channels** (no ports): `GILDE_API_URL`, `GILDE_PUBLIC_URL`, `GILDE_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`.
+
+Create the first user and an API key inside the running api container (the compiled CLIs need neither pnpm nor dev dependencies):
+
+```sh
+docker compose exec api node dist/cli/user-create.js --email you@example.com --name "Your Name"
+docker compose exec api node dist/cli/apikey-create.js --email you@example.com --name channels
+```
+
 ## Postgres and migrations
 
 By default the API uses SQLite (`db.sqlite`) with `synchronize`, so local development needs no migrations. To use Postgres instead:

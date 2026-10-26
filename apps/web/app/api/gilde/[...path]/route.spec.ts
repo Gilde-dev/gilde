@@ -15,6 +15,16 @@ const call = (handler: typeof GET, method: string, path: string, init: { body?: 
   );
 
 describe('api proxy', () => {
+  it('forwards the incoming X-Forwarded-For', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await GET(
+      new NextRequest('http://localhost:3000/api/gilde/v1/jobs', { headers: { 'x-forwarded-for': '203.0.113.7' } }),
+      { params: Promise.resolve({ path: ['v1', 'jobs'] }) },
+    );
+    expect(fetchMock.mock.calls[0][1].headers['X-Forwarded-For']).toBe('203.0.113.7');
+  });
+
   it('forwards method, path, query, body and the bearer token', async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response('{"id":"j"}', { status: 201 }));
     vi.stubGlobal('fetch', fetchMock);
