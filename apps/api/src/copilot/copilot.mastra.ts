@@ -5,11 +5,15 @@ import { Mastra } from '@mastra/core/mastra';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import { LibSQLStore } from '@mastra/libsql';
+import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 
 import { memoryConfig } from '../memory/memory.config.js';
 import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
+
+import type { UsageService } from '../usage/usage.service.js';
+import { withEmbeddingUsage } from '../usage/usage-context.js';
 
 import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig } from './copilot.config.js';
 import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId } from './copilot.context.js';
@@ -46,11 +50,17 @@ export const SEMANTIC_RECALL = { topK: 4, messageRange: 1, scope: 'resource' } a
  * user. The resource is always the authenticated Gilde user (see CopilotContextInterceptor).
  * Without embeddings, only semantic recall is off; working memory and conversation history keep working.
  */
-export function createCopilotMemory(infra: MemoryInfrastructure): Memory {
+export function createCopilotMemory(infra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Memory {
     const recall = infra.embeddingsEnabled;
+    let embedder = infra.embedder;
+    if (usage && embedder) {
+        const name = infra.config.embeddings ? infra.config.model : 'custom';
+        // A string is routed by Mastra; build the model here so its embedding calls can be recorded.
+        embedder = withEmbeddingUsage(typeof embedder === 'string' ? new ModelRouterEmbeddingModel(embedder) : embedder, name, usage) as typeof embedder;
+    }
     return new Memory({
         storage: infra.storage,
-        ...(recall ? { vector: infra.personalVector, embedder: infra.embedder, embeddingDimension: infra.embeddingDimension } : { vector: false as const }),
+        ...(recall ? { vector: infra.personalVector, embedder, embeddingDimension: infra.embeddingDimension } : { vector: false as const }),
         options: {
             lastMessages: 20,
             workingMemory: { enabled: true, scope: 'resource', template: WORKING_MEMORY_TEMPLATE },
@@ -59,10 +69,12 @@ export function createCopilotMemory(infra: MemoryInfrastructure): Memory {
     });
 }
 
+interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
+
 interface RunFinish {
     steps?: unknown[];
-    totalUsage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
-    usage?: { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number };
+    totalUsage?: RunUsage;
+    usage?: RunUsage;
 }
 
 /** One info line per co-pilot run: number of steps and token usage, so cost is visible in the API log. */
@@ -81,11 +93,31 @@ const STEP_LIMIT_NOTE =
  * Default options for every call path (CopilotKit route, remote calls from the channels app): the step limit,
  * and on the last step tools are switched off so the run ends with a message instead of silently.
  */
-export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STEPS, logger: Pick<Logger, 'warn' | 'log'> = new Logger('Copilot')) {
+export function copilotDefaultOptions(
+    maxSteps: number = DEFAULT_COPILOT_MAX_STEPS,
+    logger: Pick<Logger, 'warn' | 'log'> = new Logger('Copilot'),
+    usage?: { service: Pick<UsageService, 'record'>; model: string },
+) {
     return {
         maxSteps,
-        onFinish: (result: RunFinish & { threadId?: string; requestContext?: { get(key: string): unknown } }) =>
-            logRunUsage(logger, result.threadId ?? result.requestContext?.get('threadId'), result),
+        onFinish: (result: RunFinish & { threadId?: string; requestContext?: { get(key: string): unknown } }) => {
+            const threadId = result.threadId ?? result.requestContext?.get('threadId');
+            logRunUsage(logger, threadId, result);
+            if (!usage) return;
+            const u = result.totalUsage ?? result.usage ?? {};
+            void usage.service.record({
+                kind: 'chat',
+                model: usage.model,
+                agent: COPILOT_AGENT_ID,
+                userId: copilotUser(result.requestContext as Parameters<typeof copilotUser>[0])?.id ?? null,
+                threadId: threadId === undefined || threadId === null ? null : String(threadId),
+                steps: result.steps?.length ?? 0,
+                inputTokens: u.inputTokens,
+                cachedInputTokens: u.cachedInputTokens,
+                outputTokens: u.outputTokens,
+                reasoningTokens: u.reasoningTokens,
+            });
+        },
         prepareStep: ({ stepNumber, systemMessages, requestContext }: { stepNumber: number; systemMessages?: unknown[]; requestContext?: { get(key: string): unknown } }) => {
             if (stepNumber < maxSteps - 1) return undefined;
             logger.warn(`Co-pilot reached the step limit of ${maxSteps}; forcing a final message (thread ${String(requestContext?.get('threadId') ?? 'unknown')})`);
@@ -98,7 +130,7 @@ export function copilotDefaultOptions(maxSteps: number = DEFAULT_COPILOT_MAX_STE
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure): Mastra {
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Mastra {
     if (!config.enabled) return new Mastra({});
 
     const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
@@ -116,8 +148,8 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
         // OpenAI through the Mastra model router; the provider is only chosen by COPILOT_MODEL.
         model: config.model as `openai/${string}`,
         tools: createCopilotTools(services),
-        memory: createCopilotMemory(memoryInfra),
-        defaultOptions: copilotDefaultOptions(config.maxSteps) as never,
+        memory: createCopilotMemory(memoryInfra, usage),
+        defaultOptions: copilotDefaultOptions(config.maxSteps, undefined, usage && { service: usage, model: config.model }) as never,
     });
 
     return new Mastra({

@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { of, type Observable } from 'rxjs';
 import type { Mastra } from '@mastra/core/mastra';
 
+import { usageUser } from '../usage/usage-context.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
 import type { CopilotConfig } from './copilot.config.js';
@@ -66,6 +67,7 @@ export class CopilotContextInterceptor implements NestInterceptor {
         const requestContext = await this.moduleRef.resolve(RequestContextService, ContextIdFactory.getByRequest(req), { strict: false });
         requestContext.requestContext.set(COPILOT_USER_KEY, user);
         requestContext.requestContext.set(MASTRA_RESOURCE_ID_KEY, copilotResourceId(user));
+        usageUser.enterWith({ userId: user.id });
         return next.handle();
     }
 

@@ -5,6 +5,7 @@ import { api, type Metrics } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { SidebarNav } from './sidebar-nav';
 import { Button } from './ui/button';
+import { UsageSection } from './usage-section';
 
 const POLL_MS = 30_000;
 const DAY_OPTIONS = [7, 30, 90];
@@ -91,6 +92,7 @@ export function MetricsView() {
         {metrics.error && <p className="p-4 text-sm text-red-800">{metrics.error.message}</p>}
         {metrics.loading && !metrics.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {metrics.data && <MetricsBody metrics={metrics.data} />}
+        <UsageSection days={days} />
       </main>
     </div>
   );

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-import { Inject, Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Inject, Injectable, Optional, Logger, type OnApplicationBootstrap } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, IsNull, Not, Repository } from 'typeorm';
@@ -8,6 +8,7 @@ import { In, IsNull, Not, Repository } from 'typeorm';
 import { MEMORY_INFRASTRUCTURE } from '../memory.tokens.js';
 import type { MemoryInfrastructure } from '../memory.infrastructure.js';
 
+import { UsageService } from '../../usage/usage.service.js';
 import { HistoryEmbedder } from './history-embedder.js';
 import { HistorySourceService } from './history-source.service.js';
 import { HistoryEntry, HistoryState, type HistoryPassStats } from './history.entity.js';
@@ -59,8 +60,9 @@ export class HistoryIndexService implements OnApplicationBootstrap {
         private readonly source: HistorySourceService,
         @InjectRepository(HistoryEntry) private readonly entries: Repository<HistoryEntry>,
         @InjectRepository(HistoryState) private readonly states: Repository<HistoryState>,
+        @Optional() private readonly usage?: UsageService,
     ) {
-        this.embedder = new HistoryEmbedder(infra, options);
+        this.embedder = new HistoryEmbedder(infra, options, usage);
     }
 
     /** One bounded run on startup (backfill resumes from the persisted cursor). Failures are logged, never thrown. */
