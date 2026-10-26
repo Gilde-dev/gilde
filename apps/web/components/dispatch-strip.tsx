@@ -1,4 +1,6 @@
+import { TriangleAlert } from 'lucide-react';
 import type { DispatchReason, RepoDispatchReport } from '@/lib/api';
+import { Icon } from './ui/icon';
 
 const plural = (n: number, one: string) => `${n} job${n === 1 ? '' : 's'} ${one}`;
 
@@ -27,10 +29,13 @@ export function DispatchStrip({ repos }: { repos: RepoDispatchReport[] }) {
     .filter((x): x is { r: RepoDispatchReport; text: string } => x.text !== null);
   if (held.length === 0) return null;
   return (
-    <ul aria-label="Dispatch status" className="mx-4 mt-3 space-y-0.5 rounded-md border bg-muted/60 px-3 py-2 text-xs">
+    <ul aria-label="Dispatch status" className="mx-4 mt-4 space-y-1 rounded-lg border border-warning/40 bg-warning-soft px-3 py-2 text-sm text-warning">
       {held.map(({ r, text }) => (
-        <li key={r.repoId}>
-          <span className="font-medium">{r.fullName}</span>: {text}
+        <li key={r.repoId} className="flex items-start gap-2">
+          <Icon icon={TriangleAlert} size={14} className="mt-0.5" />
+          <span>
+            <span className="font-mono font-medium">{r.fullName}</span>: {text}
+          </span>
         </li>
       ))}
     </ul>

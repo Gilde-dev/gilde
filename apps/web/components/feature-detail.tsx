@@ -23,6 +23,7 @@ import { NewJobDialog } from './new-job-dialog';
 import { FeatureActivityTab, FeatureJobsTab } from './feature-jobs-tab';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
+import { PageHeader } from './ui/page-header';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const POLL_MS = 5000;
@@ -89,14 +90,20 @@ export function FeatureDetailView() {
         {feature.loading && !f && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {f && (
           <>
-            <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-              <Link href={withProject('/features', projectId ?? null)} className="text-sm text-muted-foreground underline">
-                Features
-              </Link>
-              <h2 className="font-serif text-lg font-semibold">{f.title}</h2>
-              <StatusBadge kind="feature" status={f.status} />
-              <ReadyToCloseBadge feature={f} />
-              <div className="ml-auto flex items-center gap-2">
+            <PageHeader
+              className="px-4 pt-4"
+              title={f.title}
+              description={
+                <span className="flex flex-wrap items-center gap-2">
+                  <Link href={withProject('/features', projectId ?? null)} className="underline">
+                    Features
+                  </Link>
+                  <StatusBadge kind="feature" status={f.status} />
+                  <ReadyToCloseBadge feature={f} />
+                </span>
+              }
+              actions={
+              <>
                 {f.status === 'draft' && (
                   <Button size="sm" disabled={busy} onClick={() => void run('start')}>
                     Start
@@ -122,8 +129,9 @@ export function FeatureDetailView() {
                     Add job
                   </Button>
                 )}
-              </div>
-            </header>
+              </>
+              }
+            />
             {actionError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{actionError}</p>}
             {notes && (notes.warnings.length > 0 || notes.lists.length > 0) && (
               <div role="status" className="m-4 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
