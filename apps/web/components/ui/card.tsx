@@ -6,11 +6,11 @@ export function Card({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
 }
 
 export function CardHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn('flex flex-col gap-1 border-b border-border px-4 py-3', className)} {...props} />;
+  return <div className={cn('flex flex-col gap-1 border-b border-border-subtle px-4 py-3', className)} {...props} />;
 }
 
 export function CardTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
-  return <h2 className={cn('font-serif text-base font-semibold', className)} {...props} />;
+  return <h2 className={cn('text-md font-semibold', className)} {...props} />;
 }
 
 export function CardContent({ className, ...props }: HTMLAttributes<HTMLDivElement>) {

@@ -94,7 +94,7 @@ describe('ToolCallView (specific)', () => {
     render(<ToolCallView name="listJobs" parameters={{}} status="complete" result={result} />);
     expect(screen.getByText('Add health')).toBeInTheDocument();
     expect(screen.getByText('Merged')).toHaveClass('bg-success-soft');
-    expect(screen.getByText('Parked')).toHaveClass('bg-warning-soft');
+    expect(screen.getByText('Parked')).toHaveClass('bg-danger-soft');
   });
 
   it('getJob shows the job title and status', () => {

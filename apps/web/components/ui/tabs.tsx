@@ -15,7 +15,7 @@ const useTabs = () => {
   return ctx;
 };
 
-/** Accessible tabs (roving tabindex, arrow keys), uncontrolled unless `value` is passed. */
+/** Accessible segmented-pill tabs (roving tabindex, arrow keys), uncontrolled unless `value` is passed. */
 export function Tabs({
   defaultValue,
   value,
@@ -59,7 +59,7 @@ export function TabsList({ className, ...props }: HTMLAttributes<HTMLDivElement>
     <div
       role="tablist"
       onKeyDown={onKeyDown}
-      className={cn('flex gap-1 border-b border-border', className)}
+      className={cn('inline-flex max-w-full gap-1 overflow-x-auto rounded-full bg-muted p-1', className)}
       {...props}
     />
   );
@@ -78,8 +78,8 @@ export function TabsTrigger({ value, className, children }: { value: string; cla
       tabIndex={active ? 0 : -1}
       onClick={() => select(value)}
       className={cn(
-        '-mb-px border-b-2 px-3 py-2 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        active ? 'border-accent text-foreground' : 'border-transparent text-muted-foreground hover:text-foreground',
+        'whitespace-nowrap rounded-full px-3 py-1 text-sm font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+        active ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground',
         className,
       )}
     >
