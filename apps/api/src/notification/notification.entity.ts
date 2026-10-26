@@ -50,21 +50,21 @@ export class Notification {
 
     @Column({
         name: 'project_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     projectId: string | null;
 
     @Column({
         name: 'job_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     jobId: string | null;
 
     @Column({
         name: 'feature_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     featureId: string | null;

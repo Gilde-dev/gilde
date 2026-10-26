@@ -64,7 +64,7 @@ export class Project {
     /** The repo holding the skills library; only set when skillsLibrary is 'repo'. */
     @Column({
         name: 'skills_library_repo_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     skillsLibraryRepoId: string | null;

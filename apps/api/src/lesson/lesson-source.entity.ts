@@ -16,7 +16,7 @@ export class LessonSource {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ name: 'lesson_id' })
+    @Column({ name: 'lesson_id', type: 'uuid' })
     lessonId: string;
 
     @Column({ name: 'source_key' })
@@ -25,13 +25,13 @@ export class LessonSource {
     @Column({ type: 'simple-enum', enum: LESSON_SOURCE_KINDS })
     kind: LessonSourceKind;
 
-    @Column({ name: 'job_id' })
+    @Column({ name: 'job_id', type: 'uuid' })
     jobId: string;
 
-    @Column({ name: 'run_id', type: 'varchar', nullable: true })
+    @Column({ name: 'run_id', type: 'uuid', nullable: true })
     runId: string | null;
 
-    @Column({ name: 'feedback_id', type: 'varchar', nullable: true })
+    @Column({ name: 'feedback_id', type: 'uuid', nullable: true })
     feedbackId: string | null;
 
     @Column({ type: 'text' })

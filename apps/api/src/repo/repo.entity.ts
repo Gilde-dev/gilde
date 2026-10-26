@@ -13,7 +13,7 @@ export class Repo {
     id: string;
 
     @Index()
-    @Column({ name: 'project_id' })
+    @Column({ name: 'project_id', type: 'uuid' })
     projectId: string;
 
     @ManyToOne(() => Project, (project) => project.repos, { onDelete: 'CASCADE' })

@@ -12,13 +12,13 @@ export class Feedback {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ name: 'job_id' })
+    @Column({ name: 'job_id', type: 'uuid' })
     jobId: string;
 
-    @Column({ name: 'project_id' })
+    @Column({ name: 'project_id', type: 'uuid' })
     projectId: string;
 
-    @Column({ name: 'repo_id' })
+    @Column({ name: 'repo_id', type: 'uuid' })
     repoId: string;
 
     @Column({ name: 'pr_number', type: 'integer' })

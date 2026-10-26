@@ -13,18 +13,18 @@ export class Job {
     id: string;
 
     @Column({
-        name: 'project_id'
+        name: 'project_id', type: 'uuid'
     })
     projectId: string;
 
     @Column({
-        name: 'repo_id'
+        name: 'repo_id', type: 'uuid'
     })
     repoId: string;
 
     @Column({
         name: 'feature_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     featureId: string | null;
@@ -103,7 +103,7 @@ export class Job {
     /** The user who created the job; null for system-created jobs and when the user was deleted. */
     @Column({
         name: 'created_by',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     createdById: string | null;
