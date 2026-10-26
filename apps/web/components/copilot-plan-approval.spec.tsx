@@ -2,11 +2,11 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@copilotkit/react-core/v2/headless', () => ({ useInterrupt: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn() } }));
+vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn(), getRepo: vi.fn(), getFeature: vi.fn(), getJob: vi.fn() } }));
 
 import { api } from '@/lib/api';
 import { useInterrupt } from '@copilotkit/react-core/v2/headless';
-import { CopilotPlanApproval, PlanApprovalCard, planFromInterrupt, type FeaturePlan } from './copilot-plan-approval';
+import { CopilotPlanApproval, JobApprovalCard, PlanApprovalCard, jobFromInterrupt, planFromInterrupt, type FeaturePlan, type JobDraft } from './copilot-plan-approval';
 
 const plan: FeaturePlan = {
   projectId: 'p1',
@@ -94,5 +94,108 @@ describe('CopilotPlanApproval', () => {
     expect(screen.getAllByText(/r1/).length).toBeGreaterThan(0);
     await waitFor(() => expect(screen.getByText(/gilde-dev\/gilde/)).toBeInTheDocument());
     expect(api.listRepos).toHaveBeenCalledWith('p1');
+  });
+});
+
+const job: JobDraft = {
+  repoId: 'r1',
+  title: 'Add endpoint',
+  task: 'Line one\nLine two',
+  acceptanceCriteria: ['Returns 200', 'Has a test'],
+  dependsOn: ['j0'],
+  featureId: 'f1',
+};
+
+describe('JobApprovalCard', () => {
+  it('shows repo, feature, title, task with line breaks, criteria and dependencies by title', () => {
+    render(<JobApprovalCard job={job} repoName="gilde-dev/gilde" featureTitle="Widgets" dependencyTitles={{ j0: 'Base job' }} onApprove={vi.fn()} onCancel={vi.fn()} />);
+    expect(screen.getByText('Add endpoint')).toBeInTheDocument();
+    expect(screen.getByText(/gilde-dev\/gilde/)).toBeInTheDocument();
+    expect(screen.getByText(/feature Widgets/)).toBeInTheDocument();
+    const task = screen.getByText(/Line one/);
+    expect(task.textContent).toBe('Line one\nLine two');
+    expect(task).toHaveClass('whitespace-pre-wrap');
+    expect(screen.getByText('Returns 200')).toBeInTheDocument();
+    expect(screen.getByText('Has a test')).toBeInTheDocument();
+    expect(screen.getByText(/After Base job/)).toBeInTheDocument();
+  });
+
+  it('collapses a long task and omits feature and dependencies when there are none', () => {
+    const { container } = render(<JobApprovalCard job={{ ...job, task: 'x'.repeat(500), featureId: undefined, dependsOn: [] }} onApprove={vi.fn()} onCancel={vi.fn()} />);
+    expect(container.querySelector('details')).not.toHaveAttribute('open');
+    expect(screen.queryByText(/feature/)).toBeNull();
+    expect(screen.queryByText(/After/)).toBeNull();
+  });
+
+  it('calls onApprove and onCancel', () => {
+    const onApprove = vi.fn();
+    const onCancel = vi.fn();
+    render(<JobApprovalCard job={job} onApprove={onApprove} onCancel={onCancel} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onApprove).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('jobFromInterrupt', () => {
+  const interrupt = (toolName: string, args: unknown, reason = 'mastra:tool_approval') => ({ reason, metadata: { mastra: { toolName, args } } });
+
+  it('returns the job of a createJob approval only', () => {
+    expect(jobFromInterrupt(interrupt('createJob', job))?.title).toBe('Add endpoint');
+    expect(jobFromInterrupt(interrupt('createPlannedFeature', job))).toBeNull();
+    expect(jobFromInterrupt(interrupt('createJob', job, 'mastra:tool_suspend'))).toBeNull();
+    expect(jobFromInterrupt(interrupt('createJob', {}))).toBeNull();
+    expect(jobFromInterrupt(null)).toBeNull();
+    expect(planFromInterrupt(interrupt('createJob', job))).toBeNull();
+  });
+});
+
+describe('CopilotPlanApproval (one registration for both tools)', () => {
+  const config = () => {
+    render(<CopilotPlanApproval />);
+    expect(vi.mocked(useInterrupt)).toHaveBeenCalledTimes(1);
+    return vi.mocked(useInterrupt).mock.calls[0][0] as never as {
+      enabled: (e: { value: unknown }) => boolean;
+      render: (a: unknown) => JSX.Element;
+    };
+  };
+  const ev = (toolName: string, args: unknown) => ({ reason: 'mastra:tool_approval', metadata: { mastra: { toolName, args } } });
+
+  it('is enabled for createJob and createPlannedFeature only', () => {
+    vi.mocked(useInterrupt).mockClear();
+    const { enabled } = config();
+    expect(enabled({ value: ev('createJob', job) })).toBe(true);
+    expect(enabled({ value: ev('createPlannedFeature', plan) })).toBe(true);
+    expect(enabled({ value: ev('deleteEverything', job) })).toBe(false);
+  });
+
+  it('renders the job card with looked-up names; Approve resolves { approved: true }, Cancel cancels', async () => {
+    vi.mocked(useInterrupt).mockClear();
+    vi.mocked(api.getRepo).mockResolvedValue({ fullName: 'gilde-dev/gilde' } as never);
+    vi.mocked(api.getFeature).mockResolvedValue({ title: 'Widgets' } as never);
+    vi.mocked(api.getJob).mockResolvedValue({ title: 'Base job' } as never);
+    const { render: renderInterrupt } = config();
+    const resolve = vi.fn();
+    const cancel = vi.fn();
+    render(renderInterrupt({ interrupt: ev('createJob', job), resolve, cancel }));
+    expect(screen.queryByLabelText('Plan for approval')).toBeNull();
+    await waitFor(() => expect(screen.getByText(/After Base job/)).toBeInTheDocument());
+    expect(screen.getByText(/gilde-dev\/gilde/)).toBeInTheDocument();
+    expect(screen.getByText(/feature Widgets/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    expect(resolve).toHaveBeenCalledWith({ approved: true });
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the plan card, not the job card, for createPlannedFeature', () => {
+    vi.mocked(useInterrupt).mockClear();
+    vi.mocked(api.listRepos).mockResolvedValue([] as never);
+    const { render: renderInterrupt } = config();
+    render(renderInterrupt({ interrupt: ev('createPlannedFeature', plan), resolve: vi.fn(), cancel: vi.fn() }));
+    expect(screen.getByLabelText('Plan for approval')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Job for approval')).toBeNull();
   });
 });
