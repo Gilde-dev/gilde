@@ -1,4 +1,4 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeorm';
@@ -14,6 +14,7 @@ import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
@@ -38,6 +39,7 @@ export class DispatcherService {
         private readonly repoService: RepoService,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly history: HistorySearchService,
+        @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -237,7 +239,7 @@ export class DispatcherService {
             let event: 'retry' | 'park' = 'park';
             if (runId) await this.runService.markFailed(runId, message);
             if (e instanceof ExecutionError && e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
-            await this.failJob(jobId, event, message);
+            await this.failJob(job, event, message);
             return 'failed';
         }
         // Outside the try: a bookkeeping failure must not park a job that did fire.
@@ -272,12 +274,13 @@ export class DispatcherService {
         );
     }
 
-    private async failJob(jobId: string, event: 'retry' | 'park', reason: string): Promise<void> {
+    private async failJob(job: Job, event: 'retry' | 'park', reason: string): Promise<void> {
         const to = nextStatus('dispatched', event);
         if (!to) throw new Error(`Job state machine does not allow ${event} from dispatched`);
         const changes: Partial<Job> = { status: to, lastReason: reason };
         if (to === 'queued') changes.queuedAt = new Date();
-        await this.jobRepository.update({ id: jobId, status: 'dispatched' }, changes);
+        const res = await this.jobRepository.update({ id: job.id, status: 'dispatched' }, changes);
+        if (res.affected === 1 && to === 'parked') await this.capture?.jobParked(job, reason, 'dispatch');
     }
 
 }

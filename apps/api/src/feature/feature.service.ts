@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
@@ -6,6 +6,7 @@ import { Job } from '../job/job.entity.js';
 import type { BlockingJobDto } from '../job/job.dto.js';
 import { TERMINAL, type JobStatus } from '../job/job-state.js';
 import { JobService } from '../job/job.service.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { ProjectService } from '../project/project.service.js';
 import type {
     CreateFeatureDto,
@@ -31,6 +32,7 @@ export class FeatureService {
         private readonly jobService: JobService,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
+        @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
     async create(projectId: string, dto: CreateFeatureDto): Promise<FeatureResponseDto> {
@@ -88,6 +90,7 @@ export class FeatureService {
             enqueued = triage.map((j) => j.id);
             if (enqueued.length) await this.jobService.enqueueManyIn(m, enqueued);
         });
+        await this.capture?.featureReadiness(id);
         const warnings = enqueued.length ? (await this.jobService.loadEnqueued(enqueued)).flatMap((j) => j.warnings) : [];
         const seen = new Set<string>();
         return {
@@ -128,6 +131,7 @@ export class FeatureService {
     /** done → active. */
     async reopen(id: string): Promise<FeatureResponseDto> {
         await this.transition(id, 'reopen', { doneAt: null });
+        await this.capture?.featureReadiness(id);
         return this.getById(id);
     }
 

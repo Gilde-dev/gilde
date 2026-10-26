@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException } from '@nestjs/common';
 import { DataSource, type Repository } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { User } from '../user/user.entity.js';
@@ -11,6 +12,10 @@ import { JobService } from '../job/job.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { Notification } from '../notification/notification.entity.js';
+import { NotificationMapper } from '../notification/notification.mapper.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { Feature } from './feature.entity.js';
 import { FeatureMapper } from './feature.mapper.js';
 import { FeatureService } from './feature.service.js';
@@ -21,6 +26,8 @@ let jobs: Repository<Job>;
 let features: Repository<Feature>;
 let jobService: JobService;
 let service: FeatureService;
+let notifications: Repository<Notification>;
+let capture: NotificationCaptureService;
 let p1: Project;
 let repoA: Repo;
 let repoB: Repo;
@@ -28,7 +35,7 @@ let foreign: Repo;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobDependency, Feature, JobRevision], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobDependency, Feature, JobRevision, Notification], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     features = ds.getRepository(Feature);
@@ -41,8 +48,10 @@ beforeEach(async () => {
     repoB = await mk(p1, 'b');
     foreign = await mk(p2, 'c');
     const repoService = { getById: (id: string) => repos.findOneByOrFail({ id }) };
-    jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency), features);
-    service = new FeatureService(new FeatureMapper(), { getById: async () => p1 } as never, jobService, features, jobs);
+    notifications = ds.getRepository(Notification);
+    capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, features);
+    jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency), features, undefined, capture);
+    service = new FeatureService(new FeatureMapper(), { getById: async () => p1 } as never, jobService, features, jobs, capture);
 });
 
 afterEach(() => ds.destroy());
@@ -218,5 +227,116 @@ describe('FeatureService', () => {
             expect(all.find((f) => f.id === draft.id)!.progress.leadTimeMinutes).toBeNull();
             expect((await service.list(p1.id, { status: 'draft' })).map((f) => f.id)).toEqual([draft.id]);
         });
+    });
+});
+
+describe('feature.ready_to_close notifications', () => {
+    const rows = () => notifications.find({ order: { createdAt: 'ASC' } });
+    const withPr = (id: string, n: number) => jobs.update({ id }, { prNumber: n, prUrl: `https://github.com/o/a/pull/${n}` });
+
+    it('records when the last open job is cancelled, with the counted jobs only, repos and PRs', async () => {
+        const f = await mkFeature('active', { title: 'Big feature' });
+        const merged = await seed(repoA, f.id, 'merged');
+        await withPr(merged.id, 4);
+        await seed(repoB, f.id, 'merged');
+        const open = await seed(repoA, f.id, 'queued');
+        await jobService.cancel(open.id);
+
+        const all = await rows();
+        expect(all).toHaveLength(1);
+        expect(all[0]).toMatchObject({
+            kind: 'feature.ready_to_close', featureId: f.id, projectId: p1.id, title: 'Big feature', jobId: null,
+            repos: ['o/a', 'o/b'], prLinks: [{ repo: 'o/a', number: 4, url: 'https://github.com/o/a/pull/4' }],
+        });
+        expect(all[0].reason).toContain('All 2 jobs merged');
+    });
+
+    it('records nothing while a counted job is unmerged, for rejected jobs, empty or all-cancelled features, or inactive features', async () => {
+        const f = await mkFeature('active');
+        const a = await seed(repoA, f.id, 'queued');
+        await seed(repoA, f.id, 'merged');
+        await capture.featureReadiness(f.id);
+        await seed(repoA, f.id, 'rejected');
+        await jobService.cancel(a.id);
+        await capture.featureReadiness(f.id);
+        expect(await notifications.count()).toBe(0); // the rejected job still counts
+
+        const empty = await mkFeature('active');
+        await capture.featureReadiness(empty.id);
+        const onlyCancelled = await mkFeature('active');
+        await jobService.cancel((await seed(repoA, onlyCancelled.id, 'queued')).id);
+        const draft = await mkFeature('draft');
+        await seed(repoA, draft.id, 'merged');
+        await capture.featureReadiness(draft.id);
+        await capture.featureReadiness('00000000-0000-4000-8000-000000000000');
+        await capture.featureReadiness(null);
+        expect(await notifications.count()).toBe(0);
+    });
+
+    it('deduplicates repeated and concurrent checks of the same ready job set', async () => {
+        const f = await mkFeature('active');
+        await seed(repoA, f.id, 'merged');
+        await seed(repoB, f.id, 'merged');
+        await Promise.all(Array.from({ length: 5 }, () => capture.featureReadiness(f.id)));
+        await capture.featureReadiness(f.id);
+        expect(await notifications.count()).toBe(1);
+    });
+
+    it('records a new event for a different ready job set, but not when the same set is reopened', async () => {
+        const f = await mkFeature('active');
+        await seed(repoA, f.id, 'merged');
+        await capture.featureReadiness(f.id);
+        await service.done(f.id);
+        await service.reopen(f.id); // same ready set: no new event
+        expect(await notifications.count()).toBe(1);
+
+        await seed(repoA, f.id, 'merged');
+        await capture.featureReadiness(f.id);
+        expect(await notifications.count()).toBe(2);
+        expect((await rows())[0].occurrenceKey).not.toBe((await rows())[1].occurrenceKey);
+    });
+
+    it('records when reopening a done feature whose jobs are all merged', async () => {
+        const f = await mkFeature('done', { doneAt: new Date() });
+        await seed(repoA, f.id, 'merged');
+        await service.reopen(f.id);
+        expect(await notifications.count()).toBe(1);
+    });
+
+    it('records when reassigning the last open job away from the feature, and not for the feature it joins', async () => {
+        const f = await mkFeature('active');
+        const g = await mkFeature('active');
+        await seed(repoA, f.id, 'merged');
+        const open = await seed(repoA, f.id, 'queued');
+        await jobService.update(open.id, { featureId: g.id });
+        const all = await rows();
+        expect(all.map((n) => n.featureId)).toEqual([f.id]);
+    });
+
+    it('records when starting a feature whose jobs are already merged (lifecycle activation)', async () => {
+        const f = await mkFeature('draft');
+        await seed(repoA, f.id, 'merged');
+        await service.start(f.id);
+        expect(await notifications.count()).toBe(1);
+    });
+
+    it('never fails the cancel or update when the notification read or insert fails', async () => {
+        const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        const f = await mkFeature('active');
+        await seed(repoA, f.id, 'merged');
+        const open = await seed(repoA, f.id, 'queued');
+        const read = vi.spyOn(features, 'findOneBy').mockRejectedValue(new Error('read down'));
+        // JobService.cancel reads the job through its own repository; only the capture's feature read is forced to fail
+        expect((await jobService.cancel(open.id)).status).toBe('cancelled');
+        read.mockRestore();
+
+        const insert = vi.spyOn(notifications, 'insert').mockRejectedValue(new Error('insert down'));
+        const open2 = await seed(repoA, f.id, 'queued');
+        await jobService.cancel(open2.id);
+        expect((await jobs.findOneByOrFail({ id: open2.id })).status).toBe('cancelled');
+        expect(await notifications.count()).toBe(0);
+        expect(log).toHaveBeenCalled();
+        insert.mockRestore();
+        log.mockRestore();
     });
 });

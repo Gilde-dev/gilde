@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { Job } from '../job/job.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import type { GildeProposal } from '../webhook/pr-body.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { JobRevision } from './revision.entity.js';
 
 const OPEN: readonly string[] = ['triage', 'queued'];
@@ -18,6 +19,7 @@ export class ProposalService {
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
         @InjectRepository(JobRevision) private readonly revisions: Repository<JobRevision>,
+        @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
     /**
@@ -53,6 +55,7 @@ export class ProposalService {
                 reason: p.reason,
                 sourceRunId: run.id,
             }));
+            await this.capture?.revisionWaiting(run, prJob, target, p);
         }
     }
 

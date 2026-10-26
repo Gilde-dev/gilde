@@ -167,6 +167,23 @@ Gilde stores platform-neutral factory events for exactly one consumer process (`
 **Delivery transitions:** `pending` -> `delivered`; `pending`/`failed` -> `failed` (retry later or permanent); `failed` -> `delivered`; `delivered` never changes. The consumer picks backoff (`retryAfterSeconds`), so it can honour Slack's `Retry-After`.
 
 **Trade-offs.** Capture is best effort: a crash or failed insert after a successful domain write loses that notification, and lost captures are not reconstructed. Delivery is at-least-once for recorded events: if the consumer crashes, or its acknowledgement is lost, after the platform accepted a post, the event is sent again (rare duplicate). Neither window has recovery machinery.
+### Captured events and occurrence keys
+
+`NotificationCaptureService` (`apps/api/src/notification/notification-capture.service.ts`) builds the envelopes. Each call sits right after the successful domain write in the existing service, reads whatever it needs itself, and goes through `recordQuietly`, so enrichment reads and the insert are both caught and logged; the original method returns the same result either way. Only a write that actually changed something captures: a conditional-update loser, a stale head or a job that already moved on records nothing. No transactions, locks or readiness table were added.
+
+| Kind | Recorded after | Occurrence key |
+| --- | --- | --- |
+| `job.awaiting_review` | `ci_passed` moved the job into `awaiting_review` (`JobEventsService.workflowCompleted`, so webhook and reconciler) | `job.awaiting_review:<job>:a<attempts>:<head sha>` |
+| `job.parked` | a `park` write landed: CI failure or reviewer send-back (`JobEventsService.retryOrParkJob`) or a failed fire (`DispatcherService.failJob`) | `job.parked:<job>:a<attempts>:<head sha or none>:<cause>`, cause `failure`, `sent_back` or `dispatch` |
+| `job.approval_needed` | a failing gate on the job's current head set `needsApproval` on a job that is not finished | `job.approval_needed:<job>:a<attempts>:<head sha>` |
+| `revision.waiting` | `ProposalService.record` saved a proposed revision | `revision.waiting:<source run>:<target job>:<digest of title, task, criteria, dependsOn and reason>` |
+| `feature.ready_to_close` | a check after a job merge, a job cancel, a job's feature change, a feature start or a feature reopen found `buildProgress(...).readyToClose` | `feature.ready_to_close:<feature>:<digest of the sorted ids of the counted, non-cancelled jobs>` |
+
+- Replays (webhook redelivery, reconciler passes) hit the unique key and are ignored. A new attempt or a new head sha is a new occurrence. Clearing and re-setting the same gate on the same head, or reopening a feature with the same ready job set, does not notify again; a different ready job set does.
+- Proposals are deleted and recreated when a PR body is re-parsed, so the revision UUID is not part of the key: an identical proposal deduplicates, an edit (or another run) notifies. The post links the proposing run's PR and names the target job and repo.
+- Feature readiness is exactly `buildProgress`: the feature is `active`, at least one non-cancelled job, all of them merged. It is evaluated from current rows after the write, never on `GET`, and concurrent checks of the same set collapse on the key. Features are never closed and jobs never approved automatically.
+- **Lost captures are not reconstructed.** If the process stops between the domain write and the insert, or the insert fails, that notification is gone; nothing re-scans history later.
+
 ### Lessons in dispatched jobs
 
 When a job fires, Gilde looks up relevant lessons in the history index and adds them to the job payload as an optional `lessons` array
