@@ -20,7 +20,60 @@ permissions:
   packages: write
 
 jobs:
+  # Pull requests build only the images whose inputs changed. Publishing (workflow_run, workflow_dispatch) always builds all three.
+  changes:
+    name: Changes
+    if: >-
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'workflow_run' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main') ||
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      api: ${{ steps.detect.outputs.api }}
+      web: ${{ steps.detect.outputs.web }}
+      channels: ${{ steps.detect.outputs.channels }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          api=false web=false channels=false shared=false all=false
+          if [ "$EVENT" != "pull_request" ]; then
+            all=true
+          else
+            git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" > /dev/null
+            git diff --name-only --no-renames -z "origin/$BASE_REF...HEAD" > "$RUNNER_TEMP/changed-files"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                .github/workflows/images.yaml) all=true ;;
+                apps/api/* | docs/agent-instructions.md | .dockerignore) api=true ;;
+                apps/web/*) web=true ;;
+                apps/channels/*) channels=true ;;
+                package.json | pnpm-lock.yaml | pnpm-workspace.yaml | tsconfig*.json | packages/* | .npmrc | .nvmrc | .github/workflows/ci.yaml) shared=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed-files"
+          fi
+          if [ "$all" = true ] || [ "$shared" = true ]; then
+            api=true web=true channels=true
+          fi
+          {
+            echo "api=$api"
+            echo "web=$web"
+            echo "channels=$channels"
+          } >> "$GITHUB_OUTPUT"
+
   image:
+    needs: changes
     name: Image ${{ matrix.app }}
     # workflow_run: only a push to main whose CI run succeeded. workflow_dispatch: only from main.
     if: >-
@@ -39,21 +92,28 @@ jobs:
     env:
       PUSH: ${{ github.event_name != 'pull_request' }}
       SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
+      AFFECTED: ${{ needs.changes.outputs[matrix.app] }}
     steps:
-      - uses: actions/checkout@v4
+      - run: echo "Image ${{ matrix.app }} is not affected by this change, skipping."
+        if: env.AFFECTED != 'true'
+
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: env.AFFECTED == 'true'
         with:
           ref: ${{ env.SHA }}
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+        if: env.AFFECTED == 'true'
 
-      - uses: docker/login-action@v3
-        if: env.PUSH == 'true'
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        if: env.AFFECTED == 'true' && env.PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        if: env.AFFECTED == 'true'
         with:
           context: .
           file: apps/${{ matrix.app }}/Dockerfile

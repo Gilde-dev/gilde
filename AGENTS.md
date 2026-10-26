@@ -24,7 +24,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
 Run from the repo root unless noted.
 - Install: `pnpm install` — run it first in a fresh session; tests (web especially) fail to start without dependencies
 - Test everything: `pnpm test` (unit tests)
-- CI runs `pnpm build`, `pnpm test` and the API e2e tests (`pnpm --filter @gilde/api test:e2e`); all three must pass before you open a PR
+- CI runs the build, unit tests and e2e tests per changed app on PRs and everything on main; agents still run the full `pnpm build`, `pnpm test` and `pnpm --filter @gilde/api test:e2e` locally before opening a PR.
 - Build everything: `pnpm build`
 - API only: `pnpm --filter @gilde/api test` · `... build` · `... lint` (oxlint) · `... test:e2e`
 - Run the API locally: `pnpm dev` (port 4100 by default)
