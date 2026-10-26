@@ -4,16 +4,116 @@ on:
     types: [opened, synchronize, reopened]
   push:
     branches: [main]
+  workflow_dispatch:
 
 jobs:
-  build:
+  # Decides which apps a pull request touches. Push to main and manual runs always build everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    outputs:
+      api: ${{ steps.detect.outputs.api }}
+      web: ${{ steps.detect.outputs.web }}
+      channels: ${{ steps.detect.outputs.channels }}
+      shared: ${{ steps.detect.outputs.shared }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 0
+      - id: detect
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          api=false web=false channels=false shared=false
+          if [ "$EVENT" != "pull_request" ]; then
+            api=true web=true channels=true shared=true
+          else
+            git rev-parse --verify --quiet "refs/remotes/origin/$BASE_REF" > /dev/null
+            git diff --name-only --no-renames -z "origin/$BASE_REF...HEAD" > "$RUNNER_TEMP/changed-files"
+            while IFS= read -r -d '' file; do
+              case "$file" in
+                apps/api/* | docs/agent-instructions.md) api=true ;;
+                apps/web/*) web=true ;;
+                apps/channels/*) channels=true ;;
+                package.json | pnpm-lock.yaml | pnpm-workspace.yaml | tsconfig*.json | packages/* | .npmrc | .nvmrc | .github/workflows/ci.yaml) shared=true ;;
+              esac
+            done < "$RUNNER_TEMP/changed-files"
+            if [ "$shared" = true ]; then
+              api=true web=true channels=true
+            fi
+          fi
+          {
+            echo "api=$api"
+            echo "web=$web"
+            echo "channels=$channels"
+            echo "shared=$shared"
+          } >> "$GITHUB_OUTPUT"
+
+  api:
+    needs: changes
+    if: needs.changes.outputs.api == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with: { node-version: 22, cache: pnpm }
       - run: pnpm install --frozen-lockfile
-      - run: pnpm build
-      - run: pnpm test
+      - run: pnpm --filter @gilde/api build
+      - run: pnpm --filter @gilde/api test
       - run: pnpm --filter @gilde/api test:e2e
+
+  web:
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @gilde/web build
+      - run: pnpm --filter @gilde/web test
+
+  channels:
+    needs: changes
+    if: needs.changes.outputs.channels == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with: { node-version: 22, cache: pnpm }
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @gilde/channels build
+      - run: pnpm --filter @gilde/channels test
+
+  # Single required check: fails when a needed job failed or was cancelled, passes when app jobs succeeded or were skipped.
+  build:
+    name: build
+    needs: [changes, api, web, channels]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      CHANGES: ${{ needs.changes.result }}
+      API: ${{ needs.api.result }}
+      WEB: ${{ needs.web.result }}
+      CHANNELS: ${{ needs.channels.result }}
+    steps:
+      - run: |
+          status=0
+          [ "$CHANGES" = success ] || { echo "changes: $CHANGES"; status=1; }
+          for pair in "api=$API" "web=$WEB" "channels=$CHANNELS"; do
+            case "${pair#*=}" in
+              success | skipped) ;;
+              *) echo "${pair%%=*}: ${pair#*=}"; status=1 ;;
+            esac
+          done
+          exit "$status"
