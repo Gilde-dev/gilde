@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JOB_STATUSES, api, type Metrics, type Usage } from '@/lib/api';
+import { agentUsage } from './agent-usage.fixture';
 import { MetricsView, formatMinutes } from './metrics-view';
 
 vi.mock('next/navigation', () => ({
@@ -54,6 +55,7 @@ beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'p1', name: 'Proj' } as never]);
   vi.spyOn(api, 'getUsage').mockResolvedValue(noUsage);
+  vi.spyOn(api, 'getAgentUsage').mockResolvedValue(agentUsage());
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r1', fullName: 'o/r' } as never]);
 });
 
@@ -96,6 +98,20 @@ describe('MetricsView', () => {
     await screen.findByRole('option', { name: 'o/r' });
     fireEvent.change(screen.getByLabelText('Repo'), { target: { value: 'r1' } });
     await waitFor(() => expect(getMetrics).toHaveBeenLastCalledWith({ projectId: 'p1', repoId: 'r1', days: 7 }));
+  });
+});
+
+describe('MetricsView agent usage', () => {
+  it('shows co-pilot and agents sections, scoped to the selected project and period', async () => {
+    vi.spyOn(api, 'getMetrics').mockResolvedValue(empty);
+    const spy = vi.spyOn(api, 'getAgentUsage');
+    render(<MetricsView />);
+    expect(await screen.findByRole('region', { name: 'Usage' })).toHaveTextContent('Co-pilot usage');
+    const agents = await screen.findByRole('region', { name: 'Agents (Claude Code)' });
+    expect(agents).toHaveTextContent('Agents (Claude Code)');
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith(30, 'p1'));
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await waitFor(() => expect(spy).toHaveBeenLastCalledWith(7, 'p1'));
   });
 });
 

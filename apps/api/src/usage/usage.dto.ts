@@ -44,3 +44,9 @@ export interface UsageRecord {
     outputTokens?: number;
     reasoningTokens?: number;
 }
+
+export const AgentUsageQuerySchema = z.object({
+    days: z.coerce.number().int().min(1).max(365).default(30),
+    projectId: z.string().uuid().optional(),
+});
+export type AgentUsageQuery = z.infer<typeof AgentUsageQuerySchema>;

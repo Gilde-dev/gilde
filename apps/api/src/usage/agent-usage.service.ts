@@ -8,7 +8,7 @@ import { AgentUsage } from '../otel/agent-usage.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
 
-import type { AgentTotalsDto, AgentUsageFilter, AgentUsageWindow } from './agent-totals.dto.js';
+import type { AgentTotalsDto, AgentUsageResponseDto, AgentUsageFilter, AgentUsageWindow } from './agent-totals.dto.js';
 
 const DAY_MS = 86_400_000;
 
@@ -57,6 +57,16 @@ export function agentWindow(days: number, now: Date): AgentUsageWindow {
 @Injectable()
 export class AgentUsageService {
     constructor(@InjectRepository(AgentUsage) private readonly rows: Repository<AgentUsage>) { }
+
+    async summary(days: number, projectId?: string, now = new Date()): Promise<AgentUsageResponseDto> {
+        const window = agentWindow(days, now);
+        const f: AgentUsageFilter = { projectId, from: window.from, to: window.to };
+        const [totals, daily, byModel, byRepo, byFeature, unattributed] = await Promise.all([
+            this.totals(f), this.byDay(window, { projectId }), this.byModel(f), this.byRepo(f), this.byFeature(f),
+            projectId ? Promise.resolve(emptyAgentTotals()) : this.unattributed({ from: window.from, to: window.to }),
+        ]);
+        return { days, scope: projectId ? 'project' : 'global', projectId: projectId ?? null, totals, daily, byModel, byRepo, byFeature, unattributed };
+    }
 
     private isPostgres(): boolean {
         return this.rows.manager.connection.options.type === 'postgres';

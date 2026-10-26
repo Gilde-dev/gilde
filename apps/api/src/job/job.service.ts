@@ -11,6 +11,8 @@ import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
+import { emptyAgentTotals } from '../usage/agent-usage.service.js';
+import { AgentUsageService } from '../usage/agent-usage.service.js';
 import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
@@ -32,6 +34,7 @@ export class JobService {
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly moduleRef?: ModuleRef,
         @Optional() private readonly capture?: NotificationCaptureService,
+        @Optional() private readonly agentUsage?: AgentUsageService,
     ) { }
 
     /** `actor` is the user creating the job; null for system-created jobs. */
@@ -247,9 +250,15 @@ export class JobService {
 
     async getDetail(id: string): Promise<JobDetailResponseDto> {
         const job = await this.getById(id);
+        const runs = await this.runService.listForJob(id);
+        // Two grouped queries for the whole detail, not one per run.
+        const [perRun, perJob] = this.agentUsage
+            ? await Promise.all([this.agentUsage.forRuns(runs.map((r) => r.id)), this.agentUsage.forJobs([id])])
+            : [new Map(), new Map()];
         return {
             ...job,
-            runs: await this.runService.listForJob(id),
+            runs: runs.map((r) => ({ ...r, agentUsage: perRun.get(r.id) ?? emptyAgentTotals() })),
+            agentUsage: perJob.get(id) ?? emptyAgentTotals(),
             feedback: await this.feedbackService.listForJob(id),
         };
     }

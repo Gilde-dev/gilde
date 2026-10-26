@@ -3,7 +3,8 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { api, type Feedback, type JobDetail, type Revision, type Run } from '@/lib/api';
+import { api, type AgentTotals, type Feedback, type JobDetail, type Revision, type Run } from '@/lib/api';
+import { AgentUsageSummary } from './agent-usage';
 import { errorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
@@ -140,7 +141,7 @@ function Overview({ job, dependents, projectId }: { job: JobDetail; dependents: 
   );
 }
 
-function RunCard({ run, prUrl, prNumber }: { run: Run; prUrl: string | null; prNumber: number | null }) {
+function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTotals }; prUrl: string | null; prNumber: number | null }) {
   const dur = duration(run);
   return (
     <Card>
@@ -180,6 +181,7 @@ function RunCard({ run, prUrl, prNumber }: { run: Run; prUrl: string | null; prN
         </p>
         {run.result && <p>{run.result.summary}</p>}
         {run.error && <p className="text-danger">{run.error}</p>}
+        {run.agentUsage && <AgentUsageSummary t={run.agentUsage} label={`Attempt ${run.attempt} usage (Claude Code)`} />}
         {run.retro && (
           <details>
             <summary className="cursor-pointer text-muted-foreground">Retro</summary>
@@ -423,6 +425,7 @@ export function JobDetailView() {
           </TabsContent>
           <TabsContent value="runs" className="space-y-3 pt-4">
             {j.runs.length === 0 && <p className="text-sm text-muted-foreground">No runs yet</p>}
+            {j.runs.length > 0 && <AgentUsageSummary t={j.agentUsage} label="Total usage, all attempts (Claude Code)" />}
             {j.runs.map((run) => (
               <RunCard key={run.id} run={run} prUrl={j.prUrl} prNumber={j.prNumber} />
             ))}
