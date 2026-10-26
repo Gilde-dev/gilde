@@ -56,7 +56,7 @@ export class OtelService implements OnModuleInit {
         try {
             await this.repo.manager.transaction(async (m) => {
                 for (let i = 0; i < unique.length; i += INSERT_CHUNK) {
-                    const rows = unique.slice(i, i + INSERT_CHUNK).map((r) => ({ id: randomUUID(), runId: null, jobId: null, ...r }));
+                    const rows = unique.slice(i, i + INSERT_CHUNK).map((r) => ({ id: randomUUID(), runId: null, jobId: null, attribution: null, ...r }));
                     await m.createQueryBuilder().insert().into(AgentUsage).values(rows).orIgnore().execute();
                 }
             });

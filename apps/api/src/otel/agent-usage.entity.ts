@@ -4,6 +4,9 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 
  * One Claude Code `api_request` event received over OTLP. Separate from `llm_usage` (the co-pilot's own calls).
  * `run_id`/`job_id` stay null at ingest; a later pass attributes them. `cost_usd` is Claude Code's own estimate.
  */
+export const AGENT_USAGE_ATTRIBUTIONS = ['session', 'time_window'] as const;
+export type AgentUsageAttribution = (typeof AGENT_USAGE_ATTRIBUTIONS)[number];
+
 @Entity({ name: 'agent_usage' })
 @Index('IDX_agent_usage_event_key', ['eventKey'], { unique: true })
 @Index('IDX_agent_usage_session_id', ['sessionId'])
@@ -20,6 +23,10 @@ export class AgentUsage {
 
     @Column({ name: 'job_id', type: 'uuid', nullable: true })
     jobId: string | null;
+
+    /** How `run_id` was found: `session` (exact `job_runs.session_id`), `time_window` (the one run fired shortly before the session started) or null (unattributed). */
+    @Column({ type: 'varchar', nullable: true })
+    attribution: AgentUsageAttribution | null;
 
     /** The Claude Code session (OTLP `session.id`); not a Gilde id. */
     @Column({ name: 'session_id', type: 'varchar' })
