@@ -12,7 +12,7 @@ export class JobRevision {
     id: string;
 
     @Column({
-        name: 'job_id'
+        name: 'job_id', type: 'uuid'
     })
     jobId: string;
 
@@ -45,7 +45,7 @@ export class JobRevision {
 
     @Column({
         name: 'source_run_id',
-        type: 'varchar',
+        type: 'uuid',
         nullable: true
     })
     sourceRunId: string | null;

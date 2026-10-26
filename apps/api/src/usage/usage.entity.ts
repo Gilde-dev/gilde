@@ -15,7 +15,7 @@ export class LlmUsage {
     @Column({ type: 'simple-enum', enum: USAGE_KINDS })
     kind: UsageKind;
 
-    @Column({ name: 'user_id', type: 'varchar', nullable: true })
+    @Column({ name: 'user_id', type: 'uuid', nullable: true })
     userId: string | null;
 
     @ManyToOne(() => User, { nullable: true, onDelete: 'SET NULL' })

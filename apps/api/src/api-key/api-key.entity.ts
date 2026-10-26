@@ -11,7 +11,7 @@ export class ApiKey {
     id: string;
 
     @Index()
-    @Column({ name: 'user_id' })
+    @Column({ name: 'user_id', type: 'uuid' })
     userId: string;
 
     @ManyToOne(() => User, { nullable: false, onDelete: 'CASCADE' })

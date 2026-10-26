@@ -14,7 +14,7 @@ export class Lesson {
     @PrimaryGeneratedColumn('uuid')
     id: string;
 
-    @Column({ name: 'project_id' })
+    @Column({ name: 'project_id', type: 'uuid' })
     projectId: string;
 
     @Column({ type: 'text' })
@@ -26,13 +26,13 @@ export class Lesson {
     @Column({ name: 'target_kind', type: 'simple-enum', enum: LESSON_TARGET_KINDS, nullable: true })
     targetKind: LessonTargetKind | null;
 
-    @Column({ name: 'target_repo_id', type: 'varchar', nullable: true })
+    @Column({ name: 'target_repo_id', type: 'uuid', nullable: true })
     targetRepoId: string | null;
 
     @Column({ type: 'text', nullable: true })
     note: string | null;
 
-    @Column({ name: 'applied_job_id', type: 'varchar', nullable: true })
+    @Column({ name: 'applied_job_id', type: 'uuid', nullable: true })
     appliedJobId: string | null;
 
     @Column({ name: 'applied_at', type: Date, nullable: true })

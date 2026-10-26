@@ -10,7 +10,7 @@ export class Feature {
     id: string;
 
     @Column({
-        name: 'project_id'
+        name: 'project_id', type: 'uuid'
     })
     projectId: string;
 

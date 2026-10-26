@@ -11,17 +11,17 @@ export class JobRun {
     id: string;
 
     @Column({
-        name: 'job_id'
+        name: 'job_id', type: 'uuid'
     })
     jobId: string;
 
     @Column({
-        name: 'project_id'
+        name: 'project_id', type: 'uuid'
     })
     projectId: string;
 
     @Column({
-        name: 'repo_id'
+        name: 'repo_id', type: 'uuid'
     })
     repoId: string;
 
