@@ -209,6 +209,8 @@ export interface Feature {
 
 export interface FeatureDetail extends Feature {
   jobs: Job[];
+  /** Lifetime Claude Code usage of the feature (all attributed requests). */
+  agentUsage: AgentTotals;
 }
 
 export interface FeatureJobRef {
@@ -324,7 +326,9 @@ export interface JobPrompt {
 }
 
 export interface JobDetail extends Job {
-  runs: Run[];
+  runs: (Run & { agentUsage: AgentTotals })[];
+  /** Lifetime Claude Code usage of the job. */
+  agentUsage: AgentTotals;
   feedback: Feedback[];
 }
 
@@ -492,6 +496,28 @@ export interface UsageTotals {
   runs: number;
 }
 
+/** Claude Code usage: co-pilot keys plus cacheCreationTokens. `costUsd` sums Claude Code's own estimates (notional under a subscription). */
+export interface AgentTotals extends UsageTotals {
+  cacheCreationTokens: number;
+  uncachedInputTokens: number;
+  /** Requests without a cost estimate; `costUsd` is partial when > 0 and < runs. */
+  costUnknownRequests: number;
+  costPartial: boolean;
+}
+
+export interface AgentUsage {
+  days: number;
+  scope: 'global' | 'project';
+  projectId: string | null;
+  totals: AgentTotals;
+  daily: (AgentTotals & { date: string })[];
+  byModel: (AgentTotals & { model: string })[];
+  byRepo: (AgentTotals & { repoId: string; fullName: string | null })[];
+  byFeature: (AgentTotals & { featureId: string; title: string | null })[];
+  /** Rows not matched to a run (unknown project); global scope only. */
+  unattributed: AgentTotals;
+}
+
 export interface Usage {
   days: number;
   totals: UsageTotals;
@@ -594,6 +620,8 @@ export const api = {
     return request<Metrics>(`/v1/metrics?${q}`);
   },
   getUsage: (days: number) => request<Usage>(`/v1/usage?days=${days}`),
+  getAgentUsage: (days: number, projectId?: string) =>
+    request<AgentUsage>(`/v1/usage/agents?days=${days}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`),
   getDispatchStatus: () => request<DispatchStatus>('/v1/dispatch/status'),
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),

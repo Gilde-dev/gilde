@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, type FeatureDetail, type Job, type Repo } from '@/lib/api';
+import { agentTotals, noAgentUsage } from './agent-usage.fixture';
 import { feature } from './feature.fixture';
 import { FeatureDetailView } from './feature-detail';
 
@@ -15,6 +16,7 @@ function setup(over: Partial<FeatureDetail> = {}) {
   const detail: FeatureDetail = {
     ...feature({ spec: 'Line one\nLine two', acceptanceCriteria: ['It works'] }),
     jobs: [job('a', 'triage'), job('b', 'merged')],
+    agentUsage: noAgentUsage,
     ...over,
   };
   vi.spyOn(api, 'getFeature').mockResolvedValue(detail);
@@ -99,5 +101,25 @@ describe('FeatureDetailView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create job' }));
     await waitFor(() => expect(create).toHaveBeenCalled());
     expect(create.mock.calls[0][1]).toMatchObject({ featureId: 'f1' });
+  });
+
+  it('shows the lifetime feature total from the detail response, labelled estimated', async () => {
+    setup({ agentUsage: agentTotals({ uncachedInputTokens: 10, cachedInputTokens: 100, cacheCreationTokens: 20, outputTokens: 5, runs: 3, costUsd: 0.25 }) });
+    const usage = await screen.findByRole('region', { name: 'Lifetime usage (Claude Code)' });
+    expect(usage).toHaveTextContent('135 tokens');
+    expect(usage).toHaveTextContent('3 requests');
+    expect(usage).toHaveTextContent('estimated cost $0.2500');
+    expect(usage).toHaveTextContent(/notional/);
+    expect(usage.querySelector('[title*="estimates"]')).not.toBeNull();
+  });
+
+  it('says no telemetry when the feature has no usage', async () => {
+    setup();
+    expect(await screen.findByText(/no Claude Code telemetry received yet/)).toBeInTheDocument();
+  });
+
+  it('shows unavailable (not $0) for unknown cost and $0 for a real zero', async () => {
+    setup({ agentUsage: agentTotals({ outputTokens: 5, runs: 1, costUsd: null, costUnknownRequests: 1 }) });
+    expect(await screen.findByText('unavailable')).toBeInTheDocument();
   });
 });

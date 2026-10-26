@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api, type Job, type JobDetail, type Repo, type Revision } from '@/lib/api';
+import { agentTotals, noAgentUsage } from './agent-usage.fixture';
 import { JobDetailView, buildTimeline } from './job-detail';
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'j1' }) }));
@@ -16,6 +17,7 @@ const base: Job = {
 
 const detail: JobDetail = {
   ...base,
+  agentUsage: noAgentUsage,
   feedback: [
     { id: 'fb1', jobId: 'j1', projectId: 'p', repoId: 'r', prNumber: 5, kind: 'review', githubId: '9', author: 'bob', authorAssociation: 'OWNER', state: 'CHANGES_REQUESTED', reviewId: '9', path: null, line: null, body: 'Please fix', url: 'https://x/1', createdAt: '2026-01-02T00:00:00.000Z' },
     { id: 'fb2', jobId: 'j1', projectId: 'p', repoId: 'r', prNumber: 5, kind: 'review_comment', githubId: '10', author: 'bob', authorAssociation: 'OWNER', state: null, reviewId: '9', path: 'src/a.ts', line: 12, body: 'Rename this', url: 'https://x/2', createdAt: '2026-01-02T00:00:01.000Z' },
@@ -26,6 +28,7 @@ const detail: JobDetail = {
     result: { outcome: 'done', summary: 'All good' }, retro: '- stuff',
     firedAt: '2026-01-01T00:10:00.000Z', finishedAt: '2026-01-01T00:12:05.000Z',
     createdAt: '2026-01-01T00:09:00.000Z', updatedAt: '2026-01-01T00:12:05.000Z',
+    agentUsage: noAgentUsage,
   }],
 };
 
@@ -111,5 +114,30 @@ describe('buildTimeline', () => {
   it('sorts newest first', () => {
     const t = buildTimeline(detail, [proposed]);
     expect(t.map((e) => e.at)).toEqual([...t.map((e) => e.at)].sort().reverse());
+  });
+
+  it('shows per-attempt and total agent usage as estimated, with unknown and partial cost', async () => {
+    const run = detail.runs[0];
+    vi.spyOn(api, 'getJob').mockResolvedValue({
+      ...detail,
+      agentUsage: agentTotals({ uncachedInputTokens: 30, cachedInputTokens: 200, cacheCreationTokens: 40, outputTokens: 10, runs: 3, costUsd: 0.5, costPartial: true, costUnknownRequests: 1 }),
+      runs: [
+        { ...run, agentUsage: agentTotals({ uncachedInputTokens: 10, cachedInputTokens: 100, cacheCreationTokens: 20, outputTokens: 5, runs: 2, costUsd: 0.5, costPartial: true, costUnknownRequests: 1 }) },
+        { ...run, id: 'run2', attempt: 2, agentUsage: agentTotals({ outputTokens: 0, runs: 1, costUsd: 0 }) },
+        { ...run, id: 'run3', attempt: 3, agentUsage: agentTotals({ outputTokens: 7, runs: 1, costUsd: null, costUnknownRequests: 1 }) },
+        { ...run, id: 'run4', attempt: 4, agentUsage: noAgentUsage },
+      ],
+    });
+    render(<JobDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Runs/ }));
+    const total = await screen.findByRole('region', { name: 'Total usage, all attempts (Claude Code)' });
+    expect(total).toHaveTextContent('280 tokens');
+    expect(total).toHaveTextContent('3 requests');
+    expect(total).toHaveTextContent('estimated cost $0.5000+ (1 requests unknown)');
+    expect(screen.getByRole('region', { name: 'Attempt 1 usage (Claude Code)' })).toHaveTextContent('135 tokens');
+    expect(screen.getByRole('region', { name: 'Attempt 2 usage (Claude Code)' })).toHaveTextContent('estimated cost $0.0000');
+    expect(screen.getByRole('region', { name: 'Attempt 3 usage (Claude Code)' })).toHaveTextContent('estimated cost unavailable');
+    expect(screen.getByText('Attempt 4 usage (Claude Code): no Claude Code telemetry received yet.')).toBeInTheDocument();
+    expect(screen.getAllByRole('link', { name: 'Session' })).toHaveLength(4);
   });
 });

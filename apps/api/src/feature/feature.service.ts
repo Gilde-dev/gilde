@@ -5,6 +5,7 @@ import { In, Repository } from 'typeorm';
 import { Job } from '../job/job.entity.js';
 import type { BlockingJobDto } from '../job/job.dto.js';
 import { TERMINAL, type JobStatus } from '../job/job-state.js';
+import { AgentUsageService, emptyAgentTotals } from '../usage/agent-usage.service.js';
 import { JobService } from '../job/job.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { ProjectService } from '../project/project.service.js';
@@ -33,6 +34,7 @@ export class FeatureService {
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @Optional() private readonly capture?: NotificationCaptureService,
+        @Optional() private readonly agentUsage?: AgentUsageService,
     ) { }
 
     async create(projectId: string, dto: CreateFeatureDto): Promise<FeatureResponseDto> {
@@ -64,7 +66,9 @@ export class FeatureService {
     }
 
     async getDetail(id: string): Promise<FeatureDetailResponseDto> {
-        return { ...(await this.getById(id)), jobs: await this.jobService.listByFeature(id) };
+        const feature = await this.getById(id);
+        const total = this.agentUsage ? (await this.agentUsage.forFeatures([id])).get(id) : undefined;
+        return { ...feature, jobs: await this.jobService.listByFeature(id), agentUsage: total ?? emptyAgentTotals() };
     }
 
     /** Edits title, spec and criteria while the feature is draft or active. */

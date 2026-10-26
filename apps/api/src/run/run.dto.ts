@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { gildeResultSchema } from '../webhook/pr-body.js';
 import { RUN_STATUSES } from './run-status.js';
 
@@ -30,5 +31,9 @@ export const RunResponseSchema = z.object({
     updatedAt: z.string().datetime(),
 });
 
+/** A run in a job detail: the run plus its lifetime Claude Code usage (zeros and null cost when no telemetry arrived). */
+export const RunDetailResponseSchema = RunResponseSchema.extend({ agentUsage: AgentTotalsSchema });
+
 export type CreateRunDto = z.infer<typeof CreateRunSchema>;
 export type RunResponseDto = z.infer<typeof RunResponseSchema>;
+export type RunDetailResponseDto = z.infer<typeof RunDetailResponseSchema>;
