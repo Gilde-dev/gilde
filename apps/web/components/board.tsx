@@ -12,6 +12,7 @@ function LaneColumn({
   jobs,
   repos,
   features,
+  ciByJob,
   onOpen,
   onChanged,
   onEnqueued,
@@ -20,6 +21,7 @@ function LaneColumn({
   jobs: Job[];
   repos: Map<string, Repo>;
   features: Map<string, Feature>;
+  ciByJob?: Record<string, string | null>;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -85,6 +87,7 @@ function LaneColumn({
               job={job}
               repoName={repos.get(job.repoId)?.fullName}
               featureTitle={job.featureId ? features.get(job.featureId)?.title : undefined}
+              ci={ciByJob?.[job.id]}
               onOpen={onOpen}
               onChanged={onChanged}
               onEnqueued={onEnqueued}
@@ -107,6 +110,7 @@ export function Board({
   repos,
   features = [],
   featureFilter = '',
+  ciByJob,
   onOpen,
   onChanged,
   onEnqueued,
@@ -116,6 +120,8 @@ export function Board({
   features?: Feature[];
   /** Feature id to show jobs of; '' shows all, 'none' the jobs without a feature. */
   featureFilter?: string;
+  /** Latest CI conclusion per job id, when known. */
+  ciByJob?: Record<string, string | null>;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -132,6 +138,7 @@ export function Board({
           jobs={shown.filter((j) => lane.statuses.includes(j.status))}
           repos={repoById}
           features={featureById}
+          ciByJob={ciByJob}
           onOpen={onOpen}
           onChanged={onChanged}
           onEnqueued={onEnqueued}

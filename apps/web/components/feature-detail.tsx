@@ -4,7 +4,6 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
 import {
-  JOB_STATUSES,
   api,
   type FeatureActionResult,
   type FeatureCancelResult,
@@ -13,6 +12,7 @@ import {
   type FeatureStartResult,
   type Job,
   type Repo,
+  type Revision,
 } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
@@ -20,8 +20,10 @@ import { withProject } from '@/lib/use-project';
 import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { CopilotPageContext } from './copilot-provider';
 import { NewJobDialog } from './new-job-dialog';
+import { FeatureActivityTab, FeatureJobsTab } from './feature-jobs-tab';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const POLL_MS = 5000;
 
@@ -59,11 +61,12 @@ export function FeatureDetailView() {
   const projectId = feature.data?.projectId;
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([] as Repo[])), [projectId]);
   const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId) : Promise.resolve([] as Job[])), [projectId]);
+  const fetchRevisions = useCallback(() => (projectId ? api.listRevisions(undefined, projectId) : Promise.resolve([] as Revision[])), [projectId]);
   const repos = usePolling(fetchRepos, 60_000);
+  const revisions = usePolling(fetchRevisions, 30_000);
   const projectJobs = usePolling(fetchJobs, 30_000);
 
   const f = feature.data;
-  const repoName = (repoId: string) => repos.data?.find((r) => r.id === repoId)?.fullName ?? repoId;
 
   async function run(action: Action) {
     setBusy(true);
@@ -154,50 +157,39 @@ export function FeatureDetailView() {
                 {f.progress.attempts} {f.progress.attempts === 1 ? 'attempt' : 'attempts'}
                 {f.progress.leadTimeMinutes !== null && ` · lead time ${f.progress.leadTimeMinutes} min`}
               </p>
-              <section aria-label="Spec">
-                <h3 className="text-sm font-semibold">Spec</h3>
-                {f.spec ? (
-                  <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border bg-card p-3 text-sm">{f.spec}</pre>
-                ) : (
-                  <p className="mt-1 text-sm text-muted-foreground">No spec</p>
-                )}
-              </section>
-              {f.acceptanceCriteria.length > 0 && (
-                <section aria-label="Feature criteria">
-                  <h3 className="text-sm font-semibold">Acceptance criteria</h3>
-                  <ul className="mt-1 list-disc pl-5 text-sm">
-                    {f.acceptanceCriteria.map((c, i) => (
-                      <li key={i}>{c}</li>
-                    ))}
-                  </ul>
-                </section>
-              )}
-              <section aria-label="Jobs">
-                <h3 className="text-sm font-semibold">Jobs</h3>
-                {f.jobs.length === 0 && <p className="mt-1 text-sm text-muted-foreground">No jobs yet</p>}
-                {JOB_STATUSES.filter((s) => f.jobs.some((j) => j.status === s)).map((s) => (
-                  <div key={s} className="mt-2">
-                    <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                      {s} ({f.jobs.filter((j) => j.status === s).length})
-                    </h4>
-                    <ul className="mt-1 space-y-1">
-                      {f.jobs
-                        .filter((j) => j.status === s)
-                        .map((j) => (
-                          <li key={j.id} className="flex flex-wrap items-center gap-2 rounded-md border border-border bg-card px-3 py-2 text-sm">
-                            <span className="font-medium">{j.title}</span>
-                            <span className="text-xs text-muted-foreground">{repoName(j.repoId)}</span>
-                            {j.prUrl && j.prNumber !== null && (
-                              <a href={j.prUrl} target="_blank" rel="noreferrer" className="text-xs underline">
-                                #{j.prNumber}
-                              </a>
-                            )}
-                          </li>
+              <Tabs defaultValue="overview">
+                <TabsList>
+                  <TabsTrigger value="overview">Overview</TabsTrigger>
+                  <TabsTrigger value="jobs">Jobs</TabsTrigger>
+                  <TabsTrigger value="activity">Activity</TabsTrigger>
+                </TabsList>
+                <TabsContent value="overview" className="space-y-4 pt-4">
+                  <section aria-label="Spec">
+                    <h3 className="text-sm font-semibold">Spec</h3>
+                    {f.spec ? (
+                      <pre className="mt-1 whitespace-pre-wrap rounded-md border border-border bg-card p-3 font-sans text-sm leading-relaxed">{f.spec}</pre>
+                    ) : (
+                      <p className="mt-1 text-sm text-muted-foreground">No spec</p>
+                    )}
+                  </section>
+                  {f.acceptanceCriteria.length > 0 && (
+                    <section aria-label="Feature criteria">
+                      <h3 className="text-sm font-semibold">Acceptance criteria</h3>
+                      <ul className="mt-1 list-disc pl-5 text-sm">
+                        {f.acceptanceCriteria.map((c, i) => (
+                          <li key={i}>{c}</li>
                         ))}
-                    </ul>
-                  </div>
-                ))}
-              </section>
+                      </ul>
+                    </section>
+                  )}
+                </TabsContent>
+                <TabsContent value="jobs" className="pt-4">
+                  <FeatureJobsTab jobs={f.jobs} repos={repos.data ?? []} projectId={projectId ?? null} />
+                </TabsContent>
+                <TabsContent value="activity" className="pt-4">
+                  <FeatureActivityTab jobs={f.jobs} revisions={revisions.data ?? []} />
+                </TabsContent>
+              </Tabs>
             </div>
           </>
         )}

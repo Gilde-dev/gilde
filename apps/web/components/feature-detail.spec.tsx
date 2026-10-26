@@ -20,19 +20,39 @@ function setup(over: Partial<FeatureDetail> = {}) {
   vi.spyOn(api, 'getFeature').mockResolvedValue(detail);
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r1', fullName: 'o/repo' } as Repo]);
   vi.spyOn(api, 'listJobs').mockResolvedValue([]);
+  vi.spyOn(api, 'listRevisions').mockResolvedValue([]);
   render(<FeatureDetailView />);
 }
 
 describe('FeatureDetailView', () => {
-  it('shows the spec, criteria and jobs grouped by status with repo name', async () => {
+  it('shows the spec and criteria on the overview tab', async () => {
     setup();
     const spec = await screen.findByText(/Line one/);
-    expect(spec.tagName).toBe('PRE');
     expect(spec).toHaveClass('whitespace-pre-wrap');
     expect(screen.getByText('It works')).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'triage (1)' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'merged (1)' })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getAllByText('o/repo')).toHaveLength(2));
+  });
+
+  it('lists jobs on the jobs tab in dependency order and toggles to repos', async () => {
+    setup({ jobs: [{ ...job('b', 'merged'), dependsOn: ['a'], updatedAt: '2026-01-01T00:00:00.000Z' } as Job, { ...job('a', 'triage'), dependsOn: [] } as Job] });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Jobs' }));
+    expect(screen.getByRole('heading', { name: '1. No dependencies (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '2. After step 1 (1)' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Job b' })).toHaveAttribute('href', '/jobs/b?project=p');
+    expect(screen.getByText('after Job a')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Repo' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'o/repo (2)' })).toBeInTheDocument());
+  });
+
+  it('shows a note for a cycle without crashing', async () => {
+    setup({ jobs: [{ ...job('a', 'triage'), dependsOn: ['b'] } as Job, { ...job('b', 'triage'), dependsOn: ['a'] } as Job] });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Jobs' }));
+    expect(screen.getByRole('note')).toHaveTextContent(/cycle/i);
+  });
+
+  it('shows the activity tab', async () => {
+    setup({ jobs: [{ ...job('a', 'merged'), prNumber: 5, updatedAt: '2026-01-01T00:00:00.000Z' } as Job] });
+    fireEvent.click(await screen.findByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByText('PR #5 merged: Job a')).toBeInTheDocument();
   });
 
   it('shows only the buttons that fit the status', async () => {
