@@ -10,6 +10,9 @@
   "scripts": {
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "dev": "pnpm --filter ./apps/api start:dev"
+    "dev": "pnpm --parallel --filter \"./apps/*\" dev",
+    "dev:api": "pnpm --filter @gilde/api dev",
+    "dev:web": "pnpm --filter @gilde/web dev",
+    "dev:channels": "pnpm --filter @gilde/channels dev"
   }
 }
