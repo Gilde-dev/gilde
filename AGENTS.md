@@ -17,6 +17,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
   - pages: job board (`/`), `/features`, `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `apps/channels/` — a separate Node process (`@gilde/channels`) that runs the co-pilot in chat platforms (Slack first) with CopilotKit Channels, over AG-UI against `/api/v1/mastra`, authenticated with an API key of a bot user (`GILDE_API_KEY`). Platform credentials (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`) live only in its env. Adapters are listed in `src/adapters.ts`; see its README
 - `packages/` — shared packages (none yet)
+- `docs/adr/` — Architecture Decision Records, one per decision, index in docs/adr/README.md; see the write-adr skill
 - `.gilde.json` — Gilde manifest: stacks, test commands, and which gildeboek skills this repo gets
 
 ## Commands
@@ -94,5 +95,6 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Add or update tests for behaviour you change.
 - Do not modify `.github/`, `.claude/`, `.gilde.json`, `AGENTS.md`, `CLAUDE.md`, `docs/agent-instructions.md`, or existing migrations unless the task says so.
 - Skills in `.claude/skills/` with a `managed-by: gildeboek@…` frontmatter line are synced from Gilde-dev/gildeboek; never edit them here. Skills without that line belong to this repo.
+- Follow accepted ADRs in docs/adr/; departing from one needs a new ADR that supersedes it, and only when the task asks for it.
 - Do not add dependencies unless the task needs them; mention any new one in the PR.
 - Never commit secrets or `.env` files.
