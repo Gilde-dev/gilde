@@ -16,5 +16,11 @@ export function isLocalhost(hostname: string): boolean {
 }
 
 export function sessionCookieOptions(hostname: string) {
-  return { httpOnly: true, sameSite: 'lax' as const, secure: !isLocalhost(hostname), path: '/' };
+  return { httpOnly: true, sameSite: 'lax' as const, secure: process.env.NODE_ENV === 'production' || !isLocalhost(hostname), path: '/' };
+}
+
+/** Passes the client address Caddy put in X-Forwarded-For on to the API, so its login throttle sees real client IPs. */
+export function forwardedForHeader(req: { headers: Headers }): Record<string, string> {
+  const forwardedFor = req.headers.get('x-forwarded-for');
+  return forwardedFor ? { 'X-Forwarded-For': forwardedFor } : {};
 }

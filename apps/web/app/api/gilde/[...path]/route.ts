@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, apiBaseUrl, sessionCookieOptions } from '@/lib/auth';
+import { SESSION_COOKIE, apiBaseUrl, forwardedForHeader, sessionCookieOptions } from '@/lib/auth';
 
 const CONVERSATION_TOO_LONG = 'The conversation is too long; start a new conversation.';
 
@@ -8,7 +8,10 @@ type Ctx = { params: Promise<{ path: string[] }> };
 async function forward(req: NextRequest, ctx: Ctx): Promise<NextResponse> {
   const { path } = await ctx.params;
   const token = req.cookies.get(SESSION_COOKIE)?.value;
-  const headers: Record<string, string> = { Accept: req.headers.get('accept') ?? 'application/json' };
+  const headers: Record<string, string> = {
+    Accept: req.headers.get('accept') ?? 'application/json',
+    ...forwardedForHeader(req),
+  };
   if (token) headers.Authorization = `Bearer ${token}`;
   const contentType = req.headers.get('content-type');
   if (contentType) headers['Content-Type'] = contentType;

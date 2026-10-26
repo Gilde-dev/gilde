@@ -1,5 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, apiBaseUrl, sessionCookieOptions } from '@/lib/auth';
+import { SESSION_COOKIE, apiBaseUrl, forwardedForHeader, sessionCookieOptions } from '@/lib/auth';
 
 export async function POST(req: NextRequest) {
   let body: unknown;
@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   try {
     upstream = await fetch(`${apiBaseUrl()}/v1/auth/login`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', ...forwardedForHeader(req) },
       body: JSON.stringify(body),
       cache: 'no-store',
     });

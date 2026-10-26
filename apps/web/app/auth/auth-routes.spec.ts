@@ -26,6 +26,18 @@ describe('login route', () => {
     expect(JSON.stringify(await res.json())).not.toContain('jwt');
   });
 
+  it('forwards X-Forwarded-For to the API', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{"accessToken":"jwt"}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const req = new NextRequest('http://localhost:3000/auth/login', {
+      method: 'POST',
+      body: '{}',
+      headers: { 'x-forwarded-for': '203.0.113.7' },
+    });
+    await login(req);
+    expect(fetchMock.mock.calls[0][1].headers['X-Forwarded-For']).toBe('203.0.113.7');
+  });
+
   it('passes API errors through without a cookie', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"message":"Invalid email or password"}', { status: 401 })));
     const res = await login(post('/auth/login', { email: 'a', password: 'b' }));

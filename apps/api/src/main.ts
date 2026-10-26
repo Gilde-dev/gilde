@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule, ObserveInstrument } from './app.module.js';
 import { configureBodyParsing } from './common/body-parser.js';
+import { configureProxy } from './common/proxy.js';
 import { assertAuthConfig, authEnabled } from './auth/auth.config.js';
 
 const port = process.env.PORT ?? 4100;
@@ -19,6 +20,7 @@ async function bootstrap() {
     bodyParser: false,
   });
 
+  configureProxy(app);
   app.setGlobalPrefix('/api');
   configureBodyParsing(app);
   app.enableCors({ origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000' });
