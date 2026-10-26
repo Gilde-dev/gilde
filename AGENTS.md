@@ -21,7 +21,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
 
 ## Commands
 Run from the repo root unless noted.
-- Install: `pnpm install`
+- Install: `pnpm install` — run it first in a fresh session; tests (web especially) fail to start without dependencies
 - Test everything: `pnpm test` (unit tests)
 - CI runs `pnpm build`, `pnpm test` and the API e2e tests (`pnpm --filter @gilde/api test:e2e`); all three must pass before you open a PR
 - Build everything: `pnpm build`
