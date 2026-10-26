@@ -78,14 +78,14 @@ describe('ToolCallView (specific)', () => {
     ]);
     render(<ToolCallView name="listJobs" parameters={{}} status="complete" result={result} />);
     expect(screen.getByText('Add health')).toBeInTheDocument();
-    expect(screen.getByText('merged')).toHaveClass('bg-emerald-100');
-    expect(screen.getByText('parked')).toHaveClass('bg-amber-100');
+    expect(screen.getByText('Merged')).toHaveClass('bg-success-soft');
+    expect(screen.getByText('Parked')).toHaveClass('bg-warning-soft');
   });
 
   it('getJob shows the job title and status', () => {
     render(<ToolCallView name="getJob" parameters={{ jobId: '1' }} status="complete" result={JSON.stringify({ id: '1', title: 'One job', status: 'queued' })} />);
     expect(screen.getByText('One job')).toBeInTheDocument();
-    expect(screen.getByText('queued')).toBeInTheDocument();
+    expect(screen.getByText('Queued')).toBeInTheDocument();
   });
 
   it('planFeature shows valid, or the list of problems', () => {

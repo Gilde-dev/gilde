@@ -15,8 +15,8 @@ export function UsageSection({ days }: { days: number }) {
   const usage = usePolling(fetchUsage, POLL_MS);
   return (
     <section aria-label="Usage" className="space-y-4 border-t border-border p-4">
-      <h2 className="text-lg font-semibold">Usage</h2>
-      {usage.error && <p className="text-sm text-red-800">{usage.error.message}</p>}
+      <h2 className="font-serif text-lg font-semibold">Usage</h2>
+      {usage.error && <p className="text-sm text-danger">{usage.error.message}</p>}
       {usage.loading && !usage.data && <p className="text-sm text-muted-foreground">Loading…</p>}
       {usage.data && <UsageBody usage={usage.data} />}
     </section>
@@ -66,7 +66,7 @@ function UsageChart({ daily }: { daily: Usage['daily'] }) {
         {daily.map((d, i) => {
           const h = (d.totalTokens / max) * H;
           return (
-            <rect key={d.date} x={i * slot + slot * 0.1} y={H - h} width={slot * 0.8} height={h} className="fill-sky-500">
+            <rect key={d.date} x={i * slot + slot * 0.1} y={H - h} width={slot * 0.8} height={h} className="fill-info">
               <title>{`${d.date}: ${formatTokens(d.totalTokens)} tokens, ${formatCost(d.costUsd)}`}</title>
             </rect>
           );

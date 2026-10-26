@@ -13,7 +13,7 @@ export function FeatureProgressBar({ progress }: { progress: Feature['progress']
         aria-valuenow={progress.merged}
         className="h-2 w-32 overflow-hidden rounded bg-muted"
       >
-        <div className="h-full bg-emerald-500" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-success" style={{ width: `${pct}%` }} />
       </div>
       <span>
         {progress.merged}/{progress.total} merged
@@ -21,13 +21,6 @@ export function FeatureProgressBar({ progress }: { progress: Feature['progress']
     </div>
   );
 }
-
-export const STATUS_VARIANT = {
-  draft: 'secondary',
-  active: 'default',
-  done: 'success',
-  cancelled: 'danger',
-} as const;
 
 export function ReadyToCloseBadge({ feature }: { feature: Feature }) {
   if (!feature.progress.readyToClose) return null;

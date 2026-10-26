@@ -92,7 +92,7 @@ export function PromoteSkillDialog({
                 ))}
               </fieldset>
             )}
-            {error && <p role="alert" className="text-red-800">{error}</p>}
+            {error && <p role="alert" className="text-danger">{error}</p>}
             <div className="flex gap-2">
               <Button size="sm" onClick={submit} disabled={saving || (scope === 'stack' && stacks.length === 0)}>
                 Promote

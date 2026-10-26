@@ -101,12 +101,12 @@ export function JobActions({
             id="send-back-reason"
             rows={5}
             maxLength={4000}
-            className="mt-1 w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground"
+            className="mt-1 w-full rounded-md border border-input bg-card px-2 py-1.5 text-sm text-foreground"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
           />
           {error && (
-            <p role="alert" className="mt-2 text-xs text-red-800">
+            <p role="alert" className="mt-2 text-xs text-danger">
               {error}
             </p>
           )}
@@ -130,7 +130,7 @@ export function JobActions({
         </DialogContent>
       </Dialog>
       {error && !sendingBack && (
-        <p role="alert" className="text-xs text-red-800">
+        <p role="alert" className="text-xs text-danger">
           {error}
         </p>
       )}

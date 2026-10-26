@@ -41,7 +41,7 @@ export function SidebarNav({
             {l.href === '/proposals' && count > 0 && (
               <span
                 aria-label={`${count} pending`}
-                className="ml-2 rounded-full bg-sky-100 px-1.5 py-0.5 text-xs font-medium text-sky-900"
+                className="ml-2 rounded-full bg-accent-soft px-1.5 py-0.5 text-xs font-medium text-accent"
               >
                 {count}
               </span>

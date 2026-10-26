@@ -42,11 +42,11 @@ export function MetricsView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">Factory metrics</h2>
+          <h2 className="font-serif text-lg font-semibold">Factory metrics</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select
               aria-label="Project"
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
               value={projectId}
               onChange={(e) => {
                 setProjectId(e.target.value);
@@ -62,7 +62,7 @@ export function MetricsView() {
             </select>
             <select
               aria-label="Repo"
-              className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+              className="h-9 rounded-md border border-input bg-card px-2 text-sm"
               value={repoId}
               disabled={!projectId}
               onChange={(e) => setRepoId(e.target.value)}
@@ -79,7 +79,7 @@ export function MetricsView() {
                 <Button
                   key={d}
                   size="sm"
-                  variant={d === days ? 'default' : 'outline'}
+                  variant={d === days ? 'primary' : 'outline'}
                   aria-pressed={d === days}
                   onClick={() => setDays(d)}
                 >
@@ -89,7 +89,7 @@ export function MetricsView() {
             </div>
           </div>
         </header>
-        {metrics.error && <p className="p-4 text-sm text-red-800">{metrics.error.message}</p>}
+        {metrics.error && <p className="p-4 text-sm text-danger">{metrics.error.message}</p>}
         {metrics.loading && !metrics.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {metrics.data && <MetricsBody metrics={metrics.data} />}
         <UsageSection days={days} />
@@ -166,9 +166,9 @@ function Tile({ label, value }: { label: string; value: string }) {
 }
 
 const SERIES = [
-  { key: 'created', label: 'Created', color: 'bg-sky-500' },
-  { key: 'merged', label: 'Merged', color: 'bg-emerald-500' },
-  { key: 'parked', label: 'Parked', color: 'bg-amber-500' },
+  { key: 'created', label: 'Created', color: 'bg-info' },
+  { key: 'merged', label: 'Merged', color: 'bg-success' },
+  { key: 'parked', label: 'Parked', color: 'bg-warning' },
 ] as const;
 
 function DailyChart({ daily }: { daily: Metrics['daily'] }) {
@@ -222,7 +222,7 @@ function Breakdown({ title, counts }: { title: string; counts: Record<string, nu
                 <span className="text-muted-foreground">{n}</span>
               </div>
               <div className="h-1.5 rounded bg-muted">
-                <div className="h-full rounded bg-sky-500" style={{ width: `${(n / total) * 100}%` }} />
+                <div className="h-full rounded bg-info" style={{ width: `${(n / total) * 100}%` }} />
               </div>
             </li>
           ))}

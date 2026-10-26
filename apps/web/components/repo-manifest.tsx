@@ -26,7 +26,7 @@ export function RepoManifest({ repo, onChanged }: { repo: Repo; onChanged: () =>
       )}
       <p>{repo.manifestSyncedAt ? `Manifest synced ${new Date(repo.manifestSyncedAt).toLocaleString()}` : 'Manifest not synced yet'}</p>
       {repo.manifestError && (
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-danger">
           {repo.manifestError}
         </p>
       )}
@@ -51,7 +51,7 @@ export function RepoManifest({ repo, onChanged }: { repo: Repo; onChanged: () =>
         Refresh
       </Button>
       {error && (
-        <p role="alert" className="text-red-800">
+        <p role="alert" className="text-danger">
           {error}
         </p>
       )}

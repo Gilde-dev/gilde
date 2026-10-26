@@ -4,6 +4,7 @@ import { useSearchParams } from 'next/navigation';
 import { useState, type FormEvent } from 'react';
 import { safeNext } from '@/lib/auth';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 export function LoginForm() {
   const params = useSearchParams();
@@ -41,31 +42,29 @@ export function LoginForm() {
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
+        <h1 className="text-2xl font-semibold">Gilde</h1>
         <label className="flex flex-col gap-1 text-sm">
           Email
-          <input
+          <Input
             type="email"
             required
             autoComplete="username"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="h-9 rounded-md border border-border bg-background px-2"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Password
-          <input
+          <Input
             type="password"
             required
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="h-9 rounded-md border border-border bg-background px-2"
           />
         </label>
         {error && (
-          <p role="alert" className="text-sm text-red-800">
+          <p role="alert" className="text-sm text-danger">
             {error}
           </p>
         )}

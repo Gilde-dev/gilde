@@ -7,6 +7,7 @@ import { JobActions } from './job-actions';
 import { errorText } from '@/lib/job-actions';
 import { CopilotPageContext } from './copilot-provider';
 import { Button } from './ui/button';
+import { StatusBadge } from './status-badge';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -15,12 +16,12 @@ function RunRow({ run }: { run: Run }) {
     <li className="rounded-md border border-border p-3 text-sm">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">Attempt {run.attempt}</span>
-        <Badge variant="secondary">{run.status}</Badge>
+        <Badge variant="neutral">{run.status}</Badge>
         {run.ciConclusion && (
           <Badge variant={run.ciConclusion === 'success' ? 'success' : 'danger'}>CI {run.ciConclusion}</Badge>
         )}
         {run.instructionsVersion && (
-          <Badge variant="outline" title="Agent instructions version">
+          <Badge variant="neutral" title="Agent instructions version">
             Instructions {run.instructionsVersion}
           </Badge>
         )}
@@ -36,7 +37,7 @@ function RunRow({ run }: { run: Run }) {
         )}
       </div>
       {run.result && <p className="mt-2">{run.result.summary}</p>}
-      {run.error && <p className="mt-2 text-red-800">{run.error}</p>}
+      {run.error && <p className="mt-2 text-danger">{run.error}</p>}
       {run.retro && (
         <details className="mt-2">
           <summary className="cursor-pointer text-muted-foreground">Retro</summary>
@@ -56,7 +57,7 @@ function TriageEditor({ job, onChanged }: { job: Job; onChanged: () => void | Pr
   const [criteria, setCriteria] = useState(job.acceptanceCriteria.join('\n'));
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const inputClass = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground';
+  const inputClass = 'w-full rounded-md border border-input bg-card px-2 py-1.5 text-sm text-foreground';
 
   async function save() {
     setSaving(true);
@@ -90,7 +91,7 @@ function TriageEditor({ job, onChanged }: { job: Job; onChanged: () => void | Pr
         <textarea id="triage-criteria" rows={3} className={inputClass} value={criteria} onChange={(e) => setCriteria(e.target.value)} />
       </div>
       {error && (
-        <p role="alert" className="text-sm text-red-800">
+        <p role="alert" className="text-sm text-danger">
           {error}
         </p>
       )}
@@ -145,7 +146,7 @@ function Dependencies({
           return (
             <li key={depId} className="flex items-center gap-2">
               <span>{dep?.title ?? depId}</span>
-              <Badge variant={blocked.has(depId) ? 'warning' : 'success'}>{dep?.status ?? 'merged'}</Badge>
+              <StatusBadge status={dep?.status ?? 'merged'} />
             </li>
           );
         })}
@@ -169,7 +170,7 @@ function Dependencies({
           <select
             multiple
             aria-label="Dependencies"
-            className="w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm"
+            className="w-full rounded-md border border-input bg-card px-2 py-1.5 text-sm"
             value={selected}
             onChange={(e) => setSelected(Array.from(e.target.selectedOptions, (o) => o.value))}
           >
@@ -180,7 +181,7 @@ function Dependencies({
             ))}
           </select>
           {error && (
-            <p role="alert" className="text-sm text-red-800">
+            <p role="alert" className="text-sm text-danger">
               {error}
             </p>
           )}
@@ -257,7 +258,7 @@ export function JobModal({
               <DialogTitle className="pr-6 text-lg font-semibold">{shown.title}</DialogTitle>
               <DialogDescription asChild>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <Badge>{shown.status}</Badge>
+                  <StatusBadge status={shown.status} />
                   {shown.prUrl && (
                     <a href={shown.prUrl} target="_blank" rel="noreferrer" className="underline">
                       PR #{shown.prNumber}
@@ -328,7 +329,7 @@ export function JobModal({
 
             <section>
               <h3 className="text-sm font-semibold">Runs</h3>
-              {error && <p className="mt-1 text-sm text-red-800">{error.message}</p>}
+              {error && <p className="mt-1 text-sm text-danger">{error.message}</p>}
               {data && data.runs.length === 0 && <p className="mt-1 text-sm text-muted-foreground">No runs yet</p>}
               {!data && !error && <p className="mt-1 text-sm text-muted-foreground">Loading…</p>}
               <ul className="mt-1 space-y-2">

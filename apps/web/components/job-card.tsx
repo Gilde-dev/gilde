@@ -44,7 +44,7 @@ export function JobCard({
           onOpen(job);
         }
       }}
-      className="cursor-pointer rounded-md border border-border bg-card p-3 text-left text-sm shadow-sm hover:border-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+      className="cursor-pointer rounded-md border border-border bg-card p-3 text-left text-sm shadow-sm hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start gap-2">
         {onSelect && (
@@ -81,14 +81,14 @@ export function JobCard({
           ))}
         <span>{relativeTime(job.updatedAt)}</span>
         <span
-          className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-900"
+          className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground"
           title={job.createdBy ? `Created by ${job.createdBy.name}` : 'Created by the system'}
         >
           {job.createdBy ? initials(job.createdBy.name) : 'System'}
         </span>
         {job.failedDependency ? (
           <span
-            className="rounded bg-red-100 px-1.5 py-0.5 font-medium text-red-900"
+            className="rounded bg-danger-soft px-1.5 py-0.5 font-medium text-danger"
             title={blockedTitles(job)}
           >
             dependency failed
@@ -96,7 +96,7 @@ export function JobCard({
         ) : (
           job.blockedBy?.length > 0 && (
             <span
-              className="rounded bg-slate-100 px-1.5 py-0.5 font-medium text-slate-900"
+              className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground"
               title={blockedTitles(job)}
             >
               waiting on {job.blockedBy.length}
@@ -105,20 +105,20 @@ export function JobCard({
         )}
         {job.featureId && (
           <span
-            className="max-w-full truncate rounded bg-indigo-100 px-1.5 py-0.5 font-medium text-indigo-900"
+            className="max-w-full truncate rounded bg-accent-soft px-1.5 py-0.5 font-medium text-accent"
             title={`Feature: ${featureTitle ?? job.featureId}`}
           >
             {featureTitle ?? 'feature'}
           </span>
         )}
         {job.pendingRevisions > 0 && (
-          <span className="rounded bg-sky-100 px-1.5 py-0.5 font-medium text-sky-900" title="An agent proposed a change to this job">
+          <span className="rounded bg-info-soft px-1.5 py-0.5 font-medium text-info" title="An agent proposed a change to this job">
             proposal pending
           </span>
         )}
         {job.needsApproval && (
           <span
-            className="rounded bg-amber-100 px-1.5 py-0.5 font-medium text-amber-900"
+            className="rounded bg-warning-soft px-1.5 py-0.5 font-medium text-warning"
             title={job.approvalReason ?? undefined}
           >
             Needs approval
@@ -126,7 +126,7 @@ export function JobCard({
         )}
       </div>
       {job.status === 'parked' && job.lastReason && (
-        <p className="mt-2 truncate text-xs text-red-800" title={job.lastReason}>
+        <p className="mt-2 truncate text-xs text-danger" title={job.lastReason}>
           {job.lastReason}
         </p>
       )}

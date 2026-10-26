@@ -2,17 +2,143 @@
 @tailwind components;
 @tailwind utilities;
 
-:root {
-  --background: 0 0% 100%;
-  --foreground: 240 10% 10%;
-  --card: 0 0% 100%;
-  --muted: 240 5% 96%;
-  --muted-foreground: 240 4% 40%;
-  --border: 240 6% 90%;
-  --primary: 240 6% 12%;
-  --primary-foreground: 0 0% 98%;
+/*
+ * Workshop design tokens (HSL triplets, consumed as hsl(var(--token)) in tailwind.config.ts).
+ * Components use the tokens only; never palette colours (a unit test enforces it).
+ *
+ * Contrast ratios (WCAG 2.x), text on background; AA needs 4.5:1:
+ *                                       light   dark
+ *   foreground on background             15.6   15.5
+ *   muted-foreground on background        6.3    8.3
+ *   muted-foreground on muted             5.8    6.6
+ *   primary-foreground on primary        12.7   14.2
+ *   accent-foreground on accent           5.0    6.2
+ *   accent on background                  4.9    6.2
+ *   accent on accent-soft                 4.5    4.6
+ *   success-foreground on success         7.6    8.6
+ *   success on success-soft               6.5    6.3
+ *   success on background                 7.4    8.6
+ *   warning-foreground on warning         7.7    9.7
+ *   warning on warning-soft               6.6    6.8
+ *   warning on background                 7.5    9.7
+ *   danger-foreground on danger           6.8    6.9
+ *   danger on danger-soft                 5.8    5.4
+ *   danger on background                  6.7    6.9
+ *   info-foreground on info               7.5    8.6
+ *   info on info-soft                     6.4    6.6
+ *   info on background                    7.3    8.6
+ * The accent is slightly darker than hsl(18 65% 45%) in light mode so white text on it stays above 4.5:1.
+ * Recompute after changing a value.
+ */
+@layer base {
+  :root {
+    --background: 36 33% 97%;
+    --foreground: 24 12% 12%;
+    --muted: 34 24% 93%;
+    --muted-foreground: 24 8% 36%;
+    --primary: 24 28% 18%;
+    --primary-foreground: 36 33% 97%;
+    --accent: 18 65% 42%;
+    --accent-foreground: 36 33% 98%;
+    --accent-soft: 18 60% 94%;
+    --success: 140 38% 26%;
+    --success-foreground: 36 33% 98%;
+    --success-soft: 140 30% 90%;
+    --warning: 36 85% 24%;
+    --warning-foreground: 36 33% 98%;
+    --warning-soft: 40 75% 88%;
+    --danger: 8 62% 38%;
+    --danger-foreground: 36 33% 98%;
+    --danger-soft: 8 60% 93%;
+    --info: 212 38% 34%;
+    --info-foreground: 36 33% 98%;
+    --info-soft: 212 40% 92%;
+    --popover: 36 30% 99%;
+    --border: 32 18% 84%;
+    --input: 32 16% 72%;
+    --ring: 18 65% 42%;
+    color-scheme: light;
+  }
+
+  .dark {
+    --background: 24 10% 8%;
+    --foreground: 36 20% 92%;
+    --card: 24 9% 11%;
+    --muted: 24 8% 16%;
+    --muted-foreground: 30 10% 68%;
+    --primary: 36 30% 90%;
+    --primary-foreground: 24 10% 10%;
+    --accent: 20 70% 58%;
+    --accent-foreground: 24 10% 8%;
+    --accent-soft: 20 40% 18%;
+    --success: 140 35% 62%;
+    --success-foreground: 24 10% 8%;
+    --success-soft: 140 25% 16%;
+    --warning: 38 80% 62%;
+    --warning-foreground: 24 10% 8%;
+    --warning-soft: 38 40% 17%;
+    --danger: 8 75% 68%;
+    --danger-foreground: 24 10% 8%;
+    --danger-soft: 8 40% 18%;
+    --info: 212 60% 72%;
+    --info-foreground: 24 10% 8%;
+    --info-soft: 212 35% 18%;
+    --popover: 24 9% 11%;
+    --border: 24 8% 22%;
+    --input: 24 8% 30%;
+    --ring: 20 70% 58%;
+    color-scheme: dark;
+  }
+
+  html {
+    font-size: 14px;
+  }
+
+  body {
+    @apply bg-background font-sans text-foreground antialiased;
+    line-height: 1.45;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-serif;
+    line-height: 1.2;
+  }
+
+  code,
+  kbd,
+  samp {
+    @apply font-mono;
+  }
+
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
+  }
 }
 
-body {
-  @apply bg-background text-foreground antialiased;
+/* CopilotKit sidebar follows the tokens, so it matches both themes. */
+:root,
+.dark {
+  --copilot-kit-primary-color: hsl(var(--accent));
+  --copilot-kit-contrast-color: hsl(var(--accent-foreground));
+  --copilot-kit-background-color: hsl(var(--card));
+  --copilot-kit-input-background-color: hsl(var(--background));
+  --copilot-kit-secondary-color: hsl(var(--muted));
+  --copilot-kit-secondary-contrast-color: hsl(var(--foreground));
+  --copilot-kit-separator-color: hsl(var(--border));
+  --copilot-kit-muted-color: hsl(var(--muted-foreground));
+  --copilot-kit-error-background: hsl(var(--danger-soft));
+  --copilot-kit-error-border: hsl(var(--danger));
+  --copilot-kit-error-text: hsl(var(--danger));
 }
+
+.copilotKitWindow,
+.copilotKitSidebar,
+.copilotKitMessages,
+.copilotKitInput {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+

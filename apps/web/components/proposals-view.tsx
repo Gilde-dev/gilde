@@ -4,10 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, type Project, type Revision } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { SidebarNav } from './sidebar-nav';
+import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
 const POLL_MS = 15_000;
-const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
+const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
@@ -68,7 +69,7 @@ export function ProposalsView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">Proposals</h2>
+          <h2 className="font-serif text-lg font-semibold">Proposals</h2>
           <div className="ml-auto">
             <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               {projects.data?.map((p: Project) => (
@@ -80,7 +81,7 @@ export function ProposalsView() {
           </div>
         </header>
         {(actionError || revisions.error) && (
-          <p role="alert" className="px-4 pt-3 text-sm text-red-800">{actionError ?? revisions.error?.message}</p>
+          <p role="alert" className="px-4 pt-3 text-sm text-danger">{actionError ?? revisions.error?.message}</p>
         )}
         {revisions.loading && !revisions.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {revisions.data && revisions.data.length === 0 && (
@@ -117,7 +118,7 @@ function ProposalCard({
     <li aria-label={r.job.title} className="space-y-3 rounded-md border border-border p-3">
       <div className="flex flex-wrap items-center gap-2">
         <h3 className="font-medium">{r.job.title}</h3>
-        <span className="text-xs text-muted-foreground">{r.job.status}</span>
+        <StatusBadge status={r.job.status} />
         {r.pr && (
           <a href={r.pr.url} target="_blank" rel="noreferrer" className="text-sm underline">
             Proposed in PR #{r.pr.number}
@@ -133,8 +134,8 @@ function ProposalCard({
           <div key={d.field}>
             <h4 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{d.field}</h4>
             <div className="mt-1 grid gap-2 md:grid-cols-2">
-              <pre aria-label={`${d.field} before`} className="whitespace-pre-wrap rounded-md bg-red-50 p-2 text-xs text-red-950">{d.before}</pre>
-              <pre aria-label={`${d.field} after`} className="whitespace-pre-wrap rounded-md bg-emerald-50 p-2 text-xs text-emerald-950">{d.after}</pre>
+              <pre aria-label={`${d.field} before`} className="whitespace-pre-wrap rounded-md bg-danger-soft p-2 text-xs text-danger">{d.before}</pre>
+              <pre aria-label={`${d.field} after`} className="whitespace-pre-wrap rounded-md bg-success-soft p-2 text-xs text-success">{d.after}</pre>
             </div>
           </div>
         ))}

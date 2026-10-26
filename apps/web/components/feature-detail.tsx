@@ -16,11 +16,11 @@ import {
 } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
-import { FeatureProgressBar, ReadyToCloseBadge, STATUS_VARIANT } from './feature-progress';
+import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { CopilotPageContext } from './copilot-provider';
 import { NewJobDialog } from './new-job-dialog';
 import { SidebarNav } from './sidebar-nav';
-import { Badge } from './ui/badge';
+import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
 const POLL_MS = 5000;
@@ -87,7 +87,7 @@ export function FeatureDetailView() {
         <SidebarNav current="/features" />
       </aside>
       <main className="min-w-0 flex-1">
-        {feature.error && <p role="alert" className="p-4 text-sm text-red-800">{feature.error.message}</p>}
+        {feature.error && <p role="alert" className="p-4 text-sm text-danger">{feature.error.message}</p>}
         {feature.loading && !f && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {f && (
           <>
@@ -95,8 +95,8 @@ export function FeatureDetailView() {
               <Link href="/features" className="text-sm text-muted-foreground underline">
                 Features
               </Link>
-              <h2 className="text-lg font-semibold">{f.title}</h2>
-              <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
+              <h2 className="font-serif text-lg font-semibold">{f.title}</h2>
+              <StatusBadge kind="feature" status={f.status} />
               <ReadyToCloseBadge feature={f} />
               <div className="ml-auto flex items-center gap-2">
                 {f.status === 'draft' && (
@@ -126,9 +126,9 @@ export function FeatureDetailView() {
                 )}
               </div>
             </header>
-            {actionError && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{actionError}</p>}
+            {actionError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{actionError}</p>}
             {notes && (notes.warnings.length > 0 || notes.lists.length > 0) && (
-              <div role="status" className="m-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+              <div role="status" className="m-4 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
                 {notes.warnings.length > 0 && (
                   <ul className="list-disc pl-4">
                     {notes.warnings.map((w, i) => (
