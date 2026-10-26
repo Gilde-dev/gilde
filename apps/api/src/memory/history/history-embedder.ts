@@ -1,10 +1,12 @@
 import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
 
+import { usageUser } from '../../usage/usage-context.js';
+import type { UsageService } from '../../usage/usage.service.js';
 import type { MemoryInfrastructure } from '../memory.infrastructure.js';
 import type { HistoryOptions } from './history.types.js';
 
 interface Embedding {
-    doEmbed(args: { values: string[]; providerOptions?: Record<string, Record<string, unknown>> }): Promise<{ embeddings: number[][] }>;
+    doEmbed(args: { values: string[]; providerOptions?: Record<string, Record<string, unknown>> }): Promise<{ embeddings: number[][]; usage?: { tokens?: number } }>;
 }
 
 const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
@@ -19,6 +21,7 @@ export class HistoryEmbedder {
     constructor(
         private readonly infra: MemoryInfrastructure,
         private readonly options: Pick<HistoryOptions, 'embedAttempts' | 'retryDelayMs'>,
+        private readonly usage?: Pick<UsageService, 'record'>,
     ) { }
 
     private get model(): Embedding {
@@ -37,10 +40,12 @@ export class HistoryEmbedder {
         let lastError: unknown;
         for (let attempt = 1; attempt <= this.options.embedAttempts; attempt++) {
             try {
-                const { embeddings } = await this.model.doEmbed({ values, providerOptions });
+                const { embeddings, usage } = await this.model.doEmbed({ values, providerOptions });
                 if (embeddings.length !== values.length) throw new Error(`Embedder returned ${embeddings.length} vectors for ${values.length} inputs`);
                 const bad = embeddings.find((e) => dimension !== undefined && e.length !== dimension);
                 if (bad) throw new Error(`Embedder returned ${bad.length} dimensions, expected ${dimension}; fix MEMORY_EMBEDDING_DIMENSION and rebuild the history index`);
+                // One row per batch; history indexing has no acting user, a search made for a co-pilot request has.
+                void this.usage?.record({ kind: 'embedding', model: this.infra.config.embeddings ? this.infra.config.model : 'custom', userId: usageUser.getStore()?.userId ?? null, inputTokens: usage?.tokens ?? 0 });
                 return embeddings;
             } catch (error) {
                 lastError = error;

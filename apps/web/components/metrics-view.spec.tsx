@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { JOB_STATUSES, api, type Metrics } from '@/lib/api';
+import { JOB_STATUSES, api, type Metrics, type Usage } from '@/lib/api';
 import { MetricsView, formatMinutes } from './metrics-view';
 
 vi.mock('next/link', () => ({
@@ -41,9 +41,12 @@ const withData: Metrics = {
   ],
 };
 
+const noUsage: Usage = { days: 30, totals: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: null, runs: 0 }, daily: [], byModel: [], byKind: [], byUser: [] };
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'p1', name: 'Proj' } as never]);
+  vi.spyOn(api, 'getUsage').mockResolvedValue(noUsage);
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r1', fullName: 'o/r' } as never]);
 });
 

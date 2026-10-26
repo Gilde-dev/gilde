@@ -1,10 +1,11 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import type { MemoryInfrastructure } from '../memory.infrastructure.js';
 import { MEMORY_INFRASTRUCTURE } from '../memory.tokens.js';
 
+import { UsageService } from '../../usage/usage.service.js';
 import { HistoryEmbedder } from './history-embedder.js';
 import { HistorySourceService } from './history-source.service.js';
 import {
@@ -37,8 +38,9 @@ export class HistorySearchService {
         @Inject(HISTORY_OPTIONS) private readonly options: HistoryOptions,
         private readonly source: HistorySourceService,
         @InjectRepository(HistoryState) private readonly states: Repository<HistoryState>,
+        @Optional() private readonly usage?: UsageService,
     ) {
-        this.embedder = new HistoryEmbedder(infra, options);
+        this.embedder = new HistoryEmbedder(infra, options, usage);
     }
 
     /** Throws NotFound/BadRequest for an unknown project or repo, or a repo outside the project. Retrieval problems return `unavailable`. */

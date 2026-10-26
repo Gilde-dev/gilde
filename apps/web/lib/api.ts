@@ -442,6 +442,26 @@ export interface Metrics {
   daily: { date: string; created: number; merged: number; parked: number }[];
 }
 
+export interface UsageTotals {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  reasoningTokens: number;
+  totalTokens: number;
+  /** Null when no row in the group has a known price. */
+  costUsd: number | null;
+  runs: number;
+}
+
+export interface Usage {
+  days: number;
+  totals: UsageTotals;
+  daily: (UsageTotals & { date: string })[];
+  byModel: (UsageTotals & { model: string })[];
+  byKind: (UsageTotals & { kind: 'chat' | 'embedding' })[];
+  byUser: (UsageTotals & { userId: string | null; userName: string | null })[];
+}
+
 export interface MetricsFilter {
   projectId?: string;
   repoId?: string;
@@ -534,6 +554,7 @@ export const api = {
     if (repoId) q.set('repoId', repoId);
     return request<Metrics>(`/v1/metrics?${q}`);
   },
+  getUsage: (days: number) => request<Usage>(`/v1/usage?days=${days}`),
   getDispatchStatus: () => request<DispatchStatus>('/v1/dispatch/status'),
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),

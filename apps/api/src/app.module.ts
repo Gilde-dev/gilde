@@ -24,6 +24,7 @@ import { AuthModule } from './auth/auth.module.js';
 import { CopilotModule } from './copilot/copilot.module.js';
 import { MemoryModule } from './memory/memory.module.js';
 import { HistoryModule } from './memory/history/history.module.js';
+import { UsageModule } from './usage/usage.module.js';
 import { NotificationModule } from './notification/notification.module.js';
 
 
@@ -39,6 +40,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     TypeOrmModule.forRoot(databaseConfig()),
     ScheduleModule.forRoot(),
     HealthModule,
+    UsageModule,
     MemoryModule,
     HistoryModule,
     ProjectModule,
