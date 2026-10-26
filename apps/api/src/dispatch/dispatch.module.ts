@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { NotificationModule } from '../notification/notification.module.js';
 import { ExecutionModule } from '../execution/execution.module.js';
 import { Feature } from '../feature/feature.entity.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
@@ -30,7 +31,8 @@ import { DispatcherService } from './dispatcher.service.js';
         ExecutionModule,
         HistoryModule,
         RepoModule,
-        RunModule
+        RunModule,
+        NotificationModule
     ],
     controllers: [
         DispatchController

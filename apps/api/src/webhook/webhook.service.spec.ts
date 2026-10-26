@@ -1,5 +1,6 @@
 import { DataSource, type Repository } from 'typeorm';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { Logger } from '@nestjs/common';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { JobStatus } from '../job/job-state.js';
 import { User } from '../user/user.entity.js';
@@ -11,6 +12,12 @@ import { Feedback } from '../feedback/feedback.entity.js';
 import { FeedbackMapper } from '../feedback/feedback.mapper.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { JobRun } from '../run/run.entity.js';
+import { Feature } from '../feature/feature.entity.js';
+import { JobEventsService } from '../job/job-events.service.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { NotificationMapper } from '../notification/notification.mapper.js';
+import { Notification } from '../notification/notification.entity.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { WebhookService } from './webhook.service.js';
 
 const SHA1 = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
@@ -24,10 +31,11 @@ let runs: Repository<JobRun>;
 let service: WebhookService;
 let feedbackService: FeedbackService;
 let repo: Repo;
+let notifications: Repository<Notification>;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun, Feedback], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun, Feedback, Feature, Notification], synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
     repos = ds.getRepository(Repo);
@@ -39,7 +47,12 @@ beforeEach(async () => {
         findByFullName: (n: string) => repos.findOneBy({ fullName: n.toLowerCase() }),
     } as unknown as RepoService;
     feedbackService = new FeedbackService(new FeedbackMapper(), ds.getRepository(Feedback));
-    service = new WebhookService(repoService, feedbackService, jobs, runs, projects);
+    notifications = ds.getRepository(Notification);
+    const capture = new NotificationCaptureService(
+        new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature),
+    );
+    const events = new JobEventsService(jobs, runs, projects, undefined, undefined, undefined, capture);
+    service = new WebhookService(repoService, feedbackService, jobs, runs, projects, events);
 });
 
 afterEach(() => ds.destroy());
@@ -557,5 +570,109 @@ describe('WebhookService', () => {
                 .toBe('ignored: job merged cannot take merged');
             expect((await reload(job.id)).status).toBe('merged');
         });
+    });
+});
+
+describe('notification events', () => {
+    const kinds = async () => (await notifications.find({ order: { createdAt: 'ASC' } })).map((n) => n.kind);
+    const REASON = 'Protected paths changed; add the gilde:allow-protected label if intended';
+
+    it('records job.awaiting_review once per job, attempt and head, even when CI is redelivered', async () => {
+        const job = await seedJob('pr_open', { prNumber: 12, prUrl: 'https://github.com/gilde-dev/gilde/pull/12', headSha: SHA1 });
+        await service.handle('workflow_run', runPayload());
+        await service.handle('workflow_run', runPayload());
+        const rows = await notifications.find();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({
+            kind: 'job.awaiting_review', jobId: job.id, projectId: job.projectId, title: 'T', repos: ['gilde-dev/gilde'],
+            prLinks: [{ repo: 'gilde-dev/gilde', number: 12, url: 'https://github.com/gilde-dev/gilde/pull/12' }],
+            occurrenceKey: `job.awaiting_review:${job.id}:a1:${SHA1}`,
+        });
+    });
+
+    it('records a new awaiting_review event for a new head', async () => {
+        const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+        await service.handle('workflow_run', runPayload());
+        await jobs.update({ id: job.id }, { status: 'pr_open', headSha: SHA2 });
+        await service.handle('workflow_run', runPayload({ head_sha: SHA2 }));
+        expect(await kinds()).toEqual(['job.awaiting_review', 'job.awaiting_review']);
+    });
+
+    it('records nothing for stale CI, a passing CI that loses the write, or a job that cannot take it', async () => {
+        await seedJob('pr_open', { prNumber: 12, headSha: SHA2 });
+        await service.handle('workflow_run', runPayload());
+        expect(await notifications.count()).toBe(0);
+
+        const job = await seedJob('pr_open', { prNumber: 13, headSha: SHA1 });
+        const stale = await reload(job.id);
+        await jobs.update({ id: job.id }, { status: 'merged' });
+        const events = (service as unknown as { events: JobEventsService }).events;
+        await events.workflowCompleted(stale, 13, { name: 'CI', conclusion: 'success', headSha: SHA1 });
+        expect(await notifications.count()).toBe(0);
+    });
+
+    it('records job.parked when CI failure exhausts attempts, with the cause in the key, and not when requeued', async () => {
+        await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+        await service.handle('workflow_run', runPayload({ conclusion: 'failure' }));
+        expect(await notifications.count()).toBe(0);
+
+        const job = await seedJob('pr_open', { prNumber: 14, headSha: SHA2, attempts: 3 });
+        await service.handle('workflow_run', runPayload({ conclusion: 'failure', head_sha: SHA2, pull_requests: [{ number: 14 }] }));
+        const rows = await notifications.find();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ kind: 'job.parked', jobId: job.id, occurrenceKey: `job.parked:${job.id}:a3:${SHA2}:failure` });
+        expect(rows[0].reason).toContain('CI failure');
+    });
+
+    it('records one approval request per job, attempt and head and none for stale or passing gates', async () => {
+        const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+        const gate = runPayload({ name: 'Gates', conclusion: 'failure' });
+        await service.handle('workflow_run', gate);
+        await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'success' }));
+        await service.handle('workflow_run', gate); // cleared and set again: same logical request
+        const rows = await notifications.find();
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ kind: 'job.approval_needed', jobId: job.id, reason: REASON });
+
+        await jobs.update({ id: job.id }, { headSha: SHA2 });
+        await service.handle('workflow_run', gate); // stale
+        expect(await notifications.count()).toBe(1);
+        await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'failure', head_sha: SHA2 }));
+        expect(await notifications.count()).toBe(2);
+    });
+
+    it('does not record an approval request for a finished job', async () => {
+        await seedJob('merged', { prNumber: 12, headSha: SHA1 });
+        await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'failure' }));
+        expect(await notifications.count()).toBe(0);
+    });
+
+    it('keeps the original outcome when the notification insert or its enrichment read fails', async () => {
+        const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        vi.spyOn(notifications, 'insert').mockRejectedValue(new Error('insert down'));
+        const job = await seedJob('pr_open', { prNumber: 12, headSha: SHA1 });
+        expect(await service.handle('workflow_run', runPayload())).toBe('job awaiting_review with PR #12');
+        expect((await reload(job.id)).status).toBe('awaiting_review');
+
+        vi.restoreAllMocks();
+        vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        const lookup = repos.findOneBy.bind(repos);
+        let calls = 0; // the first lookup is the webhook's own repo resolution; the capture's enrichment read is the next
+        vi.spyOn(repos, 'findOneBy').mockImplementation((...args) => (calls++ === 0 ? lookup(...args) : Promise.reject(new Error('read down'))));
+        const gated = await seedJob('pr_open', { prNumber: 15, headSha: SHA2 });
+        const res = await service.handle('workflow_run', runPayload({ name: 'Gates', conclusion: 'failure', head_sha: SHA2, pull_requests: [{ number: 15 }] }));
+        expect(res).toBe('gate failed: job pr_open needs approval for PR #15');
+        expect(await reload(gated.id)).toMatchObject({ needsApproval: true });
+        expect(await notifications.count()).toBe(0);
+        log.mockRestore();
+        vi.restoreAllMocks();
+    });
+
+    it('sending a job back at max attempts records a parked event of its own cause', async () => {
+        const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1, attempts: 3 });
+        const events = (service as unknown as { events: JobEventsService }).events;
+        expect(await events.sendBack(job, 'nope')).toBe('parked');
+        const rows = await notifications.find();
+        expect(rows.map((n) => n.occurrenceKey)).toEqual([`job.parked:${job.id}:a3:${SHA1}:sent_back`]);
     });
 });

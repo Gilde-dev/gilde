@@ -6,6 +6,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { FeedbackModule } from '../feedback/feedback.module.js';
 import { ExecutionModule } from '../execution/execution.module.js';
 import { HistoryModule } from '../memory/history/history.module.js';
+import { NotificationModule } from '../notification/notification.module.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
@@ -31,7 +32,8 @@ import { JobController } from './job.controller.js';
         HistoryModule,
         RepoModule,
         RunModule,
-        FeedbackModule
+        FeedbackModule,
+        NotificationModule
     ],
     controllers: [
         JobController

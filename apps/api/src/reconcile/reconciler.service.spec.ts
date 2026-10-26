@@ -10,6 +10,11 @@ import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
+import { Feature } from '../feature/feature.entity.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { Notification } from '../notification/notification.entity.js';
+import { NotificationMapper } from '../notification/notification.mapper.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { ReconcilerService } from './reconciler.service.js';
 
 const SHA1 = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
@@ -21,10 +26,11 @@ let projects: Repository<Project>;
 let repo: Repo;
 let github: GitHubPort & { pulls: Map<number, GitHubPull>; recent: GitHubPull[]; workflows: GitHubWorkflowRun[] };
 let service: ReconcilerService;
+let notifications: Repository<Notification>;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun, Feature, Notification], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     projects = ds.getRepository(Project);
@@ -41,7 +47,11 @@ beforeEach(async () => {
         getFileContent: async () => null,
         listDirectory: async () => null,
     };
-    const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects);
+    notifications = ds.getRepository(Notification);
+    const capture = new NotificationCaptureService(
+        new NotificationService(notifications, new NotificationMapper()), ds.getRepository(Repo), jobs, ds.getRepository(Feature),
+    );
+    const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects, undefined, undefined, undefined, capture);
     service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo));
 });
 
@@ -243,5 +253,55 @@ describe('GitHubRestAdapter', () => {
         expect((err as Error).message).not.toContain('secret-token');
         fetchSpy.mockRestore();
         vi.unstubAllEnvs();
+    });
+
+    describe('notification events', () => {
+        const keys = async () => (await notifications.find({ order: { createdAt: 'ASC' } })).map((n) => n.occurrenceKey);
+
+        it('records awaiting_review for a missed CI success once, however often the pass repeats', async () => {
+            const job = await prJob('pr_open');
+            github.pulls.set(12, pull());
+            github.workflows = [completed('CI', 'success')];
+            await service.reconcile();
+            await jobs.update({ id: job.id }, { status: 'pr_open' }); // e.g. a webhook replay pulled it back
+            await service.reconcile();
+            expect(await keys()).toEqual([`job.awaiting_review:${job.id}:a1:${SHA1}`]);
+        });
+
+        it('records nothing for CI of an older head', async () => {
+            await prJob('pr_open', { headSha: SHA2 });
+            github.pulls.set(12, pull({ headSha: SHA2 }));
+            github.workflows = [completed('CI', 'success')];
+            await service.reconcile();
+            const rows = await notifications.find();
+            expect(rows.every((n) => n.occurrenceKey.endsWith(SHA2))).toBe(true);
+        });
+
+        it('records parked after a missed CI failure at max attempts and approval for a missed failing gate', async () => {
+            const parked = await prJob('pr_open', { attempts: 3 });
+            github.pulls.set(12, pull());
+            github.workflows = [completed('CI', 'failure')];
+            await service.reconcile();
+            expect(await keys()).toEqual([`job.parked:${parked.id}:a3:${SHA1}:failure`]);
+
+            await jobs.update({ id: parked.id }, { status: 'pr_open' });
+            github.workflows = [completed('Gates', 'failure')];
+            await service.reconcile();
+            expect(await keys()).toContain(`job.approval_needed:${parked.id}:a3:${SHA1}`);
+        });
+
+        it('records feature.ready_to_close for a missed merge that completes the feature', async () => {
+            const feature = await ds.getRepository(Feature).save(
+                ds.getRepository(Feature).create({ projectId: repo.projectId, title: 'F', spec: 's', status: 'active' }),
+            );
+            await seedJob('merged', { featureId: feature.id });
+            await prJob('awaiting_review', { featureId: feature.id });
+            github.pulls.set(12, pull({ state: 'closed', merged: true }));
+            await service.reconcile();
+            const rows = await notifications.find();
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ kind: 'feature.ready_to_close', featureId: feature.id, title: 'F', repos: ['gilde-dev/gilde'] });
+            expect(rows[0].prLinks).toEqual([{ repo: 'gilde-dev/gilde', number: 12, url: 'u' }]);
+        });
     });
 });

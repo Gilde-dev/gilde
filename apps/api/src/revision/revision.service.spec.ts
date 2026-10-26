@@ -1,4 +1,4 @@
-import { BadRequestException, ConflictException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -24,6 +24,10 @@ import { JobRun } from '../run/run.entity.js';
 import { RunMapper } from '../run/run.mapper.js';
 import { RunService } from '../run/run.service.js';
 import { WebhookService } from '../webhook/webhook.service.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { Notification } from '../notification/notification.entity.js';
+import { NotificationMapper } from '../notification/notification.mapper.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { ProposalService } from './proposal.service.js';
 import { JobRevision } from './revision.entity.js';
 import { RevisionService } from './revision.service.js';
@@ -36,6 +40,7 @@ let runs: Repository<JobRun>;
 let revisions: Repository<JobRevision>;
 let deps: Repository<JobDependency>;
 let revisionService: RevisionService;
+let notifications: Repository<Notification>;
 let webhook: WebhookService;
 let project: Project;
 let repo: Repo;
@@ -44,7 +49,7 @@ let seq = 0;
 beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3', database: ':memory:',
-        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback], synchronize: true,
+        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback, Notification], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
@@ -59,7 +64,9 @@ beforeEach(async () => {
     const repoService = { findByFullName: () => repos.findOneBy({ id: repo.id }), getById: () => repos.findOneByOrFail({ id: repo.id }) };
     const jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, deps, ds.getRepository(Feature));
     revisionService = new RevisionService(jobService, revisions, jobs, runs, deps);
-    const events = new JobEventsService(jobs, runs, projects, undefined, undefined, new ProposalService(jobs, runs, revisions));
+    notifications = ds.getRepository(Notification);
+    const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
+    const events = new JobEventsService(jobs, runs, projects, undefined, undefined, new ProposalService(jobs, runs, revisions, capture), capture);
     webhook = new WebhookService(
         repoService as never, new FeedbackService(new FeedbackMapper(), ds.getRepository(Feedback)), jobs, runs, projects, events,
     );
@@ -295,5 +302,89 @@ describe('loadDownstream', () => {
             await deps.insert({ jobId: j.id, dependsOnJobId: root.id });
         }
         expect(await loadDownstream(ds.manager, root)).toHaveLength(20);
+    });
+});
+
+describe('revision.waiting notifications', () => {
+    let own: Job;
+    let run: JobRun;
+    beforeEach(async () => {
+        own = await seedJob('pr_open', { prNumber: 12, prUrl: 'https://x/pull/12' });
+        run = await seedRun(own);
+    });
+    const rows = () => notifications.find({ order: { createdAt: 'ASC' } });
+
+    it('records one event per saved proposal, linking the proposing run PR and the target job', async () => {
+        const next = await seedJob('queued');
+        await edited(own, run, proposal(next.id));
+        const all = await rows();
+        expect(all).toHaveLength(1);
+        expect(all[0]).toMatchObject({
+            kind: 'revision.waiting', jobId: next.id, projectId: project.id, title: next.title, repos: ['o/r'],
+            reason: 'built it differently', prLinks: [{ repo: 'o/r', number: 12, url: 'https://x/pull/12' }],
+        });
+        expect(all[0].occurrenceKey).toMatch(new RegExp(`^revision\\.waiting:${run.id}:${next.id}:[0-9a-f]{32}$`));
+    });
+
+    it('deduplicates an unchanged proposal that is re-parsed (rows are deleted and recreated)', async () => {
+        const next = await seedJob('queued');
+        await edited(own, run, proposal(next.id));
+        const first = await revisions.findOneByOrFail({ jobId: next.id });
+        await edited(own, run, proposal(next.id));
+        await edited(own, run, proposal(next.id));
+        expect((await revisions.findOneByOrFail({ jobId: next.id })).id).not.toBe(first.id);
+        expect(await notifications.count()).toBe(1);
+    });
+
+    it('notifies again for a meaningful edit, and for the same content from another run', async () => {
+        const next = await seedJob('queued');
+        await edited(own, run, proposal(next.id));
+        await edited(own, run, proposal(next.id, { task: 'a different revised task' }));
+        await edited(own, run, proposal(next.id, { reason: 'another reason' }));
+        expect(await notifications.count()).toBe(3);
+
+        const run2 = await runs.save(runs.create({ jobId: own.id, projectId: own.projectId, repoId: own.repoId, attempt: 2, status: 'pr_opened' }));
+        await edited(own, run2, proposal(next.id, { reason: 'another reason' }));
+        expect(await notifications.count()).toBe(4);
+    });
+
+    it('records nothing for decided, started, foreign-project or invalid proposals', async () => {
+        const decided = await seedJob('queued');
+        await seedRevision(decided, { sourceRunId: run.id, status: 'rejected' });
+        const started = await seedJob('dispatched');
+        const otherProject = await ds.getRepository(Project).save({ slug: 'q', name: 'Q' });
+        const otherRepo = await ds.getRepository(Repo).save({ projectId: otherProject.id, fullName: 'o/q', testCommands: ['x'] });
+        const foreign = await jobs.save(jobs.create({ projectId: otherProject.id, repoId: otherRepo.id, title: 'F', task: 't', status: 'queued' }));
+        for (const j of [decided, started, foreign]) await edited(own, run, proposal(j.id));
+        await edited(own, run, 'not json');
+        expect(await notifications.count()).toBe(0);
+    });
+
+    it('acceptance and rejection do not record anything', async () => {
+        const next = await seedJob('queued');
+        await edited(own, run, proposal(next.id));
+        const rev = await revisions.findOneByOrFail({ jobId: next.id });
+        await revisionService.accept(rev.id);
+        expect(await notifications.count()).toBe(1);
+    });
+
+    it('still saves the proposal when the insert or the enrichment read fails', async () => {
+        const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+        const next = await seedJob('queued');
+        const insert = vi.spyOn(notifications, 'insert').mockRejectedValue(new Error('insert down'));
+        await edited(own, run, proposal(next.id));
+        expect(await revisions.countBy({ jobId: next.id, status: 'proposed' })).toBe(1);
+
+        insert.mockRestore();
+        const other = await seedJob('queued');
+        const repos = ds.getRepository(Repo);
+        const lookup = repos.findOneBy.bind(repos);
+        let calls = 0; // the webhook resolves its repo first; the capture's enrichment read follows
+        vi.spyOn(repos, 'findOneBy').mockImplementation((...args) => (calls++ === 0 ? lookup(...args) : Promise.reject(new Error('read down'))));
+        await edited(own, run, proposal(other.id));
+        expect(await revisions.countBy({ jobId: other.id, status: 'proposed' })).toBe(1);
+        expect(await notifications.count()).toBe(0);
+        expect(log).toHaveBeenCalled();
+        vi.restoreAllMocks();
     });
 });

@@ -17,6 +17,10 @@ import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { RunMapper } from '../run/run.mapper.js';
 import { RunService } from '../run/run.service.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { Notification } from '../notification/notification.entity.js';
+import { NotificationMapper } from '../notification/notification.mapper.js';
+import { NotificationService } from '../notification/notification.service.js';
 import { DispatcherService } from './dispatcher.service.js';
 
 let ds: DataSource;
@@ -28,12 +32,13 @@ let jobs: Repository<Job>;
 let runs: Repository<JobRun>;
 let repoService: RepoService;
 let searchLessons: ReturnType<typeof vi.fn>;
+let notifications: Repository<Notification>;
 
 beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
-        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision],
+        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Notification],
         synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
@@ -44,7 +49,9 @@ beforeEach(async () => {
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) };
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never);
+    notifications = ds.getRepository(Notification);
+    const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, capture);
 });
 
 afterEach(() => ds.destroy());
@@ -274,6 +281,55 @@ describe('DispatcherService', () => {
         await dispatcher.dispatch();
 
         expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'kaput' });
+    });
+
+    describe('job.parked notifications', () => {
+        it('records one event when a failed fire parks the job, keyed by job, attempt and cause', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 2 }));
+            const job = await seedJob(repo);
+            fire.mockRejectedValue(new ExecutionError('boom', 'transient'));
+
+            await dispatcher.dispatch();
+            expect(await notifications.count()).toBe(0); // requeued, not parked
+
+            await dispatcher.dispatch();
+            const rows = await notifications.find();
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({
+                kind: 'job.parked', jobId: job.id, projectId: repo.projectId, title: 'T', repos: [repo.fullName],
+                reason: 'boom', prLinks: [], occurrenceKey: `job.parked:${job.id}:a2:none:dispatch`,
+            });
+        });
+
+        it('records nothing for a config error, which requeues without parking', async () => {
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            fire.mockRejectedValue(new ExecutionError('token missing', 'config'));
+            await dispatcher.dispatch();
+            expect(await notifications.count()).toBe(0);
+        });
+
+        it('records nothing when another writer moved the job first', async () => {
+            const job = await seedJob(await seedRepo(await seedProject()));
+            fire.mockImplementation(async () => {
+                await jobs.update({ id: job.id }, { status: 'cancelled' });
+                throw new Error('kaput');
+            });
+            await dispatcher.dispatch();
+            expect((await reload(job.id)).status).toBe('cancelled');
+            expect(await notifications.count()).toBe(0);
+        });
+
+        it('keeps the parked outcome when the insert fails', async () => {
+            const log = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+            vi.spyOn(notifications, 'insert').mockRejectedValue(new Error('insert down'));
+            const job = await seedJob(await seedRepo(await seedProject()));
+            fire.mockRejectedValue(new Error('kaput'));
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'kaput', attempts: 1 });
+            expect(log).toHaveBeenCalled();
+            log.mockRestore();
+        });
     });
 
     it('marks the run fire_failed on an unknown error', async () => {

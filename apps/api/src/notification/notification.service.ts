@@ -14,8 +14,8 @@ import {
 import { Notification } from './notification.entity.js';
 import { NotificationMapper } from './notification.mapper.js';
 
-/** Envelope, or a function that gathers it; a throwing function is logged like a failed insert. */
-export type NotificationSource = RecordNotificationInput | (() => RecordNotificationInput | Promise<RecordNotificationInput>);
+/** Envelope, or a function that gathers it (null: nothing to record); a throwing function is logged like a failed insert. */
+export type NotificationSource = RecordNotificationInput | (() => RecordNotificationInput | null | Promise<RecordNotificationInput | null>);
 
 /** Redacts bearer tokens and token-like values, collapses whitespace and bounds the length. */
 export function sanitizeReason(reason: string): string {
@@ -44,7 +44,9 @@ export class NotificationService {
     async recordQuietly(source: NotificationSource): Promise<boolean> {
         let input: RecordNotificationInput | undefined;
         try {
-            input = typeof source === 'function' ? await source() : source;
+            const gathered = typeof source === 'function' ? await source() : source;
+            if (!gathered) return false;
+            input = gathered;
             await this.notifications.insert({
                 occurrenceKey: input.occurrenceKey,
                 kind: input.kind,
