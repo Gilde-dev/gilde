@@ -133,6 +133,7 @@ function PlanApprovalWithRepos({ plan, onApprove, onCancel }: { plan: FeaturePla
  */
 export function CopilotPlanApproval() {
   useInterrupt({
+    agentId: 'gilde',
     enabled: (event) => planFromInterrupt(event.value as ApprovalInterrupt) !== null,
     render: ({ interrupt, resolve, cancel }) => {
       const plan = planFromInterrupt(interrupt as ApprovalInterrupt | null);
