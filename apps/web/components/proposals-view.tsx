@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Project, type Revision } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
-import { SidebarNav } from './sidebar-nav';
+import { useProject } from '@/lib/use-project';
+import { NoProjects } from './no-projects';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
@@ -33,14 +34,10 @@ export function revisionDiff(r: Revision): FieldDiff[] {
 const list = (items: string[]) => (items.length ? items.map((i) => `- ${i}`).join('\n') : '(none)');
 
 export function ProposalsView() {
-  const [projectId, setProjectId] = useState('');
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  const projects = usePolling(api.listProjects, 60_000);
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projectId, projects.data]);
+  const { projects, projectId } = useProject();
 
   const fetchRevisions = useCallback(
     () => (projectId ? api.listRevisions('proposed', projectId) : Promise.resolve([] as Revision[])),
@@ -62,24 +59,11 @@ export function ProposalsView() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/proposals" />
-      </aside>
-      <main className="min-w-0 flex-1">
+    <>
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">Proposals</h2>
-          <div className="ml-auto">
-            <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              {projects.data?.map((p: Project) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
-          </div>
         </header>
+        {projects?.length === 0 && <NoProjects />}
         {(actionError || revisions.error) && (
           <p role="alert" className="px-4 pt-3 text-sm text-danger">{actionError ?? revisions.error?.message}</p>
         )}
@@ -98,8 +82,7 @@ export function ProposalsView() {
             />
           ))}
         </ul>
-      </main>
-    </div>
+    </>
   );
 }
 

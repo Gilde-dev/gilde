@@ -3,6 +3,7 @@
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, type Job } from '@/lib/api';
+import { useProject } from '@/lib/use-project';
 import { usePolling } from '@/lib/use-polling';
 import { Button } from './ui/button';
 import { NewJobDialog } from './new-job-dialog';
@@ -12,7 +13,7 @@ import { Board } from './board';
 import { DispatchStrip } from './dispatch-strip';
 import { JobModal } from './job-modal';
 import { CopilotPageContext } from './copilot-provider';
-import { Sidebar } from './sidebar';
+import { NoProjects } from './no-projects';
 
 const POLL_MS = 5000;
 
@@ -26,10 +27,9 @@ export function Dashboard() {
   const [featureFilter, setFeatureFilter] = useState('');
   const [creatorFilter, setCreatorFilter] = useState<'' | 'me'>('');
 
-  const projects = usePolling(api.listProjects, 30_000);
+  const projects = useProject();
+  const { project, projectId } = projects;
   const requested = params.get('project');
-  const projectId =
-    projects.data?.find((p) => p.id === requested)?.id ?? projects.data?.[0]?.id ?? null;
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([])), [projectId]);
   const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId, creatorFilter || undefined) : Promise.resolve([])), [projectId, creatorFilter]);
@@ -38,8 +38,6 @@ export function Dashboard() {
   const features = usePolling(fetchFeatures, POLL_MS);
   const jobs = usePolling(fetchJobs, POLL_MS);
   const dispatch = usePolling(api.getDispatchStatus, POLL_MS);
-
-  const project = projects.data?.find((p) => p.id === projectId);
 
   // Deep link /?project=<id>&job=<id>: fetch the job by id so it opens regardless of board filters.
   const jobParam = params.get('job');
@@ -84,26 +82,18 @@ export function Dashboard() {
     await Promise.all([projects.refresh(), repos.refresh(), jobs.refresh()]);
   };
 
-  const selectProject = (id: string) => {
-    setSelected(null);
+  // Another project: the open job and the feature filter belong to the previous one.
+  useEffect(() => {
+    setSelected((s) => (s && s.projectId !== projectId && !jobParam ? null : s));
     setFeatureFilter('');
-    router.replace(`${pathname}?project=${encodeURIComponent(id)}`);
-  };
+  }, [projectId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex min-h-screen">
-      <Sidebar
-        projects={projects.data ?? []}
-        projectId={projectId}
-        repos={repos.data}
-        reposError={repos.error}
-        onSelectProject={selectProject}
-        onChanged={refreshAll}
-      />
-      <main className="min-w-0 flex-1">
+    <>
         {projects.error && <p className="p-4 text-sm text-danger">{projects.error.message}</p>}
         {jobs.error && <p className="p-4 text-sm text-danger">{jobs.error.message}</p>}
-        {projects.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No projects yet.</p>}
+        {repos.error && <p className="p-4 text-sm text-danger">{repos.error.message}</p>}
+        {projects.projects?.length === 0 && <NoProjects />}
         {project && (
           <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
             <h2 className="font-serif text-lg font-semibold">{project.name}</h2>
@@ -166,7 +156,6 @@ export function Dashboard() {
             onEnqueued={setWarnings}
           />
         )}
-      </main>
       {projectId && <CopilotPageContext description="The project selected in the Gilde UI" value={{ projectId }} />}
       <JobModal job={selected} projectJobs={jobs.data ?? []} onClose={closeJob} onChanged={jobs.refresh} onEnqueued={setWarnings} />
       <NewJobDialog
@@ -176,6 +165,6 @@ export function Dashboard() {
         onClose={() => setCreating(false)}
         onCreated={jobs.refresh}
       />
-    </div>
+    </>
   );
 }

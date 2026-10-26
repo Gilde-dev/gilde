@@ -12,8 +12,9 @@ import {
 } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
+import { useProject } from '@/lib/use-project';
 import { PromoteSkillDialog } from './promote-skill-dialog';
-import { SidebarNav } from './sidebar-nav';
+import { NoProjects } from './no-projects';
 import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 
@@ -32,12 +33,7 @@ export const STATUS_VARIANTS: Record<SkillStatus, BadgeVariant> = {
 };
 
 export function SkillsView() {
-  const [projectId, setProjectId] = useState('');
-  const projects = usePolling(api.listProjects, POLL_MS);
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projectId, projects.data]);
-  const project = projects.data?.find((p) => p.id === projectId);
+  const { projects, project, projectId, refresh: refreshProjects } = useProject();
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([] as Repo[])), [projectId]);
   const repos = usePolling(fetchRepos, POLL_MS);
@@ -54,6 +50,7 @@ export function SkillsView() {
   const [refreshError, setRefreshError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   async function refresh() {
+    if (!projectId) return;
     setRefreshing(true);
     setRefreshError(null);
     try {
@@ -67,22 +64,10 @@ export function SkillsView() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/skills" />
-      </aside>
-      <main className="min-w-0 flex-1">
+    <>
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">Skills</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              {projects.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
             {project && project.skillsLibrary !== 'none' && (
               <Button size="sm" onClick={refresh} disabled={refreshing}>
                 Refresh
@@ -90,7 +75,8 @@ export function SkillsView() {
             )}
           </div>
         </header>
-        {project && <LibrarySettings project={project} repos={repos.data ?? []} onSaved={projects.refresh} />}
+        {projects?.length === 0 && <NoProjects />}
+        {project && <LibrarySettings project={project} repos={repos.data ?? []} onSaved={refreshProjects} />}
         {refreshError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{refreshError}</p>}
         {project && project.skillsLibrary === 'none' && (
           <p className="p-4 text-sm text-muted-foreground">No skills library is configured for this project.</p>
@@ -131,8 +117,7 @@ export function SkillsView() {
             </section>
           </>
         )}
-      </main>
-    </div>
+    </>
   );
 }
 

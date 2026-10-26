@@ -1,6 +1,5 @@
 'use client';
 
-import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { applyThemeChoice, readThemeChoice, type ThemeChoice } from '@/lib/theme';
@@ -27,7 +26,7 @@ export function UserMenu() {
     applyThemeChoice(choice);
   };
   return (
-    <div className="mt-auto flex flex-col gap-2 border-t border-border pt-3 text-sm">
+    <div className="flex flex-col gap-2 border-t border-border pt-3 text-sm">
       <div className="flex items-center justify-between gap-2">
         <span className="min-w-0 truncate" title={me.data?.email}>
           {me.data?.name ?? ''}
@@ -44,9 +43,6 @@ export function UserMenu() {
           <option value="system">System</option>
         </Select>
       </div>
-      <Link href="/settings/api-keys" className="text-muted-foreground hover:underline">
-        API keys
-      </Link>
     </div>
   );
 }

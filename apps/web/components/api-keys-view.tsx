@@ -3,7 +3,6 @@
 import { useState, type FormEvent } from 'react';
 import { api, type CreatedApiKey } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
-import { SidebarNav } from './sidebar-nav';
 import { Button } from './ui/button';
 
 const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
@@ -54,12 +53,7 @@ export function ApiKeysView() {
   };
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/settings/api-keys" />
-      </aside>
-      <main className="min-w-0 flex-1">
+    <>
         <header className="border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">API keys</h2>
           <p className="text-sm text-muted-foreground">
@@ -133,7 +127,6 @@ export function ApiKeysView() {
             </tbody>
           </table>
         )}
-      </main>
-    </div>
+    </>
   );
 }

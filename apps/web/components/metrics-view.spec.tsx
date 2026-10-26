@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JOB_STATUSES, api, type Metrics, type Usage } from '@/lib/api';
 import { MetricsView, formatMinutes } from './metrics-view';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -69,7 +76,6 @@ describe('MetricsView', () => {
     expect(versions).toHaveTextContent('abc123def456');
     expect(versions).toHaveTextContent('67%');
     expect(versions).toHaveTextContent('none');
-    expect(screen.getByRole('link', { name: 'Metrics' })).toHaveAttribute('aria-current', 'page');
   });
 
   it('shows an empty state with an empty database', async () => {
@@ -82,13 +88,9 @@ describe('MetricsView', () => {
     const getMetrics = vi.spyOn(api, 'getMetrics').mockResolvedValue(withData);
     render(<MetricsView />);
     await screen.findByRole('region', { name: 'Summary' });
-    expect(getMetrics).toHaveBeenLastCalledWith({ projectId: undefined, repoId: undefined, days: 30 });
+    expect(getMetrics).toHaveBeenLastCalledWith({ projectId: 'p1', repoId: undefined, days: 30 });
 
     fireEvent.click(screen.getByRole('button', { name: '7d' }));
-    await waitFor(() => expect(getMetrics).toHaveBeenLastCalledWith({ projectId: undefined, repoId: undefined, days: 7 }));
-
-    await screen.findByRole('option', { name: 'Proj' });
-    fireEvent.change(screen.getByLabelText('Project'), { target: { value: 'p1' } });
     await waitFor(() => expect(getMetrics).toHaveBeenLastCalledWith({ projectId: 'p1', repoId: undefined, days: 7 }));
 
     await screen.findByRole('option', { name: 'o/r' });

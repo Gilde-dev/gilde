@@ -70,3 +70,12 @@ describe('Dashboard job deep link', () => {
     expect(api.getJob).not.toHaveBeenCalled();
   });
 });
+
+describe('Dashboard without projects', () => {
+  it('shows an empty state linking to the project settings', async () => {
+    vi.mocked(api.listProjects).mockResolvedValue([]);
+    render(<Dashboard />);
+    expect(await screen.findByText('No projects yet')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Go to project settings' })).toHaveAttribute('href', '/settings/projects');
+  });
+});

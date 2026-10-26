@@ -4,6 +4,13 @@ import { api, type Project } from '@/lib/api';
 import { feature } from './feature.fixture';
 import { FeaturesView } from './features-view';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+
 afterEach(() => vi.restoreAllMocks());
 
 describe('FeaturesView', () => {
@@ -12,7 +19,7 @@ describe('FeaturesView', () => {
     const ready = feature({ id: 'f2', title: 'Ready one', progress: { ...feature().progress, readyToClose: true, merged: 2, total: 2 } });
     vi.spyOn(api, 'listFeatures').mockResolvedValue([feature(), ready]);
     render(<FeaturesView />);
-    expect(await screen.findByRole('link', { name: 'Checkout flow' })).toHaveAttribute('href', '/features/f1');
+    expect(await screen.findByRole('link', { name: 'Checkout flow' })).toHaveAttribute('href', '/features/f1?project=p');
     expect(screen.getByText('1/3 merged')).toBeInTheDocument();
     expect(screen.getAllByText('Ready to close')).toHaveLength(1);
     expect(screen.getAllByRole('progressbar')).toHaveLength(2);

@@ -1,12 +1,13 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useState, type FormEvent } from 'react';
 import { FEATURE_STATUSES, api, type Feature, type FeatureStatus } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
+import { useProject, withProject } from '@/lib/use-project';
 import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
-import { SidebarNav } from './sidebar-nav';
+import { NoProjects } from './no-projects';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
@@ -15,16 +16,12 @@ const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 export function FeaturesView() {
-  const [projectId, setProjectId] = useState('');
   const [status, setStatus] = useState<FeatureStatus | ''>('');
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  const projects = usePolling(api.listProjects, 60_000);
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projectId, projects.data]);
+  const { projects, projectId } = useProject();
 
   const fetchFeatures = useCallback(
     () => (projectId ? api.listFeatures(projectId, status || undefined) : Promise.resolve([] as Feature[])),
@@ -34,6 +31,7 @@ export function FeaturesView() {
 
   async function create(e: FormEvent) {
     e.preventDefault();
+    if (!projectId) return;
     setSaving(true);
     setError(null);
     try {
@@ -48,22 +46,10 @@ export function FeaturesView() {
   }
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/features" />
-      </aside>
-      <main className="min-w-0 flex-1">
+    <>
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">Features</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
-              {projects.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
             <select aria-label="Status" className={SELECT} value={status} onChange={(e) => setStatus(e.target.value as FeatureStatus | '')}>
               <option value="">All statuses</option>
               {FEATURE_STATUSES.map((s) => (
@@ -74,6 +60,7 @@ export function FeaturesView() {
             </select>
           </div>
         </header>
+        {projects?.length === 0 && <NoProjects />}
         <form onSubmit={create} className="flex items-center gap-2 px-4 pt-3">
           <input aria-label="New feature title" placeholder="New feature title" className={`${INPUT} w-80`} value={title} onChange={(e) => setTitle(e.target.value)} />
           <Button type="submit" size="sm" disabled={saving || !projectId || title.trim().length < 3}>
@@ -88,7 +75,7 @@ export function FeaturesView() {
           {features.data?.map((f) => (
             <li key={f.id} className="rounded-md border border-border bg-card p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Link href={`/features/${f.id}`} className="font-medium underline-offset-2 hover:underline">
+                <Link href={withProject(`/features/${f.id}`, projectId)} className="font-medium underline-offset-2 hover:underline">
                   {f.title}
                 </Link>
                 <StatusBadge kind="feature" status={f.status} />
@@ -100,7 +87,6 @@ export function FeaturesView() {
             </li>
           ))}
         </ul>
-      </main>
-    </div>
+    </>
   );
 }
