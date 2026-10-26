@@ -75,6 +75,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Import zod-inferred types with `import type`; import injected classes normally (DI needs them).
 - Services return DTOs via the mapper, never entities, except methods documented as internal.
 - Entity column types must work on both SQLite and Postgres: `simple-json`, `simple-enum`, no `jsonb`/`timestamptz`.
+- Entity changes need a Postgres migration (`pnpm --filter @gilde/api migration:generate <Name>`, then commit it from `apps/api/src/migrations/`); Postgres never synchronizes, SQLite uses `synchronize` locally.
 - Entities follow the `typeorm-snake-case-columns` skill (`.claude/skills/`): snake_case table and column names, camelCase TypeScript fields.
 - No `.default()` in schemas that get `.partial()`; rely on entity defaults.
 - Throw Nest HTTP exceptions (`NotFoundException`, `ConflictException`), never let TypeORM errors leak.

@@ -13,14 +13,14 @@ export class Repo {
     id: string;
 
     @Index()
-    @Column()
+    @Column({ name: 'project_id' })
     projectId: string;
 
     @ManyToOne(() => Project, (project) => project.repos, { onDelete: 'CASCADE' })
     @JoinColumn({ name: 'project_id' })
     project?: Relation<Project>;
 
-    @Column({ unique: true })
+    @Column({ name: 'full_name', unique: true })
     fullName: string;
 
     @Column({
@@ -42,7 +42,7 @@ export class Repo {
     @Column({ name: 'manifest_sha', type: 'text', nullable: true })
     manifestSha: string | null;
 
-    @Column({ name: 'manifest_synced_at', type: 'datetime', nullable: true })
+    @Column({ name: 'manifest_synced_at', type: Date, nullable: true })
     manifestSyncedAt: Date | null;
 
     @Column({ name: 'manifest_error', type: 'text', nullable: true })

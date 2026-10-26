@@ -50,7 +50,7 @@ export class Job {
 
     @Column({
         name: 'queued_at',
-        type: 'datetime',
+        type: Date,
         nullable: true
     })
     queuedAt: Date | null;
