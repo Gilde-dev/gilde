@@ -64,7 +64,7 @@ describe('AppShell', () => {
     fireEvent.change(select, { target: { value: 'p1' } });
     expect(nav.replace).toHaveBeenCalledWith('/features?project=p1');
     const web = await screen.findByRole('link', { name: 'o/web' });
-    expect(web).toHaveAttribute('href', 'https://github.com/o/web');
+    expect(web).toHaveAttribute('href', expect.stringMatching(/^\/settings\/projects\/p\d\?project=p\d#repo-/));
     expect(screen.getByText('paused')).toBeInTheDocument();
   });
 
