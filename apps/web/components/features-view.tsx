@@ -11,10 +11,12 @@ import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { NoProjects } from './no-projects';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
+import { Card } from './ui/card';
+import { Input } from './ui/input';
+import { PageHeader } from './ui/page-header';
+import { Select } from './ui/select';
 
 const POLL_MS = 10_000;
-const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
-const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 export function FeaturesView() {
   const [status, setStatus] = useState<FeatureStatus | ''>('');
@@ -51,22 +53,24 @@ export function FeaturesView() {
 
   return (
     <>
-        <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="font-serif text-lg font-semibold">Features</h2>
-          <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select aria-label="Status" className={SELECT} value={status} onChange={(e) => setStatus(e.target.value as FeatureStatus | '')}>
+        <PageHeader
+          className="px-4 pt-4"
+          title="Features"
+          description="Groups of jobs that ship together across a project's repos."
+          actions={
+            <Select aria-label="Status" className="w-auto" value={status} onChange={(e) => setStatus(e.target.value as FeatureStatus | '')}>
               <option value="">All statuses</option>
               {FEATURE_STATUSES.map((s) => (
                 <option key={s} value={s}>
                   {s}
                 </option>
               ))}
-            </select>
-          </div>
-        </header>
+            </Select>
+          }
+        />
         {projects?.length === 0 && <NoProjects />}
         <form onSubmit={create} className="flex items-center gap-2 px-4 pt-3">
-          <input aria-label="New feature title" placeholder="New feature title" className={`${INPUT} w-80`} value={title} onChange={(e) => setTitle(e.target.value)} />
+          <Input aria-label="New feature title" placeholder="New feature title" className="w-80" value={title} onChange={(e) => setTitle(e.target.value)} />
           <Button type="submit" size="sm" disabled={saving || !projectId || title.trim().length < 3}>
             Add feature
           </Button>
@@ -77,9 +81,10 @@ export function FeaturesView() {
         {features.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No features</p>}
         <ul className="space-y-2 p-4">
           {features.data?.map((f) => (
-            <li key={f.id} className="rounded-md border border-border bg-card p-3">
+            <li key={f.id}>
+            <Card className="p-3">
               <div className="flex flex-wrap items-center gap-2">
-                <Link href={withProject(`/features/${f.id}`, projectId)} className="font-medium underline-offset-2 hover:underline">
+                <Link href={withProject(`/features/${f.id}`, projectId)} className="text-md font-semibold underline-offset-2 hover:underline">
                   {f.title}
                 </Link>
                 <StatusBadge kind="feature" status={f.status} />
@@ -87,11 +92,12 @@ export function FeaturesView() {
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
                 <FeatureProgressBar progress={f.progress} />
-                <span className="text-xs text-muted-foreground">
+                <span className="text-sm text-muted-foreground">
                   {jobs.data ? `${repoCount(f.id)} ${repoCount(f.id) === 1 ? 'repo' : 'repos'}` : '… repos'}
                 </span>
-                <span className="text-xs text-muted-foreground">Updated {relativeTime(f.updatedAt)}</span>
+                <span className="text-sm text-muted-foreground">Updated {relativeTime(f.updatedAt)}</span>
               </div>
+            </Card>
             </li>
           ))}
         </ul>
