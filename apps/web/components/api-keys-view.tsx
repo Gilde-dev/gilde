@@ -4,8 +4,9 @@ import { useState, type FormEvent } from 'react';
 import { api, type CreatedApiKey } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { Button } from './ui/button';
+import { PageHeader } from './ui/page-header';
 
-const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
+const INPUT = 'h-9 rounded-md border border-input bg-card px-3 text-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring';
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const formatDate = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—');
 
@@ -54,12 +55,11 @@ export function ApiKeysView() {
 
   return (
     <>
-        <header className="border-b border-border px-4 py-3">
-          <h2 className="font-serif text-lg font-semibold">API keys</h2>
-          <p className="text-sm text-muted-foreground">
-            Long-lived Bearer tokens for scripts and services. A key acts as you.
-          </p>
-        </header>
+        <PageHeader
+          className="px-4 pt-4"
+          title="API keys"
+          description="Long-lived Bearer tokens for scripts and services. A key acts as you."
+        />
         <form onSubmit={create} className="flex flex-wrap items-end gap-2 px-4 pt-4">
           <label className="flex flex-col gap-1 text-sm">
             Name

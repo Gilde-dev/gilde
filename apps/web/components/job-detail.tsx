@@ -73,7 +73,7 @@ export function buildTimeline(job: JobDetail, revisions: Revision[]): TimelineEv
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="font-serif text-base font-semibold">{title}</h3>
+      <h3 className="text-md font-semibold">{title}</h3>
       <div className="mt-1">{children}</div>
     </section>
   );
@@ -386,11 +386,11 @@ export function JobDetailView() {
           Board
         </Link>
         <div className="flex flex-wrap items-center gap-3">
-          <h1 className="font-serif text-xl font-semibold">{j.title}</h1>
+          <h1 className="text-display-sm">{j.title}</h1>
           <StatusBadge status={j.status} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-          <code className="font-mono text-xs">{repoName}</code>
+          <code className="font-mono text-sm">{repoName}</code>
           {j.featureId && (
             <Link href={withProject(`/features/${j.featureId}`, j.projectId)} className="underline">
               {feature.data?.title ?? 'Feature'}

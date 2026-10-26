@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { api, type Project, type Repo, type Revision } from '@/lib/api';
-import { AppShell } from './app-shell';
+import { api, type Job, type Project, type Repo, type Revision } from '@/lib/api';
+import { AppShell, SIDEBAR_STORAGE_KEY } from './app-shell';
 
 const nav = vi.hoisted(() => ({ path: '/features', search: 'project=p2', replace: vi.fn() }));
 vi.mock('next/navigation', () => ({
@@ -31,6 +31,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listProjects').mockResolvedValue(projects);
   vi.spyOn(api, 'listRepos').mockResolvedValue(repos);
   vi.spyOn(api, 'listRevisions').mockResolvedValue([{ id: 'v1' }, { id: 'v2' }] as Revision[]);
+  vi.spyOn(api, 'listJobs').mockResolvedValue([]);
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u', name: 'Pascal', email: 'p@x.nl' } as never);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -88,5 +89,98 @@ describe('AppShell', () => {
     const drawer = await screen.findByRole('dialog');
     fireEvent.click(within(drawer).getByRole('link', { name: 'Lessons' }));
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+  });
+
+  it('has one main landmark with a breadcrumb inside the bordered panel', async () => {
+    render(<AppShell>x</AppShell>);
+    const main = screen.getByRole('main');
+    expect(screen.getAllByRole('main')).toHaveLength(1);
+    expect(main).toHaveClass('rounded-xl', 'border');
+    const crumbs = within(main).getByRole('navigation', { name: 'Breadcrumb' });
+    expect(await within(crumbs).findByRole('link', { name: 'Two' })).toHaveAttribute('href', '/?project=p2');
+    expect(within(crumbs).getByText('Features')).toHaveAttribute('aria-current', 'page');
+  });
+
+  it('badges Board with the loaded queued/running/PR/review jobs of the project, and not other statuses', async () => {
+    const mk = (status: string) => ({ id: status + Math.random(), projectId: 'p2', status }) as unknown as Job;
+    vi.mocked(api.listJobs).mockResolvedValue(['queued', 'dispatched', 'pr_open', 'awaiting_review', 'triage', 'parked', 'merged'].map(mk));
+    render(<AppShell>x</AppShell>);
+    const badge = await within(mainNav()).findByLabelText('4 active');
+    expect(badge).toHaveTextContent('4');
+    expect(badge).toHaveAttribute('title', expect.stringContaining('up to 200'));
+    expect(api.listJobs).toHaveBeenCalledWith('p2');
+  });
+
+  it('shows no Board badge while loading, on error or with nothing active', async () => {
+    vi.mocked(api.listJobs).mockRejectedValue(new Error('x'));
+    render(<AppShell>x</AppShell>);
+    await screen.findByLabelText('2 pending');
+    expect(screen.queryByLabelText(/active$/)).toBeNull();
+  });
+
+  it('uses the 240px sidebar by default and a 64px rail when collapsed, persisting the choice', async () => {
+    const { unmount } = render(<AppShell>x</AppShell>);
+    const aside = () => document.querySelector('aside')!;
+    expect(aside()).toHaveClass('w-60');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(aside()).toHaveClass('w-16');
+    expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('1');
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toHaveAttribute('aria-pressed', 'true');
+    unmount();
+
+    render(<AppShell>x</AppShell>); // a reload restores the rail
+    await waitFor(() => expect(aside()).toHaveClass('w-16'));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand sidebar' }));
+    expect(aside()).toHaveClass('w-60');
+    expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('0');
+  });
+
+  it('keeps labels, tooltips, current page, counts and the project and user controls in the rail', async () => {
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, '1');
+    render(<AppShell>x</AppShell>);
+    await waitFor(() => expect(document.querySelector('aside')).toHaveClass('w-16'));
+    const nav = within(mainNav());
+    const features = nav.getByRole('link', { name: 'Features' });
+    expect(features).toHaveAttribute('aria-current', 'page');
+    expect(features).toHaveAttribute('title', 'Features');
+    expect(await nav.findByLabelText('2 pending')).toBeInTheDocument();
+    expect(screen.getAllByRole('combobox', { name: 'Project' })[0]).toHaveValue('p2');
+    expect(screen.getByRole('combobox', { name: 'Theme' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Log out' })).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Repos' })).toBeNull();
+  });
+
+  it('keeps the mobile drawer expanded and independent of the desktop rail', async () => {
+    window.localStorage.setItem(SIDEBAR_STORAGE_KEY, '1');
+    render(<AppShell>x</AppShell>);
+    await waitFor(() => expect(document.querySelector('aside')).toHaveClass('w-16'));
+    fireEvent.click(screen.getByRole('button', { name: 'Open menu' }));
+    const drawer = await screen.findByRole('dialog', { name: 'Menu' });
+    const metrics = within(drawer).getByRole('link', { name: 'Metrics' });
+    expect(within(metrics).getByText('Metrics')).not.toHaveClass('sr-only');
+    expect(within(drawer).getByText('Gilde')).toBeInTheDocument();
+    expect(await within(drawer).findByText('p@x.nl')).toBeInTheDocument();
+    expect(window.localStorage.getItem(SIDEBAR_STORAGE_KEY)).toBe('1');
+    fireEvent.click(within(drawer).getByRole('link', { name: 'Lessons' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(document.querySelector('aside')).toHaveClass('w-16');
+  });
+
+  it('returns focus to the menu button when the drawer closes', async () => {
+    render(<AppShell>x</AppShell>);
+    const trigger = screen.getByRole('button', { name: 'Open menu' });
+    trigger.focus();
+    fireEvent.click(trigger);
+    const drawer = await screen.findByRole('dialog');
+    expect(drawer.contains(document.activeElement)).toBe(true);
+    fireEvent.keyDown(drawer, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    await waitFor(() => expect(trigger).toHaveFocus());
+  });
+
+  it('shows the user avatar, name and email at the bottom of the sidebar', async () => {
+    render(<AppShell>x</AppShell>);
+    expect(await screen.findByText('p@x.nl')).toBeInTheDocument();
+    expect(screen.getByRole('img', { name: 'Pascal' })).toHaveTextContent('PA');
   });
 });

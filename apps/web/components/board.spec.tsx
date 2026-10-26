@@ -123,4 +123,76 @@ describe('Board', () => {
     expect(screen.queryByText('In feature')).toBeNull();
     expect(screen.getByText('Loose')).toBeInTheDocument();
   });
+
+  it('shows filtered counts in the lane headers', () => {
+    const list = [job('queued', { id: 'a', title: 'A', featureId: 'f1' }), job('queued', { id: 'b', title: 'B' }), job('queued', { id: 'c', title: 'C' })];
+    const { rerender } = render(<Board jobs={list} repos={repos} onOpen={() => {}} />);
+    expect(within(screen.getByRole('region', { name: 'Queued' })).getByText('3')).toBeInTheDocument();
+    rerender(<Board jobs={list} repos={repos} featureFilter="f1" totalJobs={3} onOpen={() => {}} />);
+    expect(within(screen.getByRole('region', { name: 'Queued' })).getByText('1')).toBeInTheDocument();
+  });
+
+  it('shows dashed placeholders in empty lanes and scrolls horizontally', () => {
+    const { container } = render(<Board jobs={[job('queued')]} repos={repos} onOpen={() => {}} />);
+    const placeholders = screen.getAllByText('Nothing here');
+    expect(placeholders).toHaveLength(5); // the collapsed Done lane shows none
+    expect(placeholders[0]).toHaveClass('border-dashed');
+    expect(container.firstChild).toHaveClass('overflow-x-auto');
+  });
+
+  it('gives each lane a tinted light surface and a raised dark surface', () => {
+    render(<Board jobs={[job('queued')]} repos={repos} onOpen={() => {}} />);
+    const lane = screen.getByRole('region', { name: 'Queued' });
+    expect(lane).toHaveClass('rounded-xl', 'bg-info-soft', 'dark:bg-lane');
+  });
+});
+
+describe('Board states', () => {
+  it('shows one icon empty state with a working New job action for a genuinely empty board', () => {
+    const onNewJob = vi.fn();
+    render(<Board jobs={[]} repos={repos} onOpen={() => {}} onNewJob={onNewJob} />);
+    expect(screen.getByText('No jobs yet')).toBeInTheDocument();
+    expect(screen.queryByRole('region')).toBeNull();
+    expect(screen.queryByText('Nothing here')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'New job' }));
+    expect(onNewJob).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not offer New job without a callback', () => {
+    render(<Board jobs={[]} repos={repos} onOpen={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'New job' })).toBeNull();
+  });
+
+  it('shows a loading state, not an empty board, while the list is absent', () => {
+    render(<Board jobs={[]} repos={repos} loading onOpen={() => {}} onNewJob={() => {}} />);
+    expect(screen.getByRole('status', { name: 'Loading jobs' })).toBeInTheDocument();
+    expect(screen.queryByText('No jobs yet')).toBeNull();
+    expect(screen.queryByRole('region')).toBeNull();
+  });
+
+  it('shows a load error, not an empty board', () => {
+    render(<Board jobs={[]} repos={repos} error="boom" onOpen={() => {}} onNewJob={() => {}} />);
+    expect(screen.getByText('Jobs could not be loaded')).toBeInTheDocument();
+    expect(screen.getByText('boom')).toBeInTheDocument();
+    expect(screen.queryByText('No jobs yet')).toBeNull();
+  });
+
+  it('shows a filter-empty state with a working reset when filters hide every job', () => {
+    const onReset = vi.fn();
+    render(<Board jobs={[]} totalJobs={4} repos={repos} onResetFilters={onReset} onOpen={() => {}} onNewJob={() => {}} />);
+    expect(screen.getByText('No jobs match the filters')).toBeInTheDocument();
+    expect(screen.queryByText('No jobs yet')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset filters' }));
+    expect(onReset).toHaveBeenCalled();
+  });
+
+  it('shows the filter-empty state when the feature filter hides every job', () => {
+    render(<Board jobs={[job('queued')]} repos={repos} featureFilter="f9" onOpen={() => {}} />);
+    expect(screen.getByText('No jobs match the filters')).toBeInTheDocument();
+  });
+
+  it('does not render CI on cards or accept ci props', () => {
+    render(<Board jobs={[job('pr_open', { prNumber: 3 })]} repos={repos} onOpen={() => {}} />);
+    expect(screen.queryByText(/^CI /)).toBeNull();
+  });
 });
