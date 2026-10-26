@@ -221,6 +221,53 @@ Both only work while the job is `pr_open` or `awaiting_review`; the agent contin
 
 Add the `gilde:review` label to a PR to get a Claude Code review (the `Agent review` workflow). It works on any non-draft PR, also human ones. While the label is present, the PR is re-reviewed on every new push, reopen and ready-for-review; remove the label to stop. Other labels never trigger a review. Reviews use the Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`), so apply the label deliberately.
 
+## Claude Code telemetry (OTLP ingest)
+
+Gilde can receive the OpenTelemetry events of Claude Code routines and store the token usage of each API request in `agent_usage`, separate from the co-pilot's `llm_usage`. This first step only **stores** rows: `run_id` and `job_id` stay null (attributing them to runs is a later, scheduled step), and nothing here reads `job_runs`.
+
+**Endpoints.** Exactly two public POST routes, both OTLP/HTTP **JSON** (no protobuf):
+
+- `POST /api/v1/otel/v1/logs`: `claude_code.api_request` log records are stored; every other event type is ignored.
+- `POST /api/v1/otel/v1/metrics`: validated and acknowledged, never stored (the log events carry the same usage, so counting metrics too would double-count).
+
+Both answer `200 application/json` with an OTLP `Export*ServiceResponse`: `{}` for full success, or `{"partialSuccess":{"rejectedLogRecords":N,"errorMessage":"..."}}` when N `api_request` records were malformed (the rest is stored; exporters do not retry partial success). A malformed envelope or invalid JSON is `400`, a storage failure is `503` (nothing is acknowledged, the exporter retries).
+
+**Operator setup (Gilde).** Set `OTEL_INGEST_TOKEN` (for example `openssl rand -base64 48`) on the API. It is a dedicated secret: it is not a JWT or `gk_` API key and grants no access to any other route, and normal credentials do not work on the two routes. The routes are `404` when it is unset. A value shorter than 32 characters or starting with `gk_` fails closed: the routes stay `404`, the API still starts and logs a warning (never the value). The token check (constant-time) stays in force with `AUTH_ENABLED=false`. Keep the secret out of every environment except the routines Gilde fires. There is deliberately no project-scope setting.
+
+Order of checks: throttle (429) -> `OTEL_INGEST_TOKEN` configured (404) -> bearer token (401) -> `Content-Type: application/json` (415). The 5 MB route-specific JSON limit (`413`) applies in the body parser and only for requests with a valid token: requests without it are never buffered, so they are answered `404`/`401` whatever their size. The body is not kept (`rawBody` is only kept for the webhook and co-pilot routes). Throttling: `OTEL_INGEST_RATE_LIMIT` requests per minute per client address and per route (default 120); above that the API answers `429` with `Retry-After`, which OTLP exporters retry. Login throttling is separate.
+
+**Public proxy.** The reverse proxy in front of the API (gilde-infra, operator-managed, not in this repo) must forward exactly these two paths, `/api/v1/otel/v1/logs` and `/api/v1/otel/v1/metrics`, and nothing else new. Keep any later `/api/v1/usage/...` trigger off the public proxy.
+
+**Routine environment (Claude Code cloud exporter).** Set these in the environment of the routine:
+
+```sh
+CLAUDE_CODE_ENABLE_TELEMETRY=1
+OTEL_LOGS_EXPORTER=otlp
+OTEL_METRICS_EXPORTER=otlp
+OTEL_EXPORTER_OTLP_PROTOCOL=http/json
+OTEL_EXPORTER_OTLP_ENDPOINT=https://<domain>/api/v1/otel   # the exporter appends /v1/logs and /v1/metrics
+OTEL_EXPORTER_OTLP_HEADERS="Authorization=Bearer <OTEL_INGEST_TOKEN>"
+```
+
+Leave the content flags off (they are off by default; Gilde would not store the content anyway): do not set `OTEL_LOG_USER_PROMPTS`, `OTEL_LOG_TOOL_DETAILS` or similar.
+
+**What is stored.** Only an allowlist of `api_request` attributes: session id, model, uncached input / output / cache-read / cache-creation token counts (kept separate), the cost and duration estimates (null when Claude Code supplied none, never 0), the event time and `service.version` / `organization.id`. Names are matched through an explicit alias map (`session.id`/`session_id`/`sessionId`, `input_tokens`/`inputTokens`, ...; see `ATTRIBUTE_ALIASES` in `apps/api/src/otel/otel-parser.ts`); the event name is read from the record's `eventName`, the `event.name` attribute or an exact body match, and the body is never parsed for anything else. Prompts, tool input/output, emails, resource attributes and all other attributes are never read, stored or logged. Numbers must be finite and non-negative, token counts safe integers up to 2147483647, strings bounded; nanosecond timestamps are read as exact integers.
+
+**Deduplication.** `event_key` is a sha256 over session id, the full-precision nanosecond timestamp and the producer's `event.sequence` (or, when absent, a fingerprint of the allowlisted fields). It does not depend on arrival time, batch position or random ids, so retries and rebatching give the same key; a unique index plus `INSERT ... ON CONFLICT DO NOTHING` makes concurrent duplicates safe on SQLite and Postgres. Limitation: records in the same session and nanosecond that are identical in every allowlisted field and carry no sequence cannot be told apart and count once.
+
+**Cost.** `cost_usd` is Claude Code's own estimate, not a Gilde price calculation. With a subscription it is notional (what the usage would cost at API prices), not what is billed.
+
+**Smoke test** (synthetic, no real content):
+
+```sh
+curl -sS -X POST "https://<domain>/api/v1/otel/v1/logs" \
+  -H "Authorization: Bearer $OTEL_INGEST_TOKEN" -H "Content-Type: application/json" \
+  -d '{"resourceLogs":[{"scopeLogs":[{"logRecords":[{"timeUnixNano":"1700000000000000000","body":{"stringValue":"claude_code.api_request"},"attributes":[{"key":"session.id","value":{"stringValue":"smoke-test"}},{"key":"model","value":{"stringValue":"smoke"}},{"key":"input_tokens","value":{"intValue":"1"}}]}]}]}]}'
+# {}   (repeat it: still one row;  without the header: 401;  with the token unset on the server: 404)
+```
+
+Fixtures in the tests are constructed from Claude Code's documented attribute names; no real export was available, so equality of the real `session.id` with the routine's `claude_code_session_id` is unverified.
+
 ## Notifications
 
 Gilde stores platform-neutral factory events for exactly one consumer process (`apps/channels`). This is deliberately simple: one row per event in `notifications`, with the delivery state on the same row. There is no consumer registration, subscription, per-destination table, claim, lease, fencing token, send-intent or "uncertain" state, and the API holds no platform credentials or routing. Run one consumer loop only.
