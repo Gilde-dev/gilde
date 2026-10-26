@@ -26,6 +26,7 @@ import { MemoryModule } from './memory/memory.module.js';
 import { HistoryModule } from './memory/history/history.module.js';
 import { UsageModule } from './usage/usage.module.js';
 import { NotificationModule } from './notification/notification.module.js';
+import { OtelModule } from './otel/otel.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -61,6 +62,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     AuthModule,
     CopilotModule,
     NotificationModule,
+    OtelModule,
   ],
 })
 export class AppModule { }

@@ -10,6 +10,8 @@ const EXTERNAL_IDS = new Set([
   'feedback.github_id',
   'feedback.review_id',
   'job_runs.session_id',
+  'agent_usage.session_id',
+  'agent_usage.organization_id',
   'llm_usage.thread_id',
   'history_entries.source_id',
   'history_entries.project_id',
