@@ -3,108 +3,255 @@
 @tailwind utilities;
 
 /*
- * Workshop design tokens (HSL triplets, consumed as hsl(var(--token)) in tailwind.config.ts).
- * Components use the tokens only; never palette colours (a unit test enforces it).
+ * Gilde design system. Cool neutrals with an amethyst/indigo brand.
  *
- * Contrast ratios (WCAG 2.x), text on background; AA needs 4.5:1:
- *                                       light   dark
- *   foreground on background             15.6   15.5
- *   muted-foreground on background        6.3    8.3
- *   muted-foreground on muted             5.8    6.6
- *   primary-foreground on primary        12.7   14.2
- *   accent-foreground on accent           5.0    6.2
- *   accent on background                  4.9    6.2
- *   accent on accent-soft                 4.5    4.6
- *   success-foreground on success         7.6    8.6
- *   success on success-soft               6.5    6.3
- *   success on background                 7.4    8.6
- *   warning-foreground on warning         7.7    9.7
- *   warning on warning-soft               6.6    6.8
- *   warning on background                 7.5    9.7
- *   danger-foreground on danger           6.8    6.9
- *   danger on danger-soft                 5.8    5.4
- *   danger on background                  6.7    6.9
- *   info-foreground on info               7.5    8.6
- *   info on info-soft                     6.4    6.6
- *   info on background                    7.3    8.6
- * The accent is slightly darker than hsl(18 65% 45%) in light mode so white text on it stays above 4.5:1.
- * Recompute after changing a value.
+ * Layers: (1) primitives, space-separated sRGB channels so Tailwind opacity modifiers work
+ * (`rgb(var(--x) / <alpha-value>)`, see tailwind.config.ts); (2) semantic tokens that only alias primitives.
+ * Components use the semantic Tailwind classes (bg-card, text-muted-foreground, ...), never palette colours
+ * (components/design-tokens.spec.ts enforces it), even when a primitive name (indigo-600) overlaps a palette name.
+ *
+ * Neutrals are stop-numbered per theme (dark runs the scale reversed, so N900 is always the text colour).
+ * Status colours have 50 (soft background), 500 (solid: dots, borders, icons) and 700 (text on 50 and on the
+ * panel; solid fill with the on-colour foreground). The stop values the spec leaves open were chosen here:
+ *   light green 50/500/700  #E6F6EC #2FA862 #14693A    dark #0F2A1B #3DBE75 #7FDDA3
+ *   light red                #FDECEC #E5484D #A82227    dark #331517 #F0585D #FF9A9D
+ *   light yellow             #FEF6DC #B77A00 #7A5200    dark #2E2308 #E5B020 #F3CB6A
+ *   light blue               #EAF2FE #2F7DE1 #1B4FA6    dark #14233D #4C8FF0 #8DBAFA
+ *   amethyst-50 #F3EBFC / #2A1A47 and indigo-50 #ECEAFB / #1E1A45 (light / dark soft backgrounds);
+ *   lighter dark variants amethyst-300 #B58CF0, indigo-300 #A59BFF, eggplant-300 #9A9AFF; darker amethyst-700 #6A2FC0.
+ * Semantics: running = indigo (display name for the dispatched job status, not an API status), pr = amethyst.
+ *
+ * Surfaces. light: page N100, panel/cards N0, sidebar N50, lane N50, border N200 (subtle N150), text N900, muted N500.
+ *           dark:  page N25, panel N50, cards N100, sidebar N25, lane N150 (raised), border N200, text N900, muted N500.
+ * Light has one shadow (0 1px 2px N900 at 6%); dark has none and uses borders and surface steps.
+ *
+ * Measured WCAG 2.x contrast ratios; AA needs 4.5:1 for text, 3:1 for non-text. components/design-tokens.spec.ts
+ * recomputes them from this file and fails below AA, so recompute this table after changing a value.
+ *                                             light   dark
+ *   foreground on background                   16.4   17.0
+ *   foreground on surface                      18.1   15.9
+ *   foreground on card                         18.1   15.1
+ *   foreground on sidebar                      16.8   17.0
+ *   foreground on lane                         16.8   14.4
+ *   muted-foreground on background              4.8    5.9
+ *   muted-foreground on surface                 5.3    5.5
+ *   muted-foreground on card                    5.3    5.2
+ *   muted-foreground on sidebar                 4.9    5.9
+ *   muted-foreground on lane                    4.9    5.0
+ *   muted-foreground on muted                   4.6    5.0
+ *   accent on accent-soft (badge)               7.2    6.8
+ *   accent-foreground on accent (solid)         8.6    8.7
+ *   success on success-soft (badge)             6.0    9.3
+ *   success-foreground on success (solid)       6.7   12.8
+ *   warning on warning-soft (badge)             6.4   10.0
+ *   warning-foreground on warning (solid)       6.9   13.6
+ *   danger on danger-soft (badge)               6.3    8.2
+ *   danger-foreground on danger (solid)         7.2   10.4
+ *   info on info-soft (badge)                   6.9    7.9
+ *   info-foreground on info (solid)             7.7   10.5
+ *   running on running-soft (badge)             7.2    6.8
+ *   running-foreground on running (solid)       8.6    8.7
+ *   pr on pr-soft (badge)                       6.5    6.0
+ *   pr-foreground on pr (solid)                 7.6    8.0
+ *   success-solid on card (dot, non-text 3:1)   3.0    7.1
+ *   warning-solid on card (dot, non-text 3:1)   3.6    8.4
+ *   danger-solid on card (dot, non-text 3:1)    3.9    5.0
+ *   info-solid on card (dot, non-text 3:1)      4.1    5.2
+ *   running-solid on card (dot, non-text 3:1)   8.6    7.0
+ *   pr-solid on card (dot, non-text 3:1)        5.6    6.4
+ *   ring on background (non-text 3:1)           7.7    7.9
+ *   primary-foreground on gradient, worst       5.6    5.6   (at the amethyst-500 end, 0% along)
+ *     ... indigo-600 end                        8.6    8.6
  */
 @layer base {
   :root {
-    --background: 36 33% 97%;
-    --foreground: 24 12% 12%;
-    --muted: 34 24% 93%;
-    --muted-foreground: 24 8% 36%;
-    --primary: 24 28% 18%;
-    --primary-foreground: 36 33% 97%;
-    --accent: 18 65% 42%;
-    --accent-foreground: 36 33% 98%;
-    --accent-soft: 18 60% 94%;
-    --success: 140 38% 26%;
-    --success-foreground: 36 33% 98%;
-    --success-soft: 140 30% 90%;
-    --warning: 36 85% 24%;
-    --warning-foreground: 36 33% 98%;
-    --warning-soft: 40 75% 88%;
-    --danger: 8 62% 38%;
-    --danger-foreground: 36 33% 98%;
-    --danger-soft: 8 60% 93%;
-    --info: 212 38% 34%;
-    --info-foreground: 36 33% 98%;
-    --info-soft: 212 40% 92%;
-    --popover: 36 30% 99%;
-    --border: 32 18% 84%;
-    --input: 32 16% 72%;
-    --ring: 18 65% 42%;
+    --neutral-0: 255 255 255; /* #FFFFFF */
+    --neutral-25: 249 249 251; /* #F9F9FB */
+    --neutral-50: 246 246 249; /* #F6F6F9 */
+    --neutral-100: 244 243 248; /* #F4F3F8 */
+    --neutral-150: 238 237 243; /* #EEEDF3 */
+    --neutral-200: 229 229 237; /* #E5E5ED */
+    --neutral-250: 210 210 224; /* #D2D2E0 */
+    --neutral-300: 186 186 207; /* #BABACF */
+    --neutral-400: 135 135 166; /* #8787A6 */
+    --neutral-500: 105 104 136; /* #696888 */
+    --neutral-600: 86 85 110; /* #56556E */
+    --neutral-700: 65 63 86; /* #413F56 */
+    --neutral-800: 45 42 62; /* #2D2A3E */
+    --neutral-900: 23 19 39; /* #171327 */
+    --neutral-1000: 0 0 0; /* #000000 */
+    --amethyst-300: 181 140 240; /* #B58CF0, lighter variant for dark surfaces */
+    --amethyst-500: 129 67 215; /* #8143D7 */
+    --amethyst-700: 106 47 192; /* #6A2FC0, darker variant for text on amethyst-50 */
+    --indigo-300: 165 155 255; /* #A59BFF, lighter variant for dark surfaces */
+    --indigo-600: 64 41 209; /* #4029D1 */
+    --eggplant-300: 154 154 255; /* #9A9AFF, lighter variant for dark surfaces */
+    --eggplant-800: 0 0 121; /* #000079 */
+    --white: 255 255 255;
+    --green-50: 230 246 236; /* #E6F6EC */
+    --green-500: 47 168 98; /* #2FA862 */
+    --green-700: 20 105 58; /* #14693A */
+    --red-50: 253 236 236; /* #FDECEC */
+    --red-500: 229 72 77; /* #E5484D */
+    --red-700: 168 34 39; /* #A82227 */
+    --yellow-50: 254 246 220; /* #FEF6DC */
+    --yellow-500: 183 122 0; /* #B77A00 */
+    --yellow-700: 122 82 0; /* #7A5200 */
+    --blue-50: 234 242 254; /* #EAF2FE */
+    --blue-500: 47 125 225; /* #2F7DE1 */
+    --blue-700: 27 79 166; /* #1B4FA6 */
+    --amethyst-50: 243 235 252; /* #F3EBFC */
+    --indigo-50: 236 234 251; /* #ECEAFB */
+
+    --background: var(--neutral-100);
+    --surface: var(--neutral-0);
+    --sidebar: var(--neutral-50);
+    --lane: var(--neutral-50);
+    --card: var(--neutral-0);
+    --popover: var(--neutral-0);
+    --foreground: var(--neutral-900);
+    --muted: var(--neutral-150);
+    --muted-foreground: var(--neutral-500);
+    --border: var(--neutral-200);
+    --border-subtle: var(--neutral-150);
+    --input: var(--neutral-250);
+    --ring: var(--indigo-600);
+    --primary: var(--indigo-600);
+    --primary-foreground: var(--white);
+    --accent: var(--indigo-600);
+    --accent-foreground: var(--white);
+    --accent-soft: var(--indigo-50);
+    --running: var(--indigo-600);
+    --running-foreground: var(--white);
+    --running-soft: var(--indigo-50);
+    --running-solid: var(--indigo-600);
+    --pr: var(--amethyst-700);
+    --pr-foreground: var(--white);
+    --pr-soft: var(--amethyst-50);
+    --pr-solid: var(--amethyst-500);
+    --success: var(--green-700);
+    --success-foreground: var(--white);
+    --success-soft: var(--green-50);
+    --success-solid: var(--green-500);
+    --warning: var(--yellow-700);
+    --warning-foreground: var(--white);
+    --warning-soft: var(--yellow-50);
+    --warning-solid: var(--yellow-500);
+    --danger: var(--red-700);
+    --danger-foreground: var(--white);
+    --danger-soft: var(--red-50);
+    --danger-solid: var(--red-500);
+    --info: var(--blue-700);
+    --info-foreground: var(--white);
+    --info-soft: var(--blue-50);
+    --info-solid: var(--blue-500);
+    --primary-gradient: linear-gradient(135deg, rgb(var(--amethyst-500)), rgb(var(--indigo-600)));
+    --shadow-sm: 0 1px 2px rgb(var(--neutral-900) / 0.06);
+    --shadow-md: 0 4px 12px rgb(var(--neutral-900) / 0.06);
     color-scheme: light;
   }
 
   .dark {
-    --background: 24 10% 8%;
-    --foreground: 36 20% 92%;
-    --card: 24 9% 11%;
-    --muted: 24 8% 16%;
-    --muted-foreground: 30 10% 68%;
-    --primary: 36 30% 90%;
-    --primary-foreground: 24 10% 10%;
-    --accent: 20 70% 58%;
-    --accent-foreground: 24 10% 8%;
-    --accent-soft: 20 40% 18%;
-    --success: 140 35% 62%;
-    --success-foreground: 24 10% 8%;
-    --success-soft: 140 25% 16%;
-    --warning: 38 80% 62%;
-    --warning-foreground: 24 10% 8%;
-    --warning-soft: 38 40% 17%;
-    --danger: 8 75% 68%;
-    --danger-foreground: 24 10% 8%;
-    --danger-soft: 8 40% 18%;
-    --info: 212 60% 72%;
-    --info-foreground: 24 10% 8%;
-    --info-soft: 212 35% 18%;
-    --popover: 24 9% 11%;
-    --border: 24 8% 22%;
-    --input: 24 8% 30%;
-    --ring: 20 70% 58%;
+    --neutral-0: 0 0 0; /* #000000 */
+    --neutral-25: 17 16 20; /* #111014 */
+    --neutral-50: 26 23 33; /* #1A1721 */
+    --neutral-100: 30 28 39; /* #1E1C27 */
+    --neutral-150: 34 32 44; /* #22202C */
+    --neutral-200: 46 43 58; /* #2E2B3A */
+    --neutral-250: 59 57 71; /* #3B3947 */
+    --neutral-300: 73 71 88; /* #494758 */
+    --neutral-400: 113 111 134; /* #716F86 */
+    --neutral-500: 143 141 165; /* #8F8DA5 */
+    --neutral-600: 171 169 196; /* #ABA9C4 */
+    --neutral-700: 194 192 216; /* #C2C0D8 */
+    --neutral-800: 219 217 237; /* #DBD9ED */
+    --neutral-900: 243 242 248; /* #F3F2F8 */
+    --neutral-1000: 255 255 255; /* #FFFFFF */
+    --amethyst-300: 181 140 240; /* #B58CF0, lighter variant for dark surfaces */
+    --amethyst-500: 129 67 215; /* #8143D7 */
+    --amethyst-700: 106 47 192; /* #6A2FC0, darker variant for text on amethyst-50 */
+    --indigo-300: 165 155 255; /* #A59BFF, lighter variant for dark surfaces */
+    --indigo-600: 64 41 209; /* #4029D1 */
+    --eggplant-300: 154 154 255; /* #9A9AFF, lighter variant for dark surfaces */
+    --eggplant-800: 0 0 121; /* #000079 */
+    --white: 255 255 255;
+    --green-50: 15 42 27; /* #0F2A1B */
+    --green-500: 61 190 117; /* #3DBE75 */
+    --green-700: 127 221 163; /* #7FDDA3 */
+    --red-50: 51 21 23; /* #331517 */
+    --red-500: 240 88 93; /* #F0585D */
+    --red-700: 255 154 157; /* #FF9A9D */
+    --yellow-50: 46 35 8; /* #2E2308 */
+    --yellow-500: 229 176 32; /* #E5B020 */
+    --yellow-700: 243 203 106; /* #F3CB6A */
+    --blue-50: 20 35 61; /* #14233D */
+    --blue-500: 76 143 240; /* #4C8FF0 */
+    --blue-700: 141 186 250; /* #8DBAFA */
+    --amethyst-50: 42 26 71; /* #2A1A47 */
+    --indigo-50: 30 26 69; /* #1E1A45 */
+
+    --background: var(--neutral-25);
+    --surface: var(--neutral-50);
+    --sidebar: var(--neutral-25);
+    --lane: var(--neutral-150);
+    --card: var(--neutral-100);
+    --popover: var(--neutral-100);
+    --foreground: var(--neutral-900);
+    --muted: var(--neutral-150);
+    --muted-foreground: var(--neutral-500);
+    --border: var(--neutral-200);
+    --border-subtle: var(--neutral-150);
+    --input: var(--neutral-300);
+    --ring: var(--indigo-300);
+    --primary: var(--indigo-600);
+    --primary-foreground: var(--white);
+    --accent: var(--indigo-300);
+    --accent-foreground: var(--neutral-0);
+    --accent-soft: var(--indigo-50);
+    --running: var(--indigo-300);
+    --running-foreground: var(--neutral-0);
+    --running-soft: var(--indigo-50);
+    --running-solid: var(--indigo-300);
+    --pr: var(--amethyst-300);
+    --pr-foreground: var(--neutral-0);
+    --pr-soft: var(--amethyst-50);
+    --pr-solid: var(--amethyst-300);
+    --success: var(--green-700);
+    --success-foreground: var(--neutral-0);
+    --success-soft: var(--green-50);
+    --success-solid: var(--green-500);
+    --warning: var(--yellow-700);
+    --warning-foreground: var(--neutral-0);
+    --warning-soft: var(--yellow-50);
+    --warning-solid: var(--yellow-500);
+    --danger: var(--red-700);
+    --danger-foreground: var(--neutral-0);
+    --danger-soft: var(--red-50);
+    --danger-solid: var(--red-500);
+    --info: var(--blue-700);
+    --info-foreground: var(--neutral-0);
+    --info-soft: var(--blue-50);
+    --info-solid: var(--blue-500);
+    --primary-gradient: linear-gradient(135deg, rgb(var(--amethyst-500)), rgb(var(--indigo-600)));
+    --shadow-sm: 0 0 #0000;
+    --shadow-md: 0 0 #0000;
     color-scheme: dark;
   }
 
+  /* The root is 16px so that rem utilities are real pixels: spacing is the 4px Tailwind scale (1 = 4px). */
   html {
-    font-size: 14px;
+    font-size: 16px;
   }
 
   body {
-    @apply bg-background font-sans text-foreground antialiased;
-    line-height: 1.45;
+    @apply bg-background font-sans text-md text-foreground antialiased;
   }
 
   h1,
   h2,
   h3,
   h4 {
-    @apply font-serif;
-    line-height: 1.2;
+    @apply font-sans;
   }
 
   code,
@@ -114,25 +261,25 @@
   }
 
   :focus-visible {
-    outline: 2px solid hsl(var(--ring));
+    outline: 2px solid rgb(var(--ring));
     outline-offset: 2px;
   }
 }
 
-/* CopilotKit sidebar follows the tokens, so it matches both themes. */
+/* CopilotKit sidebar follows the semantic tokens (and Figtree), so it matches both themes. */
 :root,
 .dark {
-  --copilot-kit-primary-color: hsl(var(--accent));
-  --copilot-kit-contrast-color: hsl(var(--accent-foreground));
-  --copilot-kit-background-color: hsl(var(--card));
-  --copilot-kit-input-background-color: hsl(var(--background));
-  --copilot-kit-secondary-color: hsl(var(--muted));
-  --copilot-kit-secondary-contrast-color: hsl(var(--foreground));
-  --copilot-kit-separator-color: hsl(var(--border));
-  --copilot-kit-muted-color: hsl(var(--muted-foreground));
-  --copilot-kit-error-background: hsl(var(--danger-soft));
-  --copilot-kit-error-border: hsl(var(--danger));
-  --copilot-kit-error-text: hsl(var(--danger));
+  --copilot-kit-primary-color: rgb(var(--primary));
+  --copilot-kit-contrast-color: rgb(var(--primary-foreground));
+  --copilot-kit-background-color: rgb(var(--surface));
+  --copilot-kit-input-background-color: rgb(var(--card));
+  --copilot-kit-secondary-color: rgb(var(--muted));
+  --copilot-kit-secondary-contrast-color: rgb(var(--foreground));
+  --copilot-kit-separator-color: rgb(var(--border));
+  --copilot-kit-muted-color: rgb(var(--muted-foreground));
+  --copilot-kit-error-background: rgb(var(--danger-soft));
+  --copilot-kit-error-border: rgb(var(--danger));
+  --copilot-kit-error-text: rgb(var(--danger));
 }
 
 .copilotKitWindow,
@@ -140,5 +287,14 @@
 .copilotKitMessages,
 .copilotKitInput {
   font-family: var(--font-sans), system-ui, sans-serif;
+  border-radius: 16px;
 }
 
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -38,12 +38,12 @@ export function Field({
       <Label htmlFor={id}>{label}</Label>
       {cloneElement(children, { id, 'aria-invalid': messages.length > 0 || undefined, 'aria-describedby': describedBy })}
       {hint && (
-        <p id={`${id}-hint`} className="text-xs text-muted-foreground">
+        <p id={`${id}-hint`} className="text-sm text-muted-foreground">
           {hint}
         </p>
       )}
       {messages.length > 0 && (
-        <p id={`${id}-error`} role="alert" className="text-xs text-danger">
+        <p id={`${id}-error`} role="alert" className="text-sm text-danger">
           {messages.join(', ')}
         </p>
       )}
