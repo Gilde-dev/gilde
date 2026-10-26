@@ -56,6 +56,21 @@ describe('ToolCallView (default)', () => {
 });
 
 describe('ToolCallView (specific)', () => {
+  it('createJob shows a link to the created job, or the problems', () => {
+    const { unmount } = render(<ToolCallView name="createJob" parameters={{ title: 'T' }} status="complete" result={JSON.stringify({ created: true, jobId: 'j1', link: '/?project=p1&job=j1' })} />);
+    expect(screen.getByText('Creating a job')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Open the job' })).toHaveAttribute('href', '/?project=p1&job=j1');
+    unmount();
+    render(<ToolCallView name="createJob" parameters={{}} status="complete" result={JSON.stringify({ created: false, problems: ['Unknown repo x'] })} />);
+    expect(screen.getByText('Unknown repo x')).toBeInTheDocument();
+    expect(screen.queryByRole('link')).toBeNull();
+  });
+
+  it('validateJob shows valid or its problems', () => {
+    render(<ToolCallView name="validateJob" parameters={{}} status="complete" result={JSON.stringify({ valid: false, problems: ['title: too short'] })} />);
+    expect(screen.getByText('title: too short')).toBeInTheDocument();
+  });
+
   it('searchRepoCode shows the query, the match count and the first paths', () => {
     const matches = ['a.ts', 'b.ts', 'c.ts', 'd.ts', 'a.ts'].map((path, line) => ({ path, line, text: 'x', context: [] }));
     render(<ToolCallView name="searchRepoCode" parameters={{ query: 'retryOrPark' }} status="complete" result={JSON.stringify({ matches, truncated: false })} />);

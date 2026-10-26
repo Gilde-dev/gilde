@@ -95,11 +95,13 @@ interface ApprovalInterrupt {
   metadata?: { mastra?: { toolName?: string; args?: unknown } };
 }
 
+const isApproval = (interrupt: ApprovalInterrupt | null | undefined, tool: string) =>
+  interrupt?.reason === 'mastra:tool_approval' && interrupt.metadata?.mastra?.toolName === tool;
+
 /** The plan carried by an approval interrupt for createPlannedFeature, or null for any other interrupt. */
 export function planFromInterrupt(interrupt: ApprovalInterrupt | null | undefined): FeaturePlan | null {
-  const m = interrupt?.metadata?.mastra;
-  if (interrupt?.reason !== 'mastra:tool_approval' || m?.toolName !== PLAN_TOOL) return null;
-  const a = m.args as Partial<FeaturePlan> | undefined;
+  if (!isApproval(interrupt, PLAN_TOOL)) return null;
+  const a = interrupt?.metadata?.mastra?.args as Partial<FeaturePlan> | undefined;
   if (!a || !Array.isArray(a.jobs)) return null;
   return {
     projectId: a.projectId ?? '',
@@ -110,7 +112,110 @@ export function planFromInterrupt(interrupt: ApprovalInterrupt | null | undefine
   };
 }
 
-/** The card with repo names resolved from the plan's project; shows ids until (or unless) the repos load. */
+/** The job the co-pilot passes to createJob. */
+export interface JobDraft {
+  repoId: string;
+  title: string;
+  task: string;
+  acceptanceCriteria: string[];
+  dependsOn: string[];
+  featureId?: string;
+}
+
+export const JOB_TOOL = 'createJob';
+
+/** The job carried by an approval interrupt for createJob, or null for any other interrupt. */
+export function jobFromInterrupt(interrupt: ApprovalInterrupt | null | undefined): JobDraft | null {
+  if (!isApproval(interrupt, JOB_TOOL)) return null;
+  const a = interrupt?.metadata?.mastra?.args as Partial<JobDraft> | undefined;
+  if (!a || typeof a.title !== 'string' || typeof a.task !== 'string') return null;
+  return {
+    repoId: a.repoId ?? '',
+    title: a.title,
+    task: a.task,
+    acceptanceCriteria: a.acceptanceCriteria ?? [],
+    dependsOn: a.dependsOn ?? [],
+    featureId: a.featureId,
+  };
+}
+
+/** The job to approve, with Approve and Cancel. A long task is collapsed; open it to read the rest. */
+export function JobApprovalCard({
+  job,
+  repoName,
+  featureTitle,
+  dependencyTitles = {},
+  onApprove,
+  onCancel,
+}: {
+  job: JobDraft;
+  repoName?: string;
+  featureTitle?: string;
+  dependencyTitles?: Record<string, string>;
+  onApprove: () => void;
+  onCancel: () => void;
+}) {
+  const long = job.task.length > 280 || job.task.split('\n').length > 6;
+  return (
+    <section aria-label="Job for approval" className="my-2 space-y-2 rounded-md border bg-background p-3 text-sm">
+      <header>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Create job?</p>
+        <h3 className="font-semibold">{job.title}</h3>
+        <p className="font-mono text-xs text-muted-foreground">
+          {repoName ?? job.repoId}
+          {job.featureId && <> · feature {featureTitle ?? job.featureId}</>}
+        </p>
+      </header>
+      {long ? (
+        <details>
+          <summary className="cursor-pointer font-medium">Task</summary>
+          <p className="mt-1 whitespace-pre-wrap">{job.task}</p>
+        </details>
+      ) : (
+        <p className="whitespace-pre-wrap">{job.task}</p>
+      )}
+      {job.acceptanceCriteria.length > 0 && (
+        <ul className="list-disc pl-5">
+          {job.acceptanceCriteria.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+      )}
+      {job.dependsOn.length > 0 && <p className="text-xs text-muted-foreground">After {job.dependsOn.map((d) => dependencyTitles[d] ?? d).join(', ')}</p>}
+      <p className="text-xs text-muted-foreground">Creates one job in triage. Nothing is started or queued.</p>
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={onApprove}>
+          Approve
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+/** The card with repo, feature and dependency names looked up; shows ids until (or unless) they load. */
+function JobApprovalWithNames({ job, onApprove, onCancel }: { job: JobDraft; onApprove: () => void; onCancel: () => void }) {
+  const [repoName, setRepoName] = useState<string>();
+  const [featureTitle, setFeatureTitle] = useState<string>();
+  const [dependencyTitles, setDependencyTitles] = useState<Record<string, string>>({});
+  const depKey = job.dependsOn.join(',');
+  useEffect(() => {
+    let cancelled = false;
+    const when = <T,>(p: Promise<T>, set: (v: T) => void) => p.then((v) => !cancelled && set(v)).catch(() => {});
+    when(api.getRepo(job.repoId), (r) => setRepoName(r.fullName));
+    if (job.featureId) when(api.getFeature(job.featureId), (f) => setFeatureTitle(f.title));
+    for (const id of job.dependsOn) when(api.getJob(id), (j) => setDependencyTitles((t) => ({ ...t, [id]: j.title })));
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.repoId, job.featureId, depKey]);
+  return <JobApprovalCard job={job} repoName={repoName} featureTitle={featureTitle} dependencyTitles={dependencyTitles} onApprove={onApprove} onCancel={onCancel} />;
+}
+
+/** The plan card with repo names resolved from the plan's project; shows ids until (or unless) the repos load. */
 function PlanApprovalWithRepos({ plan, onApprove, onCancel }: { plan: FeaturePlan; onApprove: () => void; onCancel: () => void }) {
   const [repoNames, setRepoNames] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -128,17 +233,25 @@ function PlanApprovalWithRepos({ plan, onApprove, onCancel }: { plan: FeaturePla
 }
 
 /**
- * Renders the approval card in the chat when the agent wants to run createPlannedFeature. Approving resumes the
- * run with { approved: true }; cancelling declines the tool call, so nothing is created. Renders nothing itself.
+ * Renders the approval card in the chat when the agent wants to run createPlannedFeature or createJob (one
+ * registration, dispatching on the tool name). Approving resumes the run with { approved: true }; cancelling
+ * declines the tool call, so nothing is created. Renders nothing itself.
  */
 export function CopilotPlanApproval() {
   useInterrupt({
     agentId: 'gilde',
-    enabled: (event) => planFromInterrupt(event.value as ApprovalInterrupt) !== null,
+    enabled: (event) => {
+      const i = event.value as ApprovalInterrupt;
+      return planFromInterrupt(i) !== null || jobFromInterrupt(i) !== null;
+    },
     render: ({ interrupt, resolve, cancel }) => {
-      const plan = planFromInterrupt(interrupt as ApprovalInterrupt | null);
-      if (!plan) return <></>;
-      return <PlanApprovalWithRepos plan={plan} onApprove={() => resolve({ approved: true })} onCancel={() => cancel()} />;
+      const i = interrupt as ApprovalInterrupt | null;
+      const approve = () => resolve({ approved: true });
+      const plan = planFromInterrupt(i);
+      if (plan) return <PlanApprovalWithRepos plan={plan} onApprove={approve} onCancel={() => cancel()} />;
+      const job = jobFromInterrupt(i);
+      if (job) return <JobApprovalWithNames job={job} onApprove={approve} onCancel={() => cancel()} />;
+      return <></>;
     },
   });
   return null;

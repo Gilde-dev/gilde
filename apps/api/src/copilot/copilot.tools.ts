@@ -9,7 +9,7 @@ import { FEATURE_STATUSES } from '../feature/feature-state.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import type { GitHubPort } from '../github/github.port.js';
 import type { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
-import type { JobResponseDto } from '../job/job.dto.js';
+import { CreateJobSchema, type JobResponseDto } from '../job/job.dto.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
@@ -61,7 +61,7 @@ export interface CopilotServices {
 
 const id = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);
 
-/** Read-only tools, plus planFeature (validates only) and createPlannedFeature (creates only after the user approves). */
+/** Read-only tools, plus validateJob and planFeature (validate only) and createJob and createPlannedFeature (create only after the user approves). */
 export function createCopilotTools(s: CopilotServices) {
     const listProjects = createTool({
         id: 'listProjects',
@@ -281,6 +281,106 @@ export function createCopilotTools(s: CopilotServices) {
         },
     });
 
+    /** Fields shared by validateJob and createJob. */
+    const jobInput = z.object({
+        repoId: id('repo'),
+        title: z.string().describe('3-200 characters'),
+        task: z.string().describe('The full task for the agent, at least 10 characters'),
+        acceptanceCriteria: z.array(z.string()).describe('At most 20 concrete, testable criteria of at least 3 characters'),
+        dependsOn: z.array(z.string()).default([]).describe('Ids of existing jobs in the same project that must be merged first; [] when none'),
+        featureId: id('feature').optional().describe('An existing open feature of the same project to put the job in'),
+    });
+    const JobDraftSchema = CreateJobSchema.pick({ title: true, task: true, acceptanceCriteria: true, dependsOn: true });
+
+    /** Checks a single job against the repo, feature, dependencies and the limits of CreateJobSchema. Writes nothing. */
+    async function validateJobDraft(input: z.infer<typeof jobInput>) {
+        const problems: string[] = [];
+        const parsed = JobDraftSchema.safeParse({ title: input.title, task: input.task, acceptanceCriteria: input.acceptanceCriteria, dependsOn: [] });
+        if (!parsed.success) problems.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'job'}: ${i.message}`));
+        const dependsOn = input.dependsOn ?? [];
+        if (dependsOn.length > 20) problems.push('dependsOn: at most 20 dependencies');
+        if (new Set(dependsOn).size !== dependsOn.length) problems.push('dependsOn: duplicate dependencies');
+
+        let repo: Awaited<ReturnType<RepoService['getById']>> | null = null;
+        try {
+            repo = await s.repos.getById(input.repoId);
+        } catch {
+            problems.push(`Unknown repo ${input.repoId}`);
+        }
+
+        let featureTitle: string | null = null;
+        if (input.featureId) {
+            try {
+                const feature = await s.features.getById(input.featureId);
+                featureTitle = feature.title;
+                if (repo && feature.projectId !== repo.projectId) problems.push(`Feature "${feature.title}" is in another project than the repo`);
+                if (feature.status === 'done' || feature.status === 'cancelled') problems.push(`Feature "${feature.title}" is ${feature.status}; pick an open feature`);
+            } catch {
+                problems.push(`Unknown feature ${input.featureId}`);
+            }
+        }
+
+        const dependencies: { id: string; title: string }[] = [];
+        for (const depId of new Set(dependsOn)) {
+            try {
+                const dep = await s.jobs.getById(depId);
+                if (repo && dep.projectId !== repo.projectId) problems.push(`Dependency "${dep.title}" is in another project than the repo`);
+                else dependencies.push({ id: dep.id, title: dep.title });
+            } catch {
+                problems.push(`Unknown dependency job ${depId}`);
+            }
+        }
+
+        if (problems.length || !repo || !parsed.success) return { valid: false as const, problems };
+        return {
+            valid: true as const,
+            job: {
+                repoId: repo.id,
+                repoFullName: repo.fullName,
+                projectId: repo.projectId,
+                featureId: input.featureId ?? null,
+                featureTitle,
+                title: parsed.data.title,
+                task: parsed.data.task,
+                acceptanceCriteria: parsed.data.acceptanceCriteria ?? [],
+                dependsOn,
+                dependencies,
+            },
+        };
+    }
+
+    const validateJob = createTool({
+        id: 'validateJob',
+        description:
+            'Validate a draft of ONE job WITHOUT creating anything. Checks that the repo exists, that the feature (when given) exists, is open and in the repo\'s project, ' +
+            'that every dependency exists in the same project, and the limits (title 3-200 characters, task at least 10, at most 20 criteria of at least 3 characters, at most 20 dependencies). ' +
+            'Returns { valid: true, job } with display fields or { valid: false, problems }. Fix every problem and call again; only a valid draft may go to createJob.',
+        inputSchema: jobInput,
+        execute: async (input) => validateJobDraft(input),
+    });
+
+    const createJob = createTool({
+        id: 'createJob',
+        description:
+            'Create ONE job in triage (never queued), created by the current user, optionally in an existing feature and with dependencies. ' +
+            'The user is asked to approve the job in the UI first; if they cancel, nothing is created. Call validateJob first and pass the same draft. ' +
+            'Returns the job id and its link, or the problems when the draft is invalid.',
+        inputSchema: jobInput,
+        // The run suspends until the user approves or declines; a declined call never reaches execute.
+        requireApproval: true,
+        execute: async (input, { requestContext }) => {
+            const checked = await validateJobDraft(input);
+            if (!checked.valid) return { created: false as const, problems: checked.problems };
+            const { job } = checked;
+            const created = await s.jobs.create(
+                job.repoId,
+                { title: job.title, task: job.task, acceptanceCriteria: job.acceptanceCriteria, dependsOn: job.dependsOn, featureId: job.featureId ?? undefined, status: 'triage' },
+                copilotUser(requestContext),
+            );
+            return { created: true as const, jobId: created.id, link: `/?project=${job.projectId}&job=${created.id}` };
+        },
+    });
+
     const searchHistory = createTool({
         id: 'searchHistory',
         description:
@@ -299,7 +399,7 @@ export function createCopilotTools(s: CopilotServices) {
         },
     });
 
-    return { ...createCodeTools(s), searchHistory, planFeature, createPlannedFeature, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
+    return { ...createCodeTools(s), searchHistory, planFeature, createPlannedFeature, validateJob, createJob, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
 }
 
 export type CopilotTools = ReturnType<typeof createCopilotTools>;
