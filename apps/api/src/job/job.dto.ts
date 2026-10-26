@@ -1,7 +1,8 @@
 import { z } from 'zod';
 
 import { FeedbackResponseSchema } from '../feedback/feedback.dto.js';
-import { RunResponseSchema } from '../run/run.dto.js';
+import { RunDetailResponseSchema } from '../run/run.dto.js';
+import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { JOB_STATUSES } from './job-state.js';
 
 export const CreateJobSchema = z.object({
@@ -82,7 +83,9 @@ export const JobResponseSchema = z.object({
 });
 
 export const JobDetailResponseSchema = JobResponseSchema.extend({
-    runs: z.array(RunResponseSchema),
+    runs: z.array(RunDetailResponseSchema),
+    /** Lifetime Claude Code usage of all runs of the job (estimated, notional cost). */
+    agentUsage: AgentTotalsSchema,
     feedback: z.array(FeedbackResponseSchema),
 });
 

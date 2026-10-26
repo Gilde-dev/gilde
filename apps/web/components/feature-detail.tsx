@@ -17,6 +17,7 @@ import {
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
+import { AgentUsageSummary } from './agent-usage';
 import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { CopilotPageContext } from './copilot-provider';
 import { NewJobDialog } from './new-job-dialog';
@@ -165,6 +166,7 @@ export function FeatureDetailView() {
                 {f.progress.attempts} {f.progress.attempts === 1 ? 'attempt' : 'attempts'}
                 {f.progress.leadTimeMinutes !== null && ` · lead time ${f.progress.leadTimeMinutes} min`}
               </p>
+              <AgentUsageSummary t={f.agentUsage} label="Lifetime usage (Claude Code)" />
               <Tabs defaultValue="overview">
                 <TabsList>
                   <TabsTrigger value="overview">Overview</TabsTrigger>

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import { BlockingJobSchema, EnqueueWarningSchema, JobResponseSchema } from '../job/job.dto.js';
 import { FEATURE_STATUSES } from './feature-state.js';
@@ -47,6 +48,8 @@ export const FeatureResponseSchema = z.object({
 
 export const FeatureDetailResponseSchema = FeatureResponseSchema.extend({
     jobs: z.array(JobResponseSchema),
+    /** Lifetime Claude Code usage of all jobs of the feature (estimated, notional cost). */
+    agentUsage: AgentTotalsSchema,
 });
 
 export const FeatureStartResponseSchema = FeatureResponseSchema.extend({

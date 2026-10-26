@@ -74,7 +74,7 @@ export function MetricsView() {
         {metrics.error && <p className="p-4 text-sm text-danger">{metrics.error.message}</p>}
         {metrics.loading && !metrics.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {metrics.data && <MetricsBody metrics={metrics.data} />}
-        <UsageSection days={days} />
+        <UsageSection days={days} projectId={projectId} projectName={projects?.find((p) => p.id === projectId)?.name} />
     </>
   );
 }

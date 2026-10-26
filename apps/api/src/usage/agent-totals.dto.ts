@@ -37,3 +37,18 @@ export interface AgentUsageWindow {
     from: Date;
     to: Date;
 }
+
+export const AgentUsageResponseSchema = z.object({
+    days: z.number().int(),
+    /** `project` when filtered by `projectId` (attributed runs of that project only), else `global` (all rows incl. unattributed). */
+    scope: z.enum(['global', 'project']),
+    projectId: z.string().uuid().nullable(),
+    totals: AgentTotalsSchema,
+    daily: z.array(AgentTotalsSchema.extend({ date: z.string() })),
+    byModel: z.array(AgentTotalsSchema.extend({ model: z.string() })),
+    byRepo: z.array(AgentTotalsSchema.extend({ repoId: z.string(), fullName: z.string().nullable() })),
+    byFeature: z.array(AgentTotalsSchema.extend({ featureId: z.string(), title: z.string().nullable() })),
+    /** Rows not (yet) matched to a run: unknown project, so only present in the global scope (all zeros in project scope). */
+    unattributed: AgentTotalsSchema,
+});
+export type AgentUsageResponseDto = z.infer<typeof AgentUsageResponseSchema>;
