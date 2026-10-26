@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { describe, expect, it } from 'vitest';
-import { middleware } from './middleware';
+import { config, middleware } from './middleware';
 
 const req = (path: string, cookie?: string) =>
   new NextRequest(`http://localhost:3000${path}`, cookie ? { headers: { cookie: `gilde_session=${cookie}` } } : {});
@@ -29,5 +29,15 @@ describe('middleware', () => {
 
   it('answers 401 for proxy calls without a cookie', () => {
     expect(middleware(req('/api/gilde/v1/jobs')).status).toBe(401);
+  });
+
+  it('skips the session check for icons and brand files, so the login page can show them', () => {
+    const matches = (path: string) => new RegExp(`^${config.matcher[0]}$`).test(path);
+    for (const path of ['/favicon.ico', '/icon.svg', '/apple-icon.png', '/brand/gilde-logo.svg']) {
+      expect(matches(path), path).toBe(false);
+    }
+    for (const path of ['/', '/features', '/settings/projects', '/brandnew']) {
+      expect(matches(path), path).toBe(true);
+    }
   });
 });
