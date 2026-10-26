@@ -6,6 +6,7 @@ export function toAgentUsageDto(e: AgentUsage): AgentUsageDto {
         id: e.id,
         runId: e.runId,
         jobId: e.jobId,
+        attribution: e.attribution,
         sessionId: e.sessionId,
         model: e.model,
         inputTokens: e.inputTokens,

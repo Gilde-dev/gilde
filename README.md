@@ -223,7 +223,7 @@ Add the `gilde:review` label to a PR to get a Claude Code review (the `Agent rev
 
 ## Claude Code telemetry (OTLP ingest)
 
-Gilde can receive the OpenTelemetry events of Claude Code routines and store the token usage of each API request in `agent_usage`, separate from the co-pilot's `llm_usage`. This first step only **stores** rows: `run_id` and `job_id` stay null (attributing them to runs is a later, scheduled step), and nothing here reads `job_runs`.
+Gilde can receive the OpenTelemetry events of Claude Code routines and store the token usage of each API request in `agent_usage`, separate from the co-pilot's `llm_usage`. Ingest only **stores** rows: `run_id`, `job_id` and `attribution` stay null and ingest never reads `job_runs`; a separate scheduled pass (below) attributes them.
 
 **Endpoints.** Exactly two public POST routes, both OTLP/HTTP **JSON** (no protobuf):
 
@@ -267,6 +267,27 @@ curl -sS -X POST "https://<domain>/api/v1/otel/v1/logs" \
 ```
 
 Fixtures in the tests are constructed from Claude Code's documented attribute names; no real export was available, so equality of the real `session.id` with the routine's `claude_code_session_id` is unverified.
+
+### Attributing usage to runs
+
+**Session ids (evidence).** `routine-execution.adapter.ts` (`FireResponseSchema`/`fire`) passes the routine's `claude_code_session_id` through unchanged, `RunService.markFired` stores it in `job_runs.session_id` and stamps `fired_at`. Whether that value equals the OTel `session.id` was **not verified**: no real stored OTel session or routine response was accessible from the agent environment, so there is no real comparison to report (unavailable evidence), and all fixtures in the tests are synthetic. Matching is by the **exact** id only: there is no prefix stripping or other normalization. Operators can check it once with a sanitized pair (`SELECT session_id FROM job_runs WHERE session_id IS NOT NULL LIMIT 5` against `SELECT DISTINCT session_id FROM agent_usage LIMIT 5`); if they differ, exact matching never fires and only the start-time fallback applies.
+
+**`finishedAt` is not used.** `JobEventsService.prClosed` stamps the last run's `finished_at` when the PR is merged or closed (to measure time-to-merge), so it is not the end of the routine execution. Attribution ignores `finished_at`, session end, coverage, run status and PR state; changing them never changes eligibility. Run lifecycle code is untouched.
+
+**Operational premise.** The ingest secret (`OTEL_INGEST_TOKEN`) is stated to exist only in the environments of routines fired by Gilde, so every accepted session comes from a Gilde run. That permits a search across all projects; it is a premise, not something the code verifies. There is no project-scope setting.
+
+**The pass** (`AgentAttributionService`, `apps/api/src/usage/`). It runs every five minutes (`@Cron(EVERY_5_MINUTES)`, like the reconciler) and on `POST /api/v1/usage/agents/attribute` (ordinary JWT or `gk_` API key; the ingest token is rejected, the route is never `@Public()`, keep it off the public proxy and out of the co-pilot). Both call the same method, take one `now` (injectable `clock`), skip when another pass is running in the same process (`skipped: true`) and make conditional updates, so overlapping or repeated calls are idempotent on SQLite and Postgres. It returns `{ skipped, sessionsExamined, sessionsBySession, sessionsByTimeWindow, sessionsAmbiguous, sessionsUnmatched, rowsAttributed, rowsUpgraded }`. Work is bounded (100 sessions per batch, at most 20 batches per pass, in session-id order), so a large backlog is backfilled by repeated passes.
+
+1. **Quiet delay.** A session qualifies only when the latest event over **all** its stored rows is strictly older than ten minutes (`MAX(event_at) < now - 10 min`; exactly ten minutes does not qualify) and it still has unassigned rows or `time_window` rows. One recent event keeps the whole session back, even if other rows were already assigned.
+2. **Exact match first.** If exactly one `job_runs.session_id` equals the session id (any project, no time restriction) its run and job are used with provenance `session`. Two or more matches are ambiguous: nothing changes and there is no fallback.
+3. **Start-time fallback** (only when no exact match exists). `T` = the earliest event time over all rows of the session. Exactly one run, in any project, with `fired_at` in the inclusive interval `[T - 10 min, T]` gives provenance `time_window` for the still-unassigned rows. Runs without `fired_at` are not candidates. Zero or several candidates leave the rows unassigned; the nearest or latest is never chosen (two runs fired 30 seconds apart are ambiguous, also across projects). Example: a session whose first event is 20 minutes after the only run was fired stays unattributed, however long that run's PR stays open.
+4. Job, project and repo come from the matched run.
+
+**Provenance** (`agent_usage.attribution`): `session`, `time_window` or null. Run and provenance are written in one conditional update. Quiet `time_window` rows are revisited only so a unique exact match can upgrade them to `session` (replacing run and job). Every other assignment is frozen: no revocation, no reassignment when a later candidate appears or an earlier event arrives, no hook in ingest, run completion or any read endpoint. Rows ingested late start unassigned and wait for the next qualifying pass. The ten-minute quiet delay and the ten-minute start proximity are heuristics, not proof of completeness or ownership: a late earlier event may change `T`, and a delayed-start session stays unattributed.
+
+### Agent usage totals
+
+`AgentUsageService` aggregates in SQL with joins (no list caps, no per-item queries): `totals`, `unattributed`, `forRuns`, `forJobs`, `forFeatures`, `byRepo`, `byFeature`, `byModel` and `byDay`. Keys follow the co-pilot's `UsageTotalsDto`, with `cacheCreationTokens` added: `inputTokens` = uncached + cache read + cache creation, `cachedInputTokens` is the cache-read subset, `totalTokens` = `inputTokens` + `outputTokens` (counted once), `reasoningTokens` is 0 (no source evidence), `runs` counts API-request rows (shown as Requests), and `uncachedInputTokens` keeps the stored category recoverable. `costUsd` sums Claude Code's own estimates (never `LLM_PRICES`): null when none is known, a real 0 stays 0, and `costUnknownRequests`/`costPartial` mark partially unknown totals. Days are UTC event dates over a zero-filled window (`agentWindow(days, now)`); run/job/feature totals without a window are lifetime. A `projectId` filter uses the project of the **attributed run**; unattributed rows have an unknown project and appear only in the global scope (overall totals count them exactly once) and in `unattributed`. The HTTP read API and UI come in the next job.
 
 ## Notifications
 

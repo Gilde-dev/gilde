@@ -1,9 +1,12 @@
 import { z } from 'zod';
 
+import { AGENT_USAGE_ATTRIBUTIONS } from './agent-usage.entity.js';
+
 export const AgentUsageSchema = z.object({
     id: z.string().uuid(),
     runId: z.string().uuid().nullable(),
     jobId: z.string().uuid().nullable(),
+    attribution: z.enum(AGENT_USAGE_ATTRIBUTIONS).nullable(),
     sessionId: z.string(),
     model: z.string(),
     inputTokens: z.number().int(),
