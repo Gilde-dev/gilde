@@ -16,10 +16,10 @@ import {
 } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
+import { withProject } from '@/lib/use-project';
 import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { CopilotPageContext } from './copilot-provider';
 import { NewJobDialog } from './new-job-dialog';
-import { SidebarNav } from './sidebar-nav';
 import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
@@ -80,19 +80,14 @@ export function FeatureDetailView() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <>
       <CopilotPageContext description="The feature page open in the Gilde UI" value={{ featureId: id }} />
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/features" />
-      </aside>
-      <main className="min-w-0 flex-1">
         {feature.error && <p role="alert" className="p-4 text-sm text-danger">{feature.error.message}</p>}
         {feature.loading && !f && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {f && (
           <>
             <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-              <Link href="/features" className="text-sm text-muted-foreground underline">
+              <Link href={withProject('/features', projectId ?? null)} className="text-sm text-muted-foreground underline">
                 Features
               </Link>
               <h2 className="font-serif text-lg font-semibold">{f.title}</h2>
@@ -206,7 +201,6 @@ export function FeatureDetailView() {
             </div>
           </>
         )}
-      </main>
       {f && (
         <NewJobDialog
           open={creating}
@@ -218,6 +212,6 @@ export function FeatureDetailView() {
           onCreated={feature.refresh}
         />
       )}
-    </div>
+    </>
   );
 }

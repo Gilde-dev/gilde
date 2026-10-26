@@ -3,6 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, type Lesson } from '@/lib/api';
 import { LessonsView, sortLessons } from './lessons-view';
 
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: vi.fn() }),
+  usePathname: () => '/',
+  useSearchParams: () => new URLSearchParams(),
+}));
+
+
 vi.mock('next/link', () => ({
   default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
     <a href={href} {...rest}>
@@ -54,7 +61,6 @@ describe('LessonsView', () => {
     vi.spyOn(api, 'listLessons').mockResolvedValue([]);
     render(<LessonsView />);
     expect(await screen.findByText(/No lessons yet/)).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Lessons' })).toHaveAttribute('aria-current', 'page');
     expect(screen.getByRole('tab', { name: 'candidate (0)' })).toBeInTheDocument();
   });
 

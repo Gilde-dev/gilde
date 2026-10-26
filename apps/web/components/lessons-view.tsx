@@ -11,7 +11,8 @@ import {
   type UpdateLessonInput,
 } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
-import { SidebarNav } from './sidebar-nav';
+import { useProject } from '@/lib/use-project';
+import { NoProjects } from './no-projects';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 
@@ -26,7 +27,6 @@ export function sortLessons(lessons: Lesson[]): Lesson[] {
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function LessonsView() {
-  const [projectId, setProjectId] = useState('');
   const [tab, setTab] = useState<LessonStatus>('candidate');
   const [selected, setSelected] = useState<string[]>([]);
   const [mergeTarget, setMergeTarget] = useState('');
@@ -34,10 +34,9 @@ export function LessonsView() {
   const [actionError, setActionError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const projects = usePolling(api.listProjects, 60_000);
-  useEffect(() => {
-    if (!projectId && projects.data?.length) setProjectId(projects.data[0].id);
-  }, [projectId, projects.data]);
+  const { projects, projectId } = useProject();
+  // Selections belong to one project.
+  useEffect(() => setSelected([]), [projectId]);
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([] as Repo[])), [projectId]);
   const repos = usePolling(fetchRepos, 60_000);
@@ -79,27 +78,16 @@ export function LessonsView() {
     }, 'Merged');
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="flex w-60 shrink-0 flex-col gap-4 border-r border-border bg-muted/40 p-4">
-        <h1 className="text-lg font-bold">Gilde</h1>
-        <SidebarNav current="/lessons" />
-      </aside>
-      <main className="min-w-0 flex-1">
+    <>
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">Lessons</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
-            <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => { setProjectId(e.target.value); setSelected([]); }}>
-              {projects.data?.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
-            </select>
             <Button size="sm" onClick={collect} disabled={busy}>
               Collect now
             </Button>
           </div>
         </header>
+        {projects?.length === 0 && <NoProjects />}
         <div role="tablist" aria-label="Status" className="flex gap-1 border-b border-border px-4 py-2">
           {LESSON_STATUSES.map((s) => (
             <Button
@@ -155,8 +143,7 @@ export function LessonsView() {
             />
           ))}
         </ul>
-      </main>
-    </div>
+    </>
   );
 }
 
