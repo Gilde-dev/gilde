@@ -23,6 +23,15 @@ docker build -f apps/web/Dockerfile -t gilde-web .
 docker build -f apps/channels/Dockerfile -t gilde-channels .
 ```
 
+### Publishing
+
+`.github/workflows/images.yaml` builds the three images (linux/amd64) and publishes them to `ghcr.io/gilde-dev/gilde-api`, `ghcr.io/gilde-dev/gilde-web` and `ghcr.io/gilde-dev/gilde-channels`. Each image gets two tags: the full commit SHA and `latest`, plus the OCI labels `org.opencontainers.image.source` and `org.opencontainers.image.revision`.
+
+- Images are pushed only after the CI workflow succeeded on `main` for that commit (or by a manual `workflow_dispatch` on `main`), so broken commits never get images.
+- Pull requests build the same images without pushing (checks named `Image api`, `Image web`, `Image channels`).
+- The workflow uses only the built-in `GITHUB_TOKEN` (`contents: read`, `packages: write`) and has no deploy step.
+- The GHCR packages must be readable by the server: make them public, or configure a token with `read:packages` in gilde-infra. A newly created package starts private.
+
 Deployment is done from the separate `Gilde-dev/gilde-infra` repo (compose file, Caddy, env files, backups); this repo only produces the images.
 
 Environment variables per image:
