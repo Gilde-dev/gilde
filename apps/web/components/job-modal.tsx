@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useState } from 'react';
+import Link from 'next/link';
 import { api, type Job, type JobStatus, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { JobActions } from './job-actions';
@@ -271,6 +272,10 @@ export function JobModal({
                 </div>
               </DialogDescription>
             </div>
+
+            <Link href={`/jobs/${shown.id}`} className="inline-block text-sm underline">
+              Open page
+            </Link>
 
             <JobActions
               job={shown}
