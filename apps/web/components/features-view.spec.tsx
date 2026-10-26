@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, type Project } from '@/lib/api';
+import { api, type Job, type Project } from '@/lib/api';
 import { feature } from './feature.fixture';
 import { FeaturesView } from './features-view';
 
@@ -18,9 +18,12 @@ describe('FeaturesView', () => {
     vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'p', name: 'P' } as Project]);
     const ready = feature({ id: 'f2', title: 'Ready one', progress: { ...feature().progress, readyToClose: true, merged: 2, total: 2 } });
     vi.spyOn(api, 'listFeatures').mockResolvedValue([feature(), ready]);
+    vi.spyOn(api, 'listJobs').mockResolvedValue([{ featureId: 'f1', repoId: 'a' }, { featureId: 'f1', repoId: 'b' }, { featureId: 'f1', repoId: 'b' }] as Job[]);
     render(<FeaturesView />);
     expect(await screen.findByRole('link', { name: 'Checkout flow' })).toHaveAttribute('href', '/features/f1?project=p');
     expect(screen.getByText('1/3 merged')).toBeInTheDocument();
+    expect(await screen.findByText('2 repos')).toBeInTheDocument();
+    expect(screen.getAllByText(/^Updated /)).toHaveLength(2);
     expect(screen.getAllByText('Ready to close')).toHaveLength(1);
     expect(screen.getAllByRole('progressbar')).toHaveLength(2);
   });
