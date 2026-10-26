@@ -30,12 +30,12 @@ function setup() {
 }
 
 describe('co-pilot tools', () => {
-    it('exposes the read-only tools and the two planning tools, each with a description and an input schema', () => {
+    it('exposes the read-only tools and the job and planning tools, each with a description and an input schema', () => {
         const { tools } = setup();
         expect(Object.keys(tools).sort()).toEqual([
-            'createPlannedFeature', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills',
+            'createJob', 'createPlannedFeature', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills',
             'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'planFeature',
-            'readRepoFile', 'searchHistory', 'searchRepoCode',
+            'readRepoFile', 'searchHistory', 'searchRepoCode', 'validateJob',
         ]);
         for (const tool of Object.values(tools)) {
             expect(tool.description.length).toBeGreaterThan(20);

@@ -10,7 +10,7 @@ import {
 import { useState, type ComponentProps, type ReactNode } from 'react';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
-import { PLAN_TOOL } from '@/components/copilot-plan-approval';
+import { JOB_TOOL, PLAN_TOOL } from '@/components/copilot-plan-approval';
 
 export type ToolStatus = 'inProgress' | 'executing' | 'complete';
 
@@ -84,6 +84,10 @@ export function toolLabel(name: string, parameters: unknown): string {
       return 'Reading repo skills';
     case 'planFeature':
       return 'Checking the plan';
+    case 'validateJob':
+      return 'Checking the job';
+    case 'createJob':
+      return 'Creating a job';
     default:
       return name;
   }
@@ -138,6 +142,16 @@ function JobList({ jobs }: { jobs: Job[] }) {
   );
 }
 
+function ProblemList({ problems }: { problems: unknown[] }) {
+  return (
+    <ul className="list-disc pl-4 text-danger">
+      {problems.map((p, i) => (
+        <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>
+      ))}
+    </ul>
+  );
+}
+
 /** The compact, tool-specific line(s) shown under the label once a call is done; null falls back to the default. */
 function summary(name: string, parameters: unknown, value: unknown): ReactNode {
   const a = asArgs(parameters);
@@ -170,18 +184,21 @@ function summary(name: string, parameters: unknown, value: unknown): ReactNode {
     case 'listJobs':
     case 'getJob':
       return Array.isArray(value) || r.title !== undefined ? <JobList jobs={asJobs(value)} /> : null;
-    case 'planFeature': {
-      if (r.valid === true) return <Badge variant="success">valid</Badge>;
-      if (Array.isArray(r.problems)) {
+    case 'createJob': {
+      if (r.created === true && typeof r.link === 'string') {
         return (
-          <ul className="list-disc pl-4 text-danger">
-            {(r.problems as unknown[]).map((p, i) => (
-              <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>
-            ))}
-          </ul>
+          <a href={r.link} className="font-medium underline underline-offset-2">
+            Open the job
+          </a>
         );
       }
+      if (r.created === false && Array.isArray(r.problems)) return <ProblemList problems={r.problems} />;
       return null;
+    }
+    case 'validateJob':
+    case 'planFeature': {
+      if (r.valid === true) return <Badge variant="success">valid</Badge>;
+      return Array.isArray(r.problems) ? <ProblemList problems={r.problems} /> : null;
     }
     default:
       return null;
@@ -326,13 +343,20 @@ export function BusyIndicator({ running, step }: { running: boolean; step?: numb
   );
 }
 
-/** Registers the wildcard renderer for backend tool calls. The approval tool keeps its own card (an interrupt). */
+/**
+ * Registers the wildcard renderer for backend tool calls. The approval tools keep their own card (an interrupt);
+ * createPlannedFeature has no row, createJob shows a row only once it is done, with the link to the job.
+ */
 export function CopilotToolRenderers() {
   useRenderTool(
     {
       name: '*',
       group: true,
-      render: (props: ToolCallViewProps) => (props.name === PLAN_TOOL ? null : <ToolCallView {...props} />),
+      render: (props: ToolCallViewProps) => {
+        if (props.name === PLAN_TOOL) return null;
+        if (props.name === JOB_TOOL && props.status !== 'complete') return null;
+        return <ToolCallView {...props} />;
+      },
     },
     [],
   );
