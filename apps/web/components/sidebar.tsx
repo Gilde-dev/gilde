@@ -28,7 +28,7 @@ export function Sidebar({
       <label className="flex flex-col gap-1 text-xs text-muted-foreground">
         Project
         <select
-          className="h-9 rounded-md border border-border bg-background px-2 text-sm text-foreground"
+          className="h-9 rounded-md border border-input bg-card px-2 text-sm text-foreground"
           value={projectId ?? ''}
           onChange={(e) => onSelectProject(e.target.value)}
         >
@@ -42,7 +42,7 @@ export function Sidebar({
       </label>
       <div>
         <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Repos</h2>
-        {reposError && <p className="text-xs text-red-800">{reposError.message}</p>}
+        {reposError && <p className="text-xs text-danger">{reposError.message}</p>}
         <ul className="space-y-2">
           {repos?.map((r) => (
             <li key={r.id} className="text-sm">

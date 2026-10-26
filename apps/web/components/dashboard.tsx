@@ -101,12 +101,12 @@ export function Dashboard() {
         onChanged={refreshAll}
       />
       <main className="min-w-0 flex-1">
-        {projects.error && <p className="p-4 text-sm text-red-800">{projects.error.message}</p>}
-        {jobs.error && <p className="p-4 text-sm text-red-800">{jobs.error.message}</p>}
+        {projects.error && <p className="p-4 text-sm text-danger">{projects.error.message}</p>}
+        {jobs.error && <p className="p-4 text-sm text-danger">{jobs.error.message}</p>}
         {projects.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No projects yet.</p>}
         {project && (
           <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-            <h2 className="text-lg font-semibold">{project.name}</h2>
+            <h2 className="font-serif text-lg font-semibold">{project.name}</h2>
             {project.paused && <Badge variant="warning">Paused</Badge>}
             <div className="ml-auto flex items-center gap-2">
               <PauseToggle
@@ -117,7 +117,7 @@ export function Dashboard() {
               />
               <select
                 aria-label="Feature filter"
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-md border border-input bg-card px-2 text-sm"
                 value={featureFilter}
                 onChange={(e) => setFeatureFilter(e.target.value)}
               >
@@ -131,7 +131,7 @@ export function Dashboard() {
               </select>
               <select
                 aria-label="Created by filter"
-                className="h-9 rounded-md border border-border bg-background px-2 text-sm"
+                className="h-9 rounded-md border border-input bg-card px-2 text-sm"
                 value={creatorFilter}
                 onChange={(e) => setCreatorFilter(e.target.value as '' | 'me')}
               >
@@ -143,7 +143,7 @@ export function Dashboard() {
           </header>
         )}
         {warnings.length > 0 && (
-          <div role="status" className="m-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900">
+          <div role="status" className="m-4 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
             <ul className="list-disc pl-4">
               {warnings.map((w, i) => (
                 <li key={i}>{w}</li>

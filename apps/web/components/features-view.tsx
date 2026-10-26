@@ -5,14 +5,14 @@ import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { FEATURE_STATUSES, api, type Feature, type FeatureStatus } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
-import { FeatureProgressBar, ReadyToCloseBadge, STATUS_VARIANT } from './feature-progress';
+import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
 import { SidebarNav } from './sidebar-nav';
-import { Badge } from './ui/badge';
+import { StatusBadge } from './status-badge';
 import { Button } from './ui/button';
 
 const POLL_MS = 10_000;
-const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
-const INPUT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
+const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
+const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 export function FeaturesView() {
   const [projectId, setProjectId] = useState('');
@@ -55,7 +55,7 @@ export function FeaturesView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">Features</h2>
+          <h2 className="font-serif text-lg font-semibold">Features</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               {projects.data?.map((p) => (
@@ -80,8 +80,8 @@ export function FeaturesView() {
             Add feature
           </Button>
         </form>
-        {error && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{error}</p>}
-        {features.error && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{features.error.message}</p>}
+        {error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{error}</p>}
+        {features.error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{features.error.message}</p>}
         {features.loading && !features.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {features.data?.length === 0 && <p className="p-4 text-sm text-muted-foreground">No features</p>}
         <ul className="space-y-2 p-4">
@@ -91,7 +91,7 @@ export function FeaturesView() {
                 <Link href={`/features/${f.id}`} className="font-medium underline-offset-2 hover:underline">
                   {f.title}
                 </Link>
-                <Badge variant={STATUS_VARIANT[f.status]}>{f.status}</Badge>
+                <StatusBadge kind="feature" status={f.status} />
                 <ReadyToCloseBadge feature={f} />
               </div>
               <div className="mt-2">

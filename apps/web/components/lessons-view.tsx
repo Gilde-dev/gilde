@@ -16,7 +16,7 @@ import { Badge } from './ui/badge';
 import { Button } from './ui/button';
 
 const POLL_MS = 30_000;
-const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
+const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 /** Most sources first, then newest. */
 export function sortLessons(lessons: Lesson[]): Lesson[] {
@@ -86,7 +86,7 @@ export function LessonsView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">Lessons</h2>
+          <h2 className="font-serif text-lg font-semibold">Lessons</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => { setProjectId(e.target.value); setSelected([]); }}>
               {projects.data?.map((p) => (
@@ -106,7 +106,7 @@ export function LessonsView() {
               key={s}
               role="tab"
               size="sm"
-              variant={s === tab ? 'default' : 'outline'}
+              variant={s === tab ? 'primary' : 'outline'}
               aria-selected={s === tab}
               onClick={() => { setTab(s); setSelected([]); }}
             >
@@ -115,7 +115,7 @@ export function LessonsView() {
           ))}
         </div>
         {notice && <p role="status" className="px-4 pt-3 text-sm text-muted-foreground">{notice}</p>}
-        {(actionError || lessons.error) && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{actionError ?? lessons.error?.message}</p>}
+        {(actionError || lessons.error) && <p role="alert" className="px-4 pt-3 text-sm text-danger">{actionError ?? lessons.error?.message}</p>}
         {lessons.loading && !lessons.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {(tab === 'candidate' || tab === 'approved') && chosen.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 px-4 pt-3 text-sm">
@@ -208,12 +208,12 @@ function LessonCard({
         )}
         <textarea
           aria-label="Lesson text"
-          className="min-h-[3rem] flex-1 rounded-md border border-border bg-background p-2 text-sm"
+          className="min-h-[3rem] flex-1 rounded-md border border-input bg-card p-2 text-sm"
           value={text}
           onChange={(e) => setText(e.target.value)}
           onBlur={saveText}
         />
-        <Badge variant="secondary" title="Distinct jobs behind this lesson">
+        <Badge variant="neutral" title="Distinct jobs behind this lesson">
           {lesson.sourceCount} {lesson.sourceCount === 1 ? 'job' : 'jobs'}
         </Badge>
       </div>
@@ -226,7 +226,7 @@ function LessonCard({
             {lesson.sources.map((s) => (
               <li key={s.id} className="rounded-md bg-muted/50 p-2 text-xs">
                 <div className="mb-1 flex items-center gap-2 text-muted-foreground">
-                  <Badge variant="outline">{s.kind.replace('_', ' ')}</Badge>
+                  <Badge variant="neutral">{s.kind.replace('_', ' ')}</Badge>
                   {s.prUrl ? (
                     <a href={s.prUrl} target="_blank" rel="noreferrer" className="underline">
                       PR
@@ -271,7 +271,7 @@ function LessonCard({
         <input
           aria-label="Note"
           placeholder="Note"
-          className="h-9 min-w-[10rem] flex-1 rounded-md border border-border bg-background px-2 text-sm"
+          className="h-9 min-w-[10rem] flex-1 rounded-md border border-input bg-card px-2 text-sm"
           value={note}
           onChange={(e) => setNote(e.target.value)}
           onBlur={saveNote}

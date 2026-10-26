@@ -6,7 +6,7 @@ import { usePolling } from '@/lib/use-polling';
 import { SidebarNav } from './sidebar-nav';
 import { Button } from './ui/button';
 
-const INPUT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
+const INPUT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 const formatDate = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : '—');
 
@@ -61,7 +61,7 @@ export function ApiKeysView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">API keys</h2>
+          <h2 className="font-serif text-lg font-semibold">API keys</h2>
           <p className="text-sm text-muted-foreground">
             Long-lived Bearer tokens for scripts and services. A key acts as you.
           </p>
@@ -79,9 +79,9 @@ export function ApiKeysView() {
             Create key
           </Button>
         </form>
-        {error && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{error}</p>}
+        {error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{error}</p>}
         {created && (
-          <section aria-label="New key" className="m-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+          <section aria-label="New key" className="m-4 rounded-md border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
             <p className="font-medium">Copy this key now. It is shown only once and cannot be retrieved later.</p>
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <code className="break-all rounded bg-background px-2 py-1">{created.key}</code>
@@ -95,7 +95,7 @@ export function ApiKeysView() {
           </section>
         )}
         {keys.loading && !keys.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
-        {keys.error && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{keys.error.message}</p>}
+        {keys.error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{keys.error.message}</p>}
         {keys.data && keys.data.length === 0 && <p className="p-4 text-sm text-muted-foreground">No API keys yet.</p>}
         {keys.data && keys.data.length > 0 && (
           <table className="m-4 w-[calc(100%-2rem)] text-left text-sm">

@@ -8,9 +8,9 @@ import {
   UserMessage as DefaultUserMessage,
 } from '@copilotkit/react-ui';
 import { useState, type ComponentProps, type ReactNode } from 'react';
+import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { PLAN_TOOL } from '@/components/copilot-plan-approval';
-import type { JobStatus } from '@/lib/api';
 
 export type ToolStatus = 'inProgress' | 'executing' | 'complete';
 
@@ -24,18 +24,6 @@ export interface ToolCallViewProps {
 type Args = Record<string, unknown>;
 
 const RESULT_LINES = 6;
-
-const STATUS_VARIANT: Record<JobStatus, 'success' | 'warning' | 'danger' | 'secondary' | 'outline' | 'default'> = {
-  triage: 'secondary',
-  queued: 'outline',
-  dispatched: 'default',
-  pr_open: 'default',
-  awaiting_review: 'warning',
-  merged: 'success',
-  rejected: 'danger',
-  parked: 'warning',
-  cancelled: 'secondary',
-};
 
 const asArgs = (p: unknown): Args => (p && typeof p === 'object' && !Array.isArray(p) ? (p as Args) : {});
 
@@ -120,8 +108,8 @@ function Spinner({ label }: { label?: string }) {
 }
 
 function StatusIcon({ status, failed }: { status: ToolStatus; failed: boolean }) {
-  if (failed) return <span role="img" aria-label="Failed" className="font-bold text-red-600">✕</span>;
-  if (status === 'complete') return <span role="img" aria-label="Done" className="font-bold text-emerald-600">✓</span>;
+  if (failed) return <span role="img" aria-label="Failed" className="font-bold text-danger">✕</span>;
+  if (status === 'complete') return <span role="img" aria-label="Done" className="font-bold text-success">✓</span>;
   return <Spinner label="Running" />;
 }
 
@@ -142,7 +130,7 @@ function JobList({ jobs }: { jobs: Job[] }) {
       {jobs.slice(0, 5).map((j, i) => (
         <li key={j.id ?? i} className="flex items-center gap-1.5">
           <span className="truncate">{j.title ?? j.id}</span>
-          {j.status && <Badge variant={STATUS_VARIANT[j.status as JobStatus] ?? 'outline'}>{j.status}</Badge>}
+          {j.status && <StatusBadge status={j.status} />}
         </li>
       ))}
       {jobs.length > 5 && <li className="text-muted-foreground">+{jobs.length - 5} more</li>}
@@ -186,7 +174,7 @@ function summary(name: string, parameters: unknown, value: unknown): ReactNode {
       if (r.valid === true) return <Badge variant="success">valid</Badge>;
       if (Array.isArray(r.problems)) {
         return (
-          <ul className="list-disc pl-4 text-red-700">
+          <ul className="list-disc pl-4 text-danger">
             {(r.problems as unknown[]).map((p, i) => (
               <li key={i}>{typeof p === 'string' ? p : JSON.stringify(p)}</li>
             ))}
@@ -221,7 +209,7 @@ export function ToolCallView({ name, parameters, status, result }: ToolCallViewP
           <StatusIcon status={status} failed={!!error} />
         </span>
       </div>
-      {error && <p className="mt-0.5 text-red-700">{error}</p>}
+      {error && <p className="mt-0.5 text-danger">{error}</p>}
       {extra && <div className="mt-0.5">{extra}</div>}
       {(hasArgs || result !== undefined) && (
         <>

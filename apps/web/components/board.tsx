@@ -70,7 +70,7 @@ function LaneColumn({
             Queue selected{selectedIds.length > 0 ? ` (${selectedIds.length})` : ''}
           </Button>
           {error && (
-            <p role="alert" className="mt-1 text-xs text-red-800">
+            <p role="alert" className="mt-1 text-xs text-danger">
               {error}
             </p>
           )}

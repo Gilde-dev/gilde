@@ -6,7 +6,7 @@ import { errorText } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
-const inputClass = 'w-full rounded-md border border-border bg-background px-2 py-1.5 text-sm text-foreground';
+const inputClass = 'w-full rounded-md border border-input bg-card px-2 py-1.5 text-sm text-foreground';
 
 export function NewJobDialog({
   open,
@@ -95,7 +95,7 @@ export function NewJobDialog({
   const FieldErrors = ({ field }: { field: string }) => (
     <>
       {fieldErrors(field).map((m, i) => (
-        <p key={i} role="alert" className="mt-1 text-xs text-red-800">
+        <p key={i} role="alert" className="mt-1 text-xs text-danger">
           {m}
         </p>
       ))}
@@ -197,7 +197,7 @@ export function NewJobDialog({
             Create in triage
           </label>
           {error && (
-            <p role="alert" className="text-sm text-red-800">
+            <p role="alert" className="text-sm text-danger">
               {error}
             </p>
           )}

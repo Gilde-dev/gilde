@@ -41,7 +41,7 @@ export function PauseToggle({
         {paused ? 'Resume' : 'Pause'}
       </Button>
       {error && (
-        <span role="alert" className="text-xs text-red-800">
+        <span role="alert" className="text-xs text-danger">
           {error}
         </span>
       )}

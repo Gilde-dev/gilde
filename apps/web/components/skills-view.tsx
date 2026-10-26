@@ -14,21 +14,21 @@ import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
 import { PromoteSkillDialog } from './promote-skill-dialog';
 import { SidebarNav } from './sidebar-nav';
-import { Badge } from './ui/badge';
+import { Badge, type BadgeVariant } from './ui/badge';
 import { Button } from './ui/button';
 
 const POLL_MS = 60_000;
-const SELECT = 'h-9 rounded-md border border-border bg-background px-2 text-sm';
+const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
 
 const LIBRARY_LABELS: Record<SkillsLibraryKind, string> = { none: 'None', folder: 'Server folder', repo: 'Repo' };
 
-export const STATUS_VARIANTS: Record<SkillStatus, 'success' | 'warning' | 'danger' | 'secondary' | 'outline'> = {
+export const STATUS_VARIANTS: Record<SkillStatus, BadgeVariant> = {
   ok: 'success',
   outdated: 'warning',
   missing: 'warning',
   orphaned: 'warning',
   conflict: 'danger',
-  repo: 'secondary',
+  repo: 'neutral',
 };
 
 export function SkillsView() {
@@ -74,7 +74,7 @@ export function SkillsView() {
       </aside>
       <main className="min-w-0 flex-1">
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
-          <h2 className="text-lg font-semibold">Skills</h2>
+          <h2 className="font-serif text-lg font-semibold">Skills</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <select aria-label="Project" className={SELECT} value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               {projects.data?.map((p) => (
@@ -91,11 +91,11 @@ export function SkillsView() {
           </div>
         </header>
         {project && <LibrarySettings project={project} repos={repos.data ?? []} onSaved={projects.refresh} />}
-        {refreshError && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{refreshError}</p>}
+        {refreshError && <p role="alert" className="px-4 pt-3 text-sm text-danger">{refreshError}</p>}
         {project && project.skillsLibrary === 'none' && (
           <p className="p-4 text-sm text-muted-foreground">No skills library is configured for this project.</p>
         )}
-        {catalog.error && <p role="alert" className="px-4 pt-3 text-sm text-red-800">{catalog.error.message}</p>}
+        {catalog.error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{catalog.error.message}</p>}
         {catalog.data && (
           <>
             <section className="p-4">
@@ -107,7 +107,7 @@ export function SkillsView() {
                   <li key={s.name} aria-label={`Library skill ${s.name}`} className="rounded-md border border-border p-3 text-sm">
                     <div className="flex flex-wrap items-center gap-2">
                       <span className="font-medium">{s.name}</span>
-                      <Badge variant="outline">{s.scope === 'global' ? 'global' : `stacks: ${s.stacks.join(', ')}`}</Badge>
+                      <Badge variant="neutral">{s.scope === 'global' ? 'global' : `stacks: ${s.stacks.join(', ')}`}</Badge>
                     </div>
                     <p className="text-muted-foreground">{s.description}</p>
                     <p className="mt-1 text-xs text-muted-foreground">
@@ -184,7 +184,7 @@ function LibrarySettings({ project, repos, onSaved }: { project: Project; repos:
       <Button size="sm" variant="outline" onClick={save} disabled={busy || (kind === 'repo' && !repoId)}>
         Save
       </Button>
-      {error && <p role="alert" className="w-full text-red-800">{error}</p>}
+      {error && <p role="alert" className="w-full text-danger">{error}</p>}
     </div>
   );
 }
@@ -196,7 +196,7 @@ function RepoSkillsCard({ repo, canPromote, onPromoted }: { repo: Repo; canPromo
   return (
     <li aria-label={`Repo ${repo.fullName}`} className="rounded-md border border-border p-3 text-sm">
       <div className="mb-2 font-medium">{repo.fullName}</div>
-      {skills.error && <p role="alert" className="text-red-800">{skills.error.message}</p>}
+      {skills.error && <p role="alert" className="text-danger">{skills.error.message}</p>}
       {skills.data && (
         <>
           <p className="mb-2 text-xs text-muted-foreground">
