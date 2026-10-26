@@ -78,6 +78,11 @@ describe('planFromInterrupt', () => {
 });
 
 describe('CopilotPlanApproval', () => {
+  it('listens for interrupts of the gilde agent (there is no default agent)', () => {
+    render(<CopilotPlanApproval />);
+    expect(vi.mocked(useInterrupt).mock.calls.at(-1)?.[0]).toMatchObject({ agentId: 'gilde' });
+  });
+
   it('resolves repo ids to full names from the plan project', async () => {
     vi.mocked(api.listRepos).mockResolvedValue([{ id: 'r1', fullName: 'gilde-dev/gilde' }] as never);
     render(<CopilotPlanApproval />);
