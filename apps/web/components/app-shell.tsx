@@ -117,15 +117,13 @@ function SidebarContent({
             <ul className="space-y-1">
               {repos.map((r) => (
                 <li key={r.id} className="flex items-center justify-between gap-2 text-xs">
-                  <a
-                    href={`https://github.com/${r.fullName}`}
-                    target="_blank"
-                    rel="noreferrer"
+                  <Link
+                    href={`${withProject(`/settings/projects/${projectId}`, projectId)}#repo-${r.id}`}
                     title={r.fullName}
                     className="truncate font-mono text-muted-foreground hover:text-foreground hover:underline"
                   >
                     {r.fullName}
-                  </a>
+                  </Link>
                   {r.paused && <Badge variant="warning">paused</Badge>}
                 </li>
               ))}

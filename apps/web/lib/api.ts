@@ -44,9 +44,43 @@ export interface Project {
   updatedAt: string;
 }
 
+/** Mirrors UpdateProjectSchema (slug can't change). */
 export interface UpdateProjectInput {
+  name?: string;
+  description?: string | null;
+  dailyRunLimit?: number;
+  maxAttempts?: number;
+  runTimeoutMinutes?: number;
+  retryOnChangesRequested?: boolean;
   skillsLibrary?: SkillsLibraryKind;
   skillsLibraryRepoId?: string | null;
+}
+
+/** Mirrors CreateProjectSchema. */
+export interface CreateProjectInput extends UpdateProjectInput {
+  slug: string;
+  name: string;
+}
+
+/** Mirrors CreateRepoSchema. */
+export interface CreateRepoInput {
+  fullName: string;
+  defaultBranch?: string;
+  routineFireUrl?: string | null;
+  /** The NAME of an env var on the API server that holds the routine token; never the token. */
+  routineTokenEnv?: string | null;
+  maxConcurrentJobs?: number;
+}
+
+/** Mirrors UpdateRepoSchema: the full name can't change. */
+export type UpdateRepoInput = Partial<Omit<CreateRepoInput, 'fullName'>>;
+
+/** GET /v1/repos/:id/workspace */
+export interface RepoWorkspace {
+  cloned: boolean;
+  headSha: string | null;
+  fetchedAt: string | null;
+  error: string | null;
 }
 
 export const SKILL_STATUSES = ['ok', 'outdated', 'missing', 'orphaned', 'conflict', 'repo'] as const;
@@ -600,6 +634,13 @@ export const api = {
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
+  createProject: (input: CreateProjectInput) => request<Project>('/v1/projects', 'POST', input),
+  getProject: (projectId: string) => request<Project>(`/v1/projects/${id(projectId)}`),
+  createRepo: (projectId: string, input: CreateRepoInput) =>
+    request<Repo>(`/v1/projects/${id(projectId)}/repos`, 'POST', input),
+  getRepo: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}`),
+  updateRepo: (repoId: string, input: UpdateRepoInput) => request<Repo>(`/v1/repos/${id(repoId)}`, 'PATCH', input),
+  getRepoWorkspace: (repoId: string) => request<RepoWorkspace>(`/v1/repos/${id(repoId)}/workspace`),
   updateProject: (projectId: string, input: UpdateProjectInput) =>
     request<Project>(`/v1/projects/${id(projectId)}`, 'PATCH', input),
   getSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills`),
