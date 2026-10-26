@@ -1,10 +1,12 @@
-# Reviews agent PRs (claude/* branches) with Claude Code before a human does.
+# Reviews a PR with Claude Code when it has the `gilde:review` label (opt-in, any PR, also human ones).
+# Adding the label starts a review; while the label is present, new pushes, reopen and ready-for-review re-review it.
+# Remove the label to stop. Other labels never trigger a review. Draft PRs are skipped.
 # The review prompt is .github/agent-review.md (a protected path, so agents cannot change their reviewer).
 # Auth: the CLAUDE_CODE_OAUTH_TOKEN secret (claude setup-token), so runs use the Claude subscription.
 name: Agent review
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
+    types: [labeled, synchronize, reopened, ready_for_review]
 
 concurrency:
   group: agent-review-${{ github.event.pull_request.number }}
@@ -12,7 +14,11 @@ concurrency:
 
 jobs:
   review:
-    if: startsWith(github.head_ref, 'claude/') && !github.event.pull_request.draft
+    if: >-
+      !github.event.pull_request.draft && (
+        (github.event.action == 'labeled' && github.event.label.name == 'gilde:review') ||
+        (github.event.action != 'labeled' && contains(github.event.pull_request.labels.*.name, 'gilde:review'))
+      )
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
