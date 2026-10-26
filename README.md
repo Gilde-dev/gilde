@@ -2,6 +2,17 @@
 
 Control plane of an AI factory. See `AGENTS.md` for the repository layout and commands.
 
+## Local development
+
+```sh
+pnpm install
+pnpm dev
+```
+
+`pnpm dev` starts the API (port 4100), the web UI (port 3000) and the channels process together with prefixed output; Ctrl+C stops all. If one app exits (channels exits with code 0 without Slack credentials), the others keep running. To start a single app use `pnpm dev:api`, `pnpm dev:web` or `pnpm dev:channels`.
+
+Changes to source files reload automatically. Channels also restarts when its `.env` changes; for the API, restart `pnpm dev` after changing `.env`. Run `pnpm install` after a pull that changes dependencies.
+
 ## Postgres
 
 By default the API uses SQLite (`db.sqlite`). To use Postgres instead:
