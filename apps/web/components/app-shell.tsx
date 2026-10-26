@@ -5,7 +5,6 @@ import {
   BookOpen,
   ChartColumn,
   FolderKanban,
-  Gem,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -26,6 +25,7 @@ import { activeJobCount } from '@/lib/job-stats';
 import { useProject, withProject } from '@/lib/use-project';
 import { usePolling } from '@/lib/use-polling';
 import { cn } from '@/lib/utils';
+import { GildeLogoTile } from './gilde-mark';
 import { UserMenu } from './user-menu';
 import { Avatar } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -211,9 +211,7 @@ function SidebarContent({
         aria-label="Gilde"
         className={cn('flex items-center gap-2 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', compact && 'justify-center')}
       >
-        <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-primary-gradient text-primary-foreground">
-          <Icon icon={Gem} />
-        </span>
+        <GildeLogoTile size={32} />
         {!compact && <span className="text-lg font-semibold tracking-tight">Gilde</span>}
       </Link>
       <ProjectSwitcher projects={projects} projectId={projectId} onSelectProject={onSelectProject} compact={compact} />

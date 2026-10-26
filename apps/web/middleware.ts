@@ -15,5 +15,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/((?!auth/|_next/static|_next/image|favicon.ico).*)'],
+  // Icons and brand files must load on /login too, so they skip the session check.
+  matcher: ['/((?!auth/|_next/static|_next/image|favicon.ico|icon.svg|apple-icon.png|brand/).*)'],
 };

@@ -5,6 +5,7 @@ import { useState, type FormEvent } from 'react';
 import { safeNext } from '@/lib/auth';
 import { Button } from './ui/button';
 import { Input } from './ui/input';
+import { GildeLogoTile } from './gilde-mark';
 
 export function LoginForm() {
   const params = useSearchParams();
@@ -42,7 +43,10 @@ export function LoginForm() {
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <form onSubmit={submit} className="flex w-full max-w-sm flex-col gap-4">
-        <h1 className="text-2xl font-semibold">Gilde</h1>
+        <h1 className="flex items-center gap-3 text-display-sm font-semibold tracking-tight">
+          <GildeLogoTile size={40} />
+          Gilde
+        </h1>
         <label className="flex flex-col gap-1 text-sm">
           Email
           <Input
