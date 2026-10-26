@@ -1,6 +1,7 @@
 import type { Job } from '@/lib/api';
 import { JobActions } from './job-actions';
-import { relativeTime } from '@/lib/time';
+import { cn } from '@/lib/utils';
+import { shortAge } from '@/lib/time';
 
 const initials = (name: string) =>
   name
@@ -10,12 +11,28 @@ const initials = (name: string) =>
     .map((w) => w[0].toUpperCase())
     .join('');
 
+/** Left-edge colour per status, from the semantic tokens. */
+export const STATUS_EDGE: Record<Job['status'], string> = {
+  triage: 'border-l-muted-foreground',
+  queued: 'border-l-info',
+  dispatched: 'border-l-accent',
+  pr_open: 'border-l-accent',
+  awaiting_review: 'border-l-warning',
+  merged: 'border-l-success',
+  rejected: 'border-l-danger',
+  parked: 'border-l-warning',
+  cancelled: 'border-l-muted-foreground',
+};
+
+const ciVariant = (ci: string) => (ci === 'success' || ci === 'passed' ? 'text-success' : ci === 'failure' || ci === 'failed' ? 'text-danger' : 'text-muted-foreground');
+
 const blockedTitles = (job: Job) => job.blockedBy.map((b) => `${b.title} (${b.status})`).join('\n');
 
 export function JobCard({
   job,
   repoName,
   featureTitle,
+  ci,
   onOpen,
   onChanged,
   onEnqueued,
@@ -26,6 +43,8 @@ export function JobCard({
   repoName?: string;
   /** Title of the job's feature; shown as a chip. */
   featureTitle?: string;
+  /** CI conclusion of the latest run, when known (e.g. success, failure). */
+  ci?: string | null;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -44,7 +63,7 @@ export function JobCard({
           onOpen(job);
         }
       }}
-      className="cursor-pointer rounded-md border border-border bg-card p-3 text-left text-sm shadow-sm hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className={cn('cursor-pointer rounded-md border border-l-4 border-border bg-card p-3 text-left text-sm shadow-sm hover:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring', STATUS_EDGE[job.status])}
     >
       <div className="flex items-start gap-2">
         {onSelect && (
@@ -60,7 +79,7 @@ export function JobCard({
         )}
         <div className="font-medium leading-snug">{job.title}</div>
       </div>
-      <div className="mt-1 truncate text-xs text-muted-foreground">{repoName ?? job.repoId}</div>
+      <div className="mt-1 truncate font-mono text-xs text-muted-foreground">{repoName ?? job.repoId}</div>
       <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
         <span>
           {job.attempts} {job.attempts === 1 ? 'attempt' : 'attempts'}
@@ -79,7 +98,12 @@ export function JobCard({
           ) : (
             <span>#{job.prNumber}</span>
           ))}
-        <span>{relativeTime(job.updatedAt)}</span>
+        {ci && (
+          <span className={cn('font-medium', ciVariant(ci))} title="CI result">
+            CI {ci}
+          </span>
+        )}
+        <span title={`Updated ${job.updatedAt}`}>{shortAge(job.updatedAt)}</span>
         <span
           className="rounded bg-muted px-1.5 py-0.5 font-medium text-foreground"
           title={job.createdBy ? `Created by ${job.createdBy.name}` : 'Created by the system'}

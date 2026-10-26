@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { Job } from '@/lib/api';
-import { JobCard } from './job-card';
+import { JobCard, STATUS_EDGE } from './job-card';
 
 const base = {
   id: 'j', projectId: 'p', repoId: 'r', featureId: null, title: 'Job', task: 't', acceptanceCriteria: [], status: 'queued',
@@ -62,5 +62,21 @@ describe('JobCard creator', () => {
   it('shows System without a creator', () => {
     render(<JobCard job={base} onOpen={() => {}} />);
     expect(screen.getByText('System')).toBeInTheDocument();
+  });
+});
+
+describe('JobCard polish', () => {
+  it('has a status colour on the left edge', () => {
+    render(<JobCard job={{ ...base, status: 'merged' }} onOpen={() => {}} />);
+    expect(screen.getByRole('button')).toHaveClass('border-l-4', STATUS_EDGE.merged);
+  });
+
+  it('shows repo in mono, PR, CI and a compact age', () => {
+    const updatedAt = new Date(Date.now() - 3 * 3600_000).toISOString();
+    render(<JobCard job={{ ...base, prNumber: 4, updatedAt }} repoName="o/r" ci="failure" onOpen={() => {}} />);
+    expect(screen.getByText('o/r')).toHaveClass('font-mono');
+    expect(screen.getByText('#4')).toBeInTheDocument();
+    expect(screen.getByText('CI failure')).toHaveClass('text-danger');
+    expect(screen.getByText('3h')).toBeInTheDocument();
   });
 });

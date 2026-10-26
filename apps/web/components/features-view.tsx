@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { useCallback, useState, type FormEvent } from 'react';
-import { FEATURE_STATUSES, api, type Feature, type FeatureStatus } from '@/lib/api';
+import { FEATURE_STATUSES, api, type Feature, type FeatureStatus, type Job } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
+import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
 import { FeatureProgressBar, ReadyToCloseBadge } from './feature-progress';
@@ -28,6 +29,9 @@ export function FeaturesView() {
     [projectId, status],
   );
   const features = usePolling(fetchFeatures, POLL_MS);
+  const fetchRepoJobs = useCallback(() => (projectId ? api.listJobs(projectId) : Promise.resolve([] as Job[])), [projectId]);
+  const jobs = usePolling(fetchRepoJobs, POLL_MS * 3);
+  const repoCount = (featureId: string) => new Set(jobs.data?.filter((j) => j.featureId === featureId).map((j) => j.repoId)).size;
 
   async function create(e: FormEvent) {
     e.preventDefault();
@@ -81,8 +85,12 @@ export function FeaturesView() {
                 <StatusBadge kind="feature" status={f.status} />
                 <ReadyToCloseBadge feature={f} />
               </div>
-              <div className="mt-2">
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1">
                 <FeatureProgressBar progress={f.progress} />
+                <span className="text-xs text-muted-foreground">
+                  {jobs.data ? `${repoCount(f.id)} ${repoCount(f.id) === 1 ? 'repo' : 'repos'}` : '… repos'}
+                </span>
+                <span className="text-xs text-muted-foreground">Updated {relativeTime(f.updatedAt)}</span>
               </div>
             </li>
           ))}
