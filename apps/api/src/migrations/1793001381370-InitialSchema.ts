@@ -1,0 +1,120 @@
+import { MigrationInterface, QueryRunner } from "typeorm";
+
+export class InitialSchema1793001381370 implements MigrationInterface {
+    name = 'InitialSchema1793001381370'
+
+    public async up(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`CREATE TABLE "users" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "name" character varying NOT NULL, "email" character varying NOT NULL, "password" character varying NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_97672ac88f789774dd47f7c8be3" UNIQUE ("email"), CONSTRAINT "PK_a3ffb1c0c8416b9fc6f907b7433" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TABLE "api_keys" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "user_id" uuid NOT NULL, "name" character varying NOT NULL, "prefix" character varying NOT NULL, "secret_hash" character varying NOT NULL, "last_used_at" TIMESTAMP, "expires_at" TIMESTAMP, "revoked_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_5c8a79801b44bd27b79228e1dad" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_a3baee01d8408cd3c0f89a9a97" ON "api_keys"  ("user_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_6f6105c8efe05b310d046cbdb3" ON "api_keys"  ("prefix") `);
+        await queryRunner.query(`CREATE TYPE "public"."features_status_enum" AS ENUM('draft', 'active', 'done', 'cancelled')`);
+        await queryRunner.query(`CREATE TABLE "features" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "project_id" character varying NOT NULL, "title" character varying NOT NULL, "spec" text NOT NULL, "acceptance_criteria" text NOT NULL DEFAULT '[]', "status" "public"."features_status_enum" NOT NULL DEFAULT 'draft', "started_at" TIMESTAMP, "done_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_5c1e336df2f4a7051e5bf08a941" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_445f60d8c9182d73ab2c004095" ON "features"  ("project_id", "status") `);
+        await queryRunner.query(`CREATE TYPE "public"."feedback_kind_enum" AS ENUM('review', 'review_comment', 'comment')`);
+        await queryRunner.query(`CREATE TABLE "feedback" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "job_id" character varying NOT NULL, "project_id" character varying NOT NULL, "repo_id" character varying NOT NULL, "pr_number" integer NOT NULL, "kind" "public"."feedback_kind_enum" NOT NULL, "github_id" character varying NOT NULL, "author" character varying NOT NULL, "author_association" character varying NOT NULL, "state" character varying, "review_id" character varying, "path" text, "line" integer, "body" text NOT NULL DEFAULT '', "url" text NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_8389f9e087a57689cd5be8b2b13" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_8f454de5d793a5c41f0fafb3a5" ON "feedback"  ("project_id", "repo_id", "created_at") `);
+        await queryRunner.query(`CREATE INDEX "IDX_b71fe4570e943397d2a8454929" ON "feedback"  ("job_id", "created_at") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_e0baaccbfb6fe35e07b44fb1fb" ON "feedback"  ("kind", "github_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."jobs_status_enum" AS ENUM('triage', 'queued', 'dispatched', 'pr_open', 'awaiting_review', 'merged', 'rejected', 'parked', 'cancelled')`);
+        await queryRunner.query(`CREATE TABLE "jobs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "project_id" character varying NOT NULL, "repo_id" character varying NOT NULL, "feature_id" character varying, "title" character varying NOT NULL, "task" text NOT NULL, "acceptance_criteria" text NOT NULL DEFAULT '[]', "status" "public"."jobs_status_enum" NOT NULL DEFAULT 'queued', "attempts" integer NOT NULL DEFAULT '0', "queued_at" TIMESTAMP, "pr_number" integer, "pr_url" text, "branch" text, "head_sha" character varying(64), "last_reason" text, "needs_approval" boolean NOT NULL DEFAULT false, "approval_reason" text, "created_by" uuid, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_cf0a6c42b72fcc7f7c237def345" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_8b2cc34c4a22875378d4cb5e2a" ON "jobs"  ("feature_id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_79314fdbb4878a593bfc7f6407" ON "jobs"  ("project_id", "status") `);
+        await queryRunner.query(`CREATE INDEX "IDX_4e2d81b22da9343ee6ab1fa74d" ON "jobs"  ("repo_id", "status") `);
+        await queryRunner.query(`CREATE TABLE "job_dependencies" ("job_id" uuid NOT NULL, "depends_on_job_id" uuid NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_477ebaa1b9a4b11e633efb9bf1b" PRIMARY KEY ("job_id", "depends_on_job_id"))`);
+        await queryRunner.query(`CREATE TYPE "public"."lesson_sources_kind_enum" AS ENUM('suggested_lesson', 'retro', 'feedback')`);
+        await queryRunner.query(`CREATE TABLE "lesson_sources" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "lesson_id" character varying NOT NULL, "source_key" character varying NOT NULL, "kind" "public"."lesson_sources_kind_enum" NOT NULL, "job_id" character varying NOT NULL, "run_id" character varying, "feedback_id" character varying, "excerpt" text NOT NULL, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_f5fc717e0861519f5430bb26b84" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_85a17ac3c5f2088247341a2135" ON "lesson_sources"  ("lesson_id") `);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_c0179dc1e175133b5d4c29c77d" ON "lesson_sources"  ("source_key") `);
+        await queryRunner.query(`CREATE TYPE "public"."lessons_status_enum" AS ENUM('candidate', 'approved', 'applying', 'applied', 'rejected')`);
+        await queryRunner.query(`CREATE TYPE "public"."lessons_target_kind_enum" AS ENUM('skill', 'agents_md', 'repo_skill', 'routine_prompt', 'other')`);
+        await queryRunner.query(`CREATE TABLE "lessons" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "project_id" character varying NOT NULL, "text" text NOT NULL, "status" "public"."lessons_status_enum" NOT NULL DEFAULT 'candidate', "target_kind" "public"."lessons_target_kind_enum", "target_repo_id" character varying, "note" text, "applied_job_id" character varying, "applied_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_9b9a8d455cac672d262d7275730" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_b66e1359146a9b4b288208a275" ON "lessons"  ("project_id", "status") `);
+        await queryRunner.query(`CREATE TABLE "repositories" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "project_id" uuid NOT NULL, "full_name" character varying NOT NULL, "default_branch" character varying NOT NULL DEFAULT 'main', "stacks" text NOT NULL DEFAULT '[]', "test_commands" text NOT NULL DEFAULT '[]', "skills" text, "manifest_sha" text, "manifest_synced_at" TIMESTAMP, "manifest_error" text, "routine_fire_url" text, "routine_token_env" text, "max_concurrent_jobs" integer NOT NULL DEFAULT '2', "paused" boolean NOT NULL DEFAULT false, "paused_reason" text, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_57e503a8716cbf52ae073bc6dc0" UNIQUE ("full_name"), CONSTRAINT "PK_ef0c358c04b4f4d29b8ca68ddff" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_d6cd2623ff7f9e2258ebda0cb6" ON "repositories"  ("project_id") `);
+        await queryRunner.query(`CREATE TYPE "public"."projects_skills_library_enum" AS ENUM('none', 'folder', 'repo')`);
+        await queryRunner.query(`CREATE TABLE "projects" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "slug" character varying NOT NULL, "name" character varying NOT NULL, "description" text, "daily_run_limit" integer NOT NULL DEFAULT '20', "max_attempts" integer NOT NULL DEFAULT '3', "run_timeout_minutes" integer NOT NULL DEFAULT '60', "retry_on_changes_requested" boolean NOT NULL DEFAULT true, "paused" boolean NOT NULL DEFAULT false, "skills_library" "public"."projects_skills_library_enum" NOT NULL DEFAULT 'none', "skills_library_repo_id" character varying, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "UQ_96e045ab8b0271e5f5a91eae1ee" UNIQUE ("slug"), CONSTRAINT "PK_6271df0a7aed1d6c0691ce6ac50" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE TYPE "public"."job_revisions_status_enum" AS ENUM('proposed', 'accepted', 'rejected')`);
+        await queryRunner.query(`CREATE TABLE "job_revisions" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "job_id" character varying NOT NULL, "revision" integer, "title" character varying(200), "task" text, "acceptance_criteria" text, "depends_on" text, "reason" text NOT NULL, "source_run_id" character varying, "status" "public"."job_revisions_status_enum" NOT NULL DEFAULT 'proposed', "decided_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_e57e9067fbea0fa291d5849ac84" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_aa2c4e90d5c0923456bfa63c9c" ON "job_revisions"  ("job_id", "status") `);
+        await queryRunner.query(`CREATE TYPE "public"."job_runs_status_enum" AS ENUM('firing', 'fired', 'fire_failed', 'pr_opened', 'ci_passed', 'ci_failed', 'timed_out', 'superseded')`);
+        await queryRunner.query(`CREATE TABLE "job_runs" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "job_id" character varying NOT NULL, "project_id" character varying NOT NULL, "repo_id" character varying NOT NULL, "attempt" integer NOT NULL, "status" "public"."job_runs_status_enum" NOT NULL DEFAULT 'firing', "session_id" text, "session_url" text, "instructions_version" character varying(16), "error" text, "result" text, "result_error" text, "proposals_error" text, "retro" text, "ci_conclusion" character varying(32), "fired_at" TIMESTAMP, "finished_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_4d0012c04fcfc287550b76be7e9" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_9de0764cd5030969f973043b44" ON "job_runs"  ("job_id", "attempt") `);
+        await queryRunner.query(`CREATE TYPE "public"."llm_usage_kind_enum" AS ENUM('chat', 'embedding')`);
+        await queryRunner.query(`CREATE TABLE "llm_usage" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "kind" "public"."llm_usage_kind_enum" NOT NULL, "user_id" uuid, "thread_id" character varying, "agent" character varying, "model" character varying NOT NULL, "input_tokens" integer NOT NULL DEFAULT '0', "cached_input_tokens" integer NOT NULL DEFAULT '0', "output_tokens" integer NOT NULL DEFAULT '0', "reasoning_tokens" integer NOT NULL DEFAULT '0', "steps" integer, "cost_usd" double precision, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_896db5280e4018d7bc7acd24294" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_cec59fc8a5a0a9655cbf43c446" ON "llm_usage"  ("created_at") `);
+        await queryRunner.query(`CREATE TYPE "public"."notifications_kind_enum" AS ENUM('job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close')`);
+        await queryRunner.query(`CREATE TYPE "public"."notifications_status_enum" AS ENUM('pending', 'delivered', 'failed')`);
+        await queryRunner.query(`CREATE TABLE "notifications" ("id" uuid NOT NULL DEFAULT uuid_generate_v4(), "occurrence_key" character varying(500) NOT NULL, "kind" "public"."notifications_kind_enum" NOT NULL, "occurred_at" TIMESTAMP NOT NULL, "project_id" character varying, "job_id" character varying, "feature_id" character varying, "title" character varying(500) NOT NULL, "repos" text NOT NULL, "reason" text NOT NULL, "pr_links" text NOT NULL, "status" "public"."notifications_status_enum" NOT NULL DEFAULT 'pending', "attempts" integer NOT NULL DEFAULT '0', "next_retry_at" TIMESTAMP, "last_error" text, "delivered_at" TIMESTAMP, "created_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_6a72c3c0f683f6462415e653c3a" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE UNIQUE INDEX "IDX_c73c42bcbdc4a2553701697b16" ON "notifications"  ("occurrence_key") `);
+        await queryRunner.query(`CREATE INDEX "IDX_55693fe75c354cc71fadffcb04" ON "notifications"  ("created_at", "id") `);
+        await queryRunner.query(`CREATE INDEX "IDX_bf48ced7e591638f6354f41eee" ON "notifications"  ("status", "next_retry_at") `);
+        await queryRunner.query(`CREATE TABLE "history_entries" ("id" character varying NOT NULL, "scan_kind" character varying(16) NOT NULL, "source_type" character varying(16) NOT NULL, "source_id" character varying NOT NULL, "project_id" character varying NOT NULL, "content_hash" character varying(64) NOT NULL, "chunk_count" integer NOT NULL, "seen_pass" character varying, "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_779ab5373855af6b50b6a586f41" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`CREATE INDEX "IDX_7faca09a0535947337e488e845" ON "history_entries"  ("scan_kind", "seen_pass") `);
+        await queryRunner.query(`CREATE TABLE "history_state" ("id" character varying NOT NULL, "pass_id" character varying, "scan_kind" character varying(16), "phase" character varying(8) NOT NULL DEFAULT 'scan', "cursor" character varying, "pass_started_at" TIMESTAMP, "last_completed_at" TIMESTAMP, "index_signature" character varying, "last_error" text, "last_error_at" TIMESTAMP, "consecutive_failures" integer NOT NULL DEFAULT '0', "stats" text, "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_279d893de9bc232a2a7b1a59cc9" PRIMARY KEY ("id"))`);
+        await queryRunner.query(`ALTER TABLE "api_keys" ADD CONSTRAINT "FK_a3baee01d8408cd3c0f89a9a973" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "jobs" ADD CONSTRAINT "FK_2d210533bd8823b36702a26dd43" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "job_dependencies" ADD CONSTRAINT "FK_fe7ca0123f9e92cf492526c5a12" FOREIGN KEY ("job_id") REFERENCES "jobs"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "job_dependencies" ADD CONSTRAINT "FK_50a0d988174255fcfb923daee18" FOREIGN KEY ("depends_on_job_id") REFERENCES "jobs"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "repositories" ADD CONSTRAINT "FK_d6cd2623ff7f9e2258ebda0cb67" FOREIGN KEY ("project_id") REFERENCES "projects"("id") ON DELETE CASCADE ON UPDATE NO ACTION`);
+        await queryRunner.query(`ALTER TABLE "llm_usage" ADD CONSTRAINT "FK_f5966c01d5905da25a0fadf5b7c" FOREIGN KEY ("user_id") REFERENCES "users"("id") ON DELETE SET NULL ON UPDATE NO ACTION`);
+    }
+
+    public async down(queryRunner: QueryRunner): Promise<void> {
+        await queryRunner.query(`ALTER TABLE "llm_usage" DROP CONSTRAINT "FK_f5966c01d5905da25a0fadf5b7c"`);
+        await queryRunner.query(`ALTER TABLE "repositories" DROP CONSTRAINT "FK_d6cd2623ff7f9e2258ebda0cb67"`);
+        await queryRunner.query(`ALTER TABLE "job_dependencies" DROP CONSTRAINT "FK_50a0d988174255fcfb923daee18"`);
+        await queryRunner.query(`ALTER TABLE "job_dependencies" DROP CONSTRAINT "FK_fe7ca0123f9e92cf492526c5a12"`);
+        await queryRunner.query(`ALTER TABLE "jobs" DROP CONSTRAINT "FK_2d210533bd8823b36702a26dd43"`);
+        await queryRunner.query(`ALTER TABLE "api_keys" DROP CONSTRAINT "FK_a3baee01d8408cd3c0f89a9a973"`);
+        await queryRunner.query(`DROP TABLE "history_state"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_7faca09a0535947337e488e845"`);
+        await queryRunner.query(`DROP TABLE "history_entries"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_bf48ced7e591638f6354f41eee"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_55693fe75c354cc71fadffcb04"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_c73c42bcbdc4a2553701697b16"`);
+        await queryRunner.query(`DROP TABLE "notifications"`);
+        await queryRunner.query(`DROP TYPE "public"."notifications_status_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."notifications_kind_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_cec59fc8a5a0a9655cbf43c446"`);
+        await queryRunner.query(`DROP TABLE "llm_usage"`);
+        await queryRunner.query(`DROP TYPE "public"."llm_usage_kind_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_9de0764cd5030969f973043b44"`);
+        await queryRunner.query(`DROP TABLE "job_runs"`);
+        await queryRunner.query(`DROP TYPE "public"."job_runs_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_aa2c4e90d5c0923456bfa63c9c"`);
+        await queryRunner.query(`DROP TABLE "job_revisions"`);
+        await queryRunner.query(`DROP TYPE "public"."job_revisions_status_enum"`);
+        await queryRunner.query(`DROP TABLE "projects"`);
+        await queryRunner.query(`DROP TYPE "public"."projects_skills_library_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_d6cd2623ff7f9e2258ebda0cb6"`);
+        await queryRunner.query(`DROP TABLE "repositories"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b66e1359146a9b4b288208a275"`);
+        await queryRunner.query(`DROP TABLE "lessons"`);
+        await queryRunner.query(`DROP TYPE "public"."lessons_target_kind_enum"`);
+        await queryRunner.query(`DROP TYPE "public"."lessons_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_c0179dc1e175133b5d4c29c77d"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_85a17ac3c5f2088247341a2135"`);
+        await queryRunner.query(`DROP TABLE "lesson_sources"`);
+        await queryRunner.query(`DROP TYPE "public"."lesson_sources_kind_enum"`);
+        await queryRunner.query(`DROP TABLE "job_dependencies"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_4e2d81b22da9343ee6ab1fa74d"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_79314fdbb4878a593bfc7f6407"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8b2cc34c4a22875378d4cb5e2a"`);
+        await queryRunner.query(`DROP TABLE "jobs"`);
+        await queryRunner.query(`DROP TYPE "public"."jobs_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_e0baaccbfb6fe35e07b44fb1fb"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_b71fe4570e943397d2a8454929"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_8f454de5d793a5c41f0fafb3a5"`);
+        await queryRunner.query(`DROP TABLE "feedback"`);
+        await queryRunner.query(`DROP TYPE "public"."feedback_kind_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_445f60d8c9182d73ab2c004095"`);
+        await queryRunner.query(`DROP TABLE "features"`);
+        await queryRunner.query(`DROP TYPE "public"."features_status_enum"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_6f6105c8efe05b310d046cbdb3"`);
+        await queryRunner.query(`DROP INDEX "public"."IDX_a3baee01d8408cd3c0f89a9a97"`);
+        await queryRunner.query(`DROP TABLE "api_keys"`);
+        await queryRunner.query(`DROP TABLE "users"`);
+    }
+
+}

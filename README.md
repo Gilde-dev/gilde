@@ -13,12 +13,14 @@ pnpm dev
 
 Changes to source files reload automatically. Channels also restarts when its `.env` changes; for the API, restart `pnpm dev` after changing `.env`. Run `pnpm install` after a pull that changes dependencies.
 
-## Postgres
+## Postgres and migrations
 
-By default the API uses SQLite (`db.sqlite`). To use Postgres instead:
+By default the API uses SQLite (`db.sqlite`) with `synchronize`, so local development needs no migrations. To use Postgres instead:
 
 1. Start Postgres: `docker compose up -d`
-2. Set `DATABASE_URL=postgres://gilde:gilde@localhost:5432/gilde` (see `apps/api/.env.example`) and run `pnpm dev`.
+2. Set `DATABASE_URL=postgres://gilde:gilde@localhost:5432/gilde` (`postgresql://` also works; see `apps/api/.env.example`) and run `pnpm dev`.
+
+With Postgres the API never synchronizes the schema: it applies the migrations in `apps/api/src/migrations/` on startup (`migrationsRun`). The first one, `InitialSchema`, creates the whole Gilde schema (the migration uses `uuid-ossp`, so the database user must be allowed to `CREATE EXTENSION`). Mastra tables are not part of it; Mastra creates and manages its own storage and vector tables.
 
 The compose service uses the `pgvector/pgvector:pg16` image, which has the pgvector extension available. Mastra's `PgVector` runs
 `CREATE EXTENSION IF NOT EXISTS vector` itself when it creates an index, so no init script is needed. **Existing Postgres setups:**
@@ -27,6 +29,38 @@ recreate the container. A self-managed Postgres needs the pgvector package insta
 extensions, or run `CREATE EXTENSION vector;` once as a superuser). Without pgvector, only vector features fail (see Degraded operation);
 the rest of the API is unaffected. Without `DATABASE_URL`, co-pilot memory and vectors live in the LibSQL file `mastra.db`
 (gitignored, override with `MASTRA_DB_URL`, e.g. `file:/data/mastra.db`); keep that file on persistent storage to keep memory across restarts.
+
+An existing database that was created by the old `synchronize` setup has no `migrations` table: use a fresh database and the copy below instead of pointing the API at it.
+
+### Changing the schema
+
+1. Change the entity (snake_case columns, see `.claude/skills/typeorm-snake-case-columns`).
+2. With Postgres running and `DATABASE_URL` set, run `pnpm --filter @gilde/api migration:generate <Name>`. It builds the API and writes `apps/api/src/migrations/<timestamp>-<Name>.ts`.
+3. Review the SQL and commit the migration together with the entity change.
+
+All migration scripts build the API first and run the TypeORM CLI against `dist/data-source.js`, which needs a Postgres `DATABASE_URL`:
+
+- `migration:run`: apply pending migrations
+- `migration:revert`: undo the last migration
+- `migration:check`: exits non-zero when the entities and the migrations differ (an entity changed without a migration), without writing anything; use it to verify that you did not forget a migration
+
+### Copying SQLite data to Postgres (once)
+
+`pnpm --filter @gilde/api db:copy-sqlite-to-postgres [--sqlite <path>]` moves all Gilde tables from `apps/api/db.sqlite` (or the path in `--sqlite` / `SQLITE_PATH`) into Postgres. It keeps ids and timestamps, inserts in foreign-key order in one transaction, refuses to run when any target table already has rows, and prints the row count per table.
+
+1. Start with an empty database and let the API (or `pnpm --filter @gilde/api migration:run`) apply the migrations.
+2. Stop the API so SQLite is not written to, then run the command with `DATABASE_URL` pointing at the target.
+
+Not copied: Mastra data (`mastra.db`). Co-pilot conversations and the history index start fresh; rebuild the history index with `POST /api/v1/history/rebuild`. Timestamps are copied as the UTC wall-clock values SQLite holds, so run the API against Postgres with `TZ=UTC` (the default in containers).
+
+To run it from a laptop against the server's Postgres, open an SSH tunnel to the Postgres container and point `DATABASE_URL` at the local end:
+
+```sh
+ssh -L 5432:<postgres container address>:5432 <server>
+DATABASE_URL=postgres://<user>:<password>@localhost:5432/<db> pnpm --filter @gilde/api db:copy-sqlite-to-postgres
+```
+
+Alternatively copy `db.sqlite` to the server and run the command from a container of the stack (`docker compose exec`), where `DATABASE_URL` is already set. If a local Postgres already listens on 5432, tunnel to another local port (`-L 5433:...`) and use it in the URL.
 
 ## Co-pilot memory
 

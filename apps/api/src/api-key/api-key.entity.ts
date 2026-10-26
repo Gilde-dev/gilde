@@ -29,13 +29,13 @@ export class ApiKey {
     @Column({ name: 'secret_hash', select: false })
     secretHash: string;
 
-    @Column({ name: 'last_used_at', type: 'datetime', nullable: true })
+    @Column({ name: 'last_used_at', type: Date, nullable: true })
     lastUsedAt: Date | null;
 
-    @Column({ name: 'expires_at', type: 'datetime', nullable: true })
+    @Column({ name: 'expires_at', type: Date, nullable: true })
     expiresAt: Date | null;
 
-    @Column({ name: 'revoked_at', type: 'datetime', nullable: true })
+    @Column({ name: 'revoked_at', type: Date, nullable: true })
     revokedAt: Date | null;
 
     @CreateDateColumn({

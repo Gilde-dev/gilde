@@ -11,6 +11,7 @@ import { LessonService } from './lesson.service.js';
 import { LessonSource } from './lesson-source.entity.js';
 import { J1, J2, P1, P2, memoryDb } from './lesson.fixture.js';
 import type { JobService } from '../job/job.service.js';
+import { Project } from '../project/project.entity.js';
 import type { ProjectService } from '../project/project.service.js';
 import type { SkillLibraryResolver } from '../skill/skill-library.resolver.js';
 
@@ -38,6 +39,7 @@ const source = (lessonId: string, jobId = J1) =>
 
 beforeEach(async () => {
     ds = await memoryDb();
+    await ds.getRepository(Project).save([{ id: P1, slug: 'p1', name: 'p1' }, { id: P2, slug: 'p2', name: 'p2' }]);
     service = new LessonService(new LessonMapper(), ds.getRepository(Lesson), ds.getRepository(LessonSource), ds.getRepository(Job), ds.getRepository(Repo), fakeJobs(ds), projects, resolver);
     projectInfo = { skillsLibrary: 'none' };
     libraryNames = [];

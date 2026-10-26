@@ -32,14 +32,14 @@ export class Feature {
 
     @Column({
         name: 'started_at',
-        type: 'datetime',
+        type: Date,
         nullable: true
     })
     startedAt: Date | null;
 
     @Column({
         name: 'done_at',
-        type: 'datetime',
+        type: Date,
         nullable: true
     })
     doneAt: Date | null;
