@@ -73,6 +73,12 @@ describe('JobModal', () => {
     expect(screen.getByText('- What I changed: stuff')).toBeInTheDocument();
   });
 
+  it('links to the job page', () => {
+    vi.spyOn(api, 'getJob').mockResolvedValue(detail);
+    render(<JobModal job={base} onClose={() => {}} />);
+    expect(screen.getByRole('link', { name: 'Open page' })).toHaveAttribute('href', '/jobs/j1');
+  });
+
   it('renders nothing when no job is selected', () => {
     render(<JobModal job={null} onClose={() => {}} />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

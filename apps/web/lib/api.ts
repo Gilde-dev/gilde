@@ -318,6 +318,11 @@ export interface Revision {
   pr: { number: number; url: string } | null;
 }
 
+export interface JobPrompt {
+  text: string;
+  instructionsVersion: string | null;
+}
+
 export interface JobDetail extends Job {
   runs: Run[];
   feedback: Feedback[];
@@ -621,6 +626,7 @@ export const api = {
   acceptRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/accept`, 'POST'),
   rejectRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/reject`, 'POST'),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
+  getJobPrompt: (jobId: string) => request<JobPrompt>(`/v1/jobs/${id(jobId)}/prompt`),
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   setJobDependencies: (jobId: string, dependsOn: string[]) =>
     request<Job>(`/v1/jobs/${id(jobId)}/dependencies`, 'PUT', { dependsOn }),
