@@ -27,6 +27,7 @@ import { HistoryModule } from './memory/history/history.module.js';
 import { UsageModule } from './usage/usage.module.js';
 import { NotificationModule } from './notification/notification.module.js';
 import { OtelModule } from './otel/otel.module.js';
+import { ScoutSignalModule } from './scout-signal/scout-signal.module.js';
 
 
 export const { ObserveModule, ObserveInstrument } = createObserveModule();
@@ -40,6 +41,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     }),
     TypeOrmModule.forRoot(databaseConfig()),
     ScheduleModule.forRoot(),
+    ScoutSignalModule,
     HealthModule,
     UsageModule,
     MemoryModule,

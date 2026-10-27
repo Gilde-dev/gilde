@@ -10,6 +10,7 @@ import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import { NotificationCaptureService, type ParkCause } from '../notification/notification-capture.service.js';
 import { ProposalService } from '../revision/proposal.service.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { parsePrBody, type ParsedPrBody } from '../webhook/pr-body.js';
 
 export interface PullInfo {
@@ -44,6 +45,7 @@ export class JobEventsService {
         @Optional() private readonly manifests?: RepoManifestService,
         @Optional() private readonly proposals?: ProposalService,
         @Optional() private readonly capture?: NotificationCaptureService,
+        @Optional() private readonly scout?: ScoutSignalPublisher,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -90,11 +92,29 @@ export class JobEventsService {
 
     /** Stores the PR body's proposals for the run. A failure is logged and never fails the event. */
     async recordProposals(job: Job, run: JobRun, parsed: ParsedPrBody): Promise<void> {
+        await this.notifyRunOutcome(job, run, parsed);
         if (!this.proposals) return;
         try {
             await this.proposals.record(run, job, parsed.proposals, parsed.proposalsError);
         } catch (e) {
             this.logger.error(`Run ${run.id}: recording proposals failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
+    /**
+     * Tells the scout about a blocked or partial result, once the run row really holds that result. Runs on every call of
+     * the shared post-persistence hook, whether or not proposals are collected; the run is re-read because the caller's
+     * object predates the update and a conditional update may not have applied. Never throws.
+     */
+    private async notifyRunOutcome(job: Job, run: JobRun, parsed: ParsedPrBody): Promise<void> {
+        const outcome = parsed.result?.outcome;
+        if (!this.scout?.active || (outcome !== 'blocked' && outcome !== 'partial')) return;
+        try {
+            const stored = await this.runs.findOneBy({ id: run.id });
+            if (!stored?.result || JSON.stringify(stored.result) !== JSON.stringify(parsed.result)) return;
+            await this.scout.publish(job.projectId, { type: 'run_outcome', outcome, jobId: job.id, runId: run.id, repoId: job.repoId });
+        } catch (e) {
+            this.logger.warn(`Run ${run.id}: telling the scout about the outcome failed: ${e instanceof Error ? e.message : String(e)}`);
         }
     }
 
@@ -126,6 +146,7 @@ export class JobEventsService {
         await this.lessons?.onJobEnded(job.id, to);
         if (merged) await this.manifests?.refreshQuietly(job.repoId);
         if (merged) await this.capture?.featureReadiness(job.featureId);
+        if (merged) await this.scout?.publish(job.projectId, { type: 'job_merged', jobId: job.id, repoId: job.repoId });
         return `job ${to} with PR #${prNumber}`;
     }
 

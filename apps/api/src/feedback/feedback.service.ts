@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { FindOptionsWhere, MoreThan, MoreThanOrEqual, Repository } from 'typeorm';
 
+import { Optional } from '@nestjs/common';
+
 import { isUniqueViolation } from '../common/db-errors.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import type { FeedbackResponseDto, ListFeedbackQuery } from './feedback.dto.js';
 import { Feedback } from './feedback.entity.js';
 import { FeedbackMapper } from './feedback.mapper.js';
@@ -15,6 +18,7 @@ export class FeedbackService {
     constructor(
         private readonly feedbackMapper: FeedbackMapper,
         @InjectRepository(Feedback) private readonly feedbackRepository: Repository<Feedback>,
+        @Optional() private readonly scout?: ScoutSignalPublisher,
     ) { }
 
     /** Stores one piece of feedback; returns false when (kind, githubId) was already stored (redelivery). */
@@ -22,7 +26,10 @@ export class FeedbackService {
         const existing = await this.feedbackRepository.findOneBy({ kind: input.kind, githubId: input.githubId });
         if (existing) return false;
         try {
-            await this.feedbackRepository.save(this.feedbackRepository.create(input));
+            const saved = await this.feedbackRepository.save(this.feedbackRepository.create(input));
+            if (saved.kind === 'review' && saved.state === 'changes_requested') {
+                await this.scout?.publish(saved.projectId, { type: 'changes_requested', jobId: saved.jobId, repoId: saved.repoId, feedbackId: saved.id, prNumber: saved.prNumber });
+            }
             return true;
         } catch (e) {
             if (isUniqueViolation(e)) return false; // concurrent redelivery

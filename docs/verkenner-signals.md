@@ -88,3 +88,15 @@ import type { NotificationsStorage } from '@mastra/core/storage';
 - Only one process was used. Multi-process behaviour (lease on wake, `hold`) is described in the Mastra docs but not exercised.
 - Postgres was verified by running the spike against a local Postgres 16, not against the production database or a pgvector image.
 - Native `dedupeKey` is not restart-safe once a record was delivered (see above); nothing was substituted for it in this job.
+
+## Delivery findings used by event publishing (job 2)
+
+Read from the installed `@mastra/core` 1.79.0 and exercised in `apps/api/src/copilot/scout-signal.service.spec.ts`:
+
+- A `summarize` decision whose `summaryAt` is already due at send time emits the summary immediately for `medium` priority; Gilde therefore
+  always schedules `summaryAt` in the future (the next summary hour) and never lets a decision be due when it is sent.
+- The dispatcher calls the delivery policy once per summary, with the first due record, and `hold: true` skips the whole summary without counting
+  an attempt. This is the point where Gilde claims the daily summary from the durable budget (and sends the board state first).
+- A summary made only of `low` records is sent with `behavior: 'persist'`: it is stored but does not wake the agent.
+- `record.metadata` is stored with the record and visible to the policy at send and at dispatch time; Gilde marks records whose wake it
+  claimed with `metadata.wake = 'granted'`.

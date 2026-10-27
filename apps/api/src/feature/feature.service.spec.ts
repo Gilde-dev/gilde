@@ -340,3 +340,19 @@ describe('feature.ready_to_close notifications', () => {
         log.mockRestore();
     });
 });
+
+describe('JobService.statusSnapshot (board state source for the scout)', () => {
+    it('counts every status of the whole project exactly, beyond the public list limit, and bounds the parked ids', async () => {
+        await jobs.insert(Array.from({ length: 205 }, (_, i) => jobs.create({ projectId: p1.id, repoId: repoA.id, title: `J${i}`, task: 't', status: 'queued', queuedAt: new Date() })));
+        const parked = await Promise.all([1, 2, 3].map(() => seed(repoA, null, 'parked')));
+        await seed(foreign, null, 'parked'); // another project is not counted
+
+        const snapshot = await jobService.statusSnapshot(p1.id, 2);
+        expect(snapshot.counts.queued).toBe(205);
+        expect(snapshot.counts.parked).toBe(3);
+        expect(snapshot.counts.merged).toBe(0);
+        expect(Object.keys(snapshot.counts)).toHaveLength(9);
+        expect(snapshot.parkedIds).toHaveLength(2);
+        expect(parked.map((j) => j.id)).toEqual(expect.arrayContaining(snapshot.parkedIds));
+    });
+});

@@ -1,10 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { isUniqueViolation } from '../common/db-errors.js';
 import { Feedback } from '../feedback/feedback.entity.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { JobRun } from '../run/run.entity.js';
 import type { CollectResultDto } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
@@ -35,6 +37,7 @@ export class LessonCollectorService {
         @InjectRepository(Feedback) private readonly feedback: Repository<Feedback>,
         @InjectRepository(Lesson) private readonly lessons: Repository<Lesson>,
         @InjectRepository(LessonSource) private readonly sources: Repository<LessonSource>,
+        @Optional() private readonly scout?: ScoutSignalPublisher,
     ) { }
 
     @Cron(CronExpression.EVERY_HOUR)
@@ -90,18 +93,22 @@ export class LessonCollectorService {
 
     /** False if the source was collected concurrently. */
     private async create(c: Candidate): Promise<boolean> {
+        let lessonId: string;
         try {
-            await this.lessons.manager.transaction(async (m) => {
+            lessonId = await this.lessons.manager.transaction(async (m) => {
                 const lesson = await m.save(m.create(Lesson, { projectId: c.projectId, text: c.text }));
                 await m.save(m.create(LessonSource, {
                     lessonId: lesson.id, sourceKey: c.key, kind: c.kind, jobId: c.jobId,
                     runId: c.runId, feedbackId: c.feedbackId, excerpt: c.excerpt,
                 }));
+                return lesson.id;
             });
-            return true;
         } catch (e) {
             if (isUniqueViolation(e)) return false;
             throw e;
         }
+        // Only after the lesson and its source committed.
+        await this.scout?.publish(c.projectId, { type: 'lesson_created', lessonId, jobId: c.jobId });
+        return true;
     }
 }
