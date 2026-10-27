@@ -257,7 +257,8 @@ describe('dispatch with revisions', () => {
         const repoService = new RepoService(new RepoMapper(), {} as never, ds.getRepository(Repo));
         const dispatcher = new DispatcherService(
             new RunService(new RunMapper(), runs), execution, jobs, ds.getRepository(Repo), ds.getRepository(Project), runs,
-            repoService, ds.getRepository(Feature),
+            repoService, ds.getRepository(Feature), undefined as never,
+            { status: async () => ({ hardBlocked: false }) } as never, { capture: async () => 0 } as never,
         );
         const job = await seedJob('queued');
         const rev = await seedRevision(job, { task: 'a revised task text' });

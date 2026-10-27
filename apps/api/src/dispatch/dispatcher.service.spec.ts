@@ -21,6 +21,7 @@ import { NotificationCaptureService } from '../notification/notification-capture
 import { Notification } from '../notification/notification.entity.js';
 import { NotificationMapper } from '../notification/notification.mapper.js';
 import { NotificationService } from '../notification/notification.service.js';
+import { DispatchController } from './dispatch.controller.js';
 import { DispatcherService } from './dispatcher.service.js';
 
 let ds: DataSource;
@@ -33,6 +34,8 @@ let runs: Repository<JobRun>;
 let repoService: RepoService;
 let searchLessons: ReturnType<typeof vi.fn>;
 let notifications: Repository<Notification>;
+let budget: { status: ReturnType<typeof vi.fn> };
+let budgetAlerts: { capture: ReturnType<typeof vi.fn> };
 
 beforeEach(async () => {
     ds = await new DataSource({
@@ -45,13 +48,15 @@ beforeEach(async () => {
     repos = ds.getRepository(Repo);
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
+    budget = { status: vi.fn().mockResolvedValue({ hardBlocked: false, blockers: [], recovery: 'none', recoversAt: null }) };
+    budgetAlerts = { capture: vi.fn().mockResolvedValue(0) };
     searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) };
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, capture);
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, capture);
 });
 
 afterEach(() => ds.destroy());
@@ -196,7 +201,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never);
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);
@@ -408,7 +413,7 @@ describe('DispatcherService', () => {
             await dispatcher.dispatch();
 
             const resumed = await repoService.resume(repo.id);
-            expect(resumed).toMatchObject({ paused: false, pausedReason: null });
+            expect(resumed).toMatchObject({ paused: false });
 
             expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
             expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
@@ -421,7 +426,7 @@ describe('DispatcherService', () => {
 
             await dispatcher.dispatch();
 
-            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false, pausedReason: null });
+            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false });
         });
     });
 });
@@ -613,6 +618,157 @@ describe('DispatcherService report', () => {
             await seedJob(repo, 'queued', { prNumber: 9, branch: 'claude/x', lastReason: 'CI failed' });
             await dispatcher.dispatch();
             expect(sentPayload()).toMatchObject({ continueOn: { branch: 'claude/x', prNumber: 9, reason: 'CI failed' }, lessons: [{ id: 'les1' }] });
+        });
+    });
+
+    describe('estimated budget guard', () => {
+        const blocker = (over: Record<string, unknown> = {}) => ({
+            scope: 'project', projectId: 'p', period: 'day', kind: 'limit', variable: null, limit: 10, spent: 10,
+            startsAt: '2026-01-01T00:00:00.000Z', resetsAt: '2026-01-02T00:00:00.000Z', message: 'reached', ...over,
+        });
+        const hard = (blockers: Record<string, unknown>[], recovery = 'reset', recoversAt: string | null = '2026-01-02T00:00:00.000Z') =>
+            ({ hardBlocked: true, blockers, recovery, recoversAt });
+        const clear = { hardBlocked: false, blockers: [], recovery: 'none', recoversAt: null };
+
+        it.each([
+            ['project day', [blocker()]],
+            ['project week', [blocker({ period: 'week', resetsAt: '2026-01-05T00:00:00.000Z' })]],
+            ['global day', [blocker({ scope: 'global', projectId: null })]],
+            ['global week', [blocker({ scope: 'global', projectId: null, period: 'week' })]],
+        ])('fires nothing at a hard %s limit: no run, attempt, transition, execution call or pause change', async (_name, blockers) => {
+            budget.status.mockResolvedValue(hard(blockers));
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            const result = await dispatcher.dispatch();
+            expect(result).toMatchObject({ fired: 0, failed: 0 });
+            expect(fire).not.toHaveBeenCalled();
+            expect(await runs.count()).toBe(0);
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect(await projects.findOneByOrFail({ id: repo.projectId })).toMatchObject({ paused: false });
+            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false });
+            expect(result.repos[0]).toMatchObject({ reason: 'budget', budget: { blockers, recovery: 'reset', error: false } });
+            expect(budgetAlerts.capture).toHaveBeenCalled();
+        });
+
+        it('reports every simultaneous blocker and promises recovery only at the latest reset', async () => {
+            const blockers = [blocker(), blocker({ period: 'week', resetsAt: '2026-01-05T00:00:00.000Z' })];
+            budget.status.mockResolvedValue(hard(blockers, 'reset', '2026-01-05T00:00:00.000Z'));
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            const [report] = (await dispatcher.dispatch()).repos;
+            expect(report.resetsAt).toBe('2026-01-05T00:00:00.000Z');
+            expect(report.detail).toContain('project day');
+            expect(report.detail).toContain('project week');
+        });
+
+        it('has no reset promise when a limit or configuration change is needed', async () => {
+            budget.status.mockResolvedValue(hard([blocker({ scope: 'global', projectId: null, kind: 'configError', variable: 'GLOBAL_DAILY_BUDGET_USD', limit: null })], 'manual', null));
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            const [report] = (await dispatcher.dispatch()).repos;
+            expect(report).toMatchObject({ reason: 'budget', resetsAt: null, budget: { recovery: 'manual' } });
+            expect(report.detail).toContain('GLOBAL_DAILY_BUDGET_USD');
+            expect(report.detail).not.toMatch(/\d{4}-\d\d-\d\dT/);
+        });
+
+        it('stops mid-pass when a hard limit is reached by the previous fire', async () => {
+            budget.status.mockResolvedValueOnce(clear).mockResolvedValue(hard([blocker()]));
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+            const first = await seedJob(repo);
+            const second = await seedJob(repo);
+            const result = await dispatcher.dispatch();
+            expect(result.fired).toBe(1);
+            expect(fire).toHaveBeenCalledTimes(1);
+            expect((await reload(first.id)).status).toBe('dispatched');
+            expect(await reload(second.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect(result.repos[0]).toMatchObject({ fired: 1, reason: 'budget' });
+        });
+
+        it('checks live spend for every repo of a project in the same pass', async () => {
+            budget.status.mockResolvedValueOnce(clear).mockResolvedValue(hard([blocker()]));
+            const project = await seedProject();
+            await seedJob(await seedRepo(project));
+            await seedJob(await seedRepo(project));
+            const result = await dispatcher.dispatch();
+            expect(result.fired).toBe(1);
+            expect(result.repos.map((r) => r.reason).sort()).toEqual(['budget', 'none']);
+        });
+
+        it('keeps manual pause precedence: a paused project and repo report their own reason and stay paused after recovery', async () => {
+            budget.status.mockResolvedValue(hard([blocker()]));
+            const project = await seedProject({ paused: true });
+            const repo = await seedRepo(project);
+            await seedJob(repo);
+            expect((await dispatcher.dispatch()).repos[0].reason).toBe('project_paused');
+            budget.status.mockResolvedValue(clear);
+            expect((await dispatcher.dispatch()).fired).toBe(0);
+            expect(await projects.findOneByOrFail({ id: project.id })).toMatchObject({ paused: true });
+        });
+
+        it('still reports daily run limit, no slots and missing manifest ahead of the budget', async () => {
+            budget.status.mockResolvedValue(hard([blocker()]));
+            const limited = await seedRepo(await seedProject({ dailyRunLimit: 0 }));
+            await seedJob(limited);
+            const busy = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
+            await seedJob(busy, 'pr_open');
+            await seedJob(busy);
+            const bare = await seedRepo(await seedProject(), { testCommands: [] });
+            await seedJob(bare);
+            const reasons = Object.fromEntries((await dispatcher.dispatch()).repos.map((r) => [r.repoId, r.reason]));
+            expect(reasons).toEqual({ [limited.id]: 'daily_limit', [busy.id]: 'no_slots', [bare.id]: 'no_manifest' });
+        });
+
+        it('resumes automatically after a reset, a raised limit or a cleared limit, without a pause toggle', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            budget.status.mockResolvedValue(hard([blocker()]));
+            expect((await dispatcher.dispatch()).fired).toBe(0);
+            budget.status.mockResolvedValue(clear);
+            expect((await dispatcher.dispatch()).fired).toBe(1);
+            expect((await reload(job.id)).status).toBe('dispatched');
+        });
+
+        it('fails closed when the budget cannot be evaluated, honestly and without fabricating a status', async () => {
+            const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+            budget.status.mockRejectedValue(new Error('usage db down'));
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            const result = await dispatcher.dispatch();
+            expect(result.fired).toBe(0);
+            expect(fire).not.toHaveBeenCalled();
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect(result.repos[0]).toMatchObject({ reason: 'budget', resetsAt: null, budget: { blockers: [], error: true, recovery: 'unknown' } });
+            expect(error).toHaveBeenCalledWith(expect.stringContaining('usage db down'));
+            error.mockRestore();
+        });
+
+        it('does not touch running work, and queued jobs that are not new fires are unaffected', async () => {
+            budget.status.mockResolvedValue(hard([blocker()]));
+            const repo = await seedRepo(await seedProject());
+            const running = await seedJob(repo, 'dispatched');
+            await dispatcher.dispatch();
+            expect((await reload(running.id)).status).toBe('dispatched');
+        });
+
+        it('does not stop a pass when recording the notification fails', async () => {
+            budget.status.mockResolvedValue(hard([blocker()]));
+            budgetAlerts.capture.mockRejectedValue(new Error('outbox down'));
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            const error = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+            const result = await dispatcher.dispatch();
+            expect(result.repos[0].reason).toBe('budget');
+            expect(fire).not.toHaveBeenCalled();
+            error.mockRestore();
+        });
+
+        it('applies to the authenticated manual dispatch path too: there is no bypass', async () => {
+            budget.status.mockResolvedValue(hard([blocker()]));
+            const repo = await seedRepo(await seedProject());
+            await seedJob(repo);
+            const result = await new DispatchController(dispatcher).dispatch();
+            expect(result).toMatchObject({ fired: 0, repos: [{ reason: 'budget' }] });
+            expect(fire).not.toHaveBeenCalled();
         });
     });
 });

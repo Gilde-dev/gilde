@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { BudgetModule } from '../budget/budget.module.js';
 import { NotificationModule } from '../notification/notification.module.js';
 import { ExecutionModule } from '../execution/execution.module.js';
 import { Feature } from '../feature/feature.entity.js';
@@ -32,7 +33,8 @@ import { DispatcherService } from './dispatcher.service.js';
         HistoryModule,
         RepoModule,
         RunModule,
-        NotificationModule
+        NotificationModule,
+        BudgetModule
     ],
     controllers: [
         DispatchController

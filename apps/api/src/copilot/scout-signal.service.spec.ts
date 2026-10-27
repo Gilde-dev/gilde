@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { Logger } from '@nestjs/common';
 import { dispatchDueNotifications } from '@mastra/core/notifications';
 import type { Mastra } from '@mastra/core/mastra';
 import type { NotificationsStorage } from '@mastra/core/storage';
@@ -77,6 +78,7 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
     let budget: ScoutWakeBudgetService;
     let gate: ScoutDispatchGate;
     let inbox: NotificationsStorage;
+    let globalHard: boolean | Error = false;
     const statusSnapshot = vi.fn();
     const featuresList = vi.fn();
 
@@ -97,6 +99,7 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
             mastra, threads, budget, receipts: ds.getRepository(ScoutSignalReceipt),
             jobs: { statusSnapshot }, features: { list: featuresList }, repos: { getById: async () => ({ fullName: 'acme/api' }) },
             inbox: async () => inbox, summaryHourUtc: options.hour ?? 6,
+            globalBudgetHard: async () => { if (globalHard instanceof Error) throw globalHard; return globalHard; },
         });
         gate.bind({ now: () => budget.now(), summaryAt: (n) => service.summaryAt(n), allowSummary: (p) => service.allowSummary(p) });
     }
@@ -109,6 +112,7 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
         dir = mkdtempSync(join(tmpdir(), 'scout-signal-'));
         ds = await new DataSource({ type: 'better-sqlite3', database: join(dir, 'app.db'), entities: [ScoutSignalReceipt, ScoutWakeDay], synchronize: true }).initialize();
         clock = new Date('2030-03-10T05:00:00Z');
+        globalHard = false;
         statusSnapshot.mockReset().mockResolvedValue({ counts: { queued: 2, parked: 1 }, parkedIds: [JOB] });
         featuresList.mockReset().mockResolvedValue([{ id: 'f1', status: 'active' }, { id: 'f2', status: 'done' }]);
         await boot();
@@ -135,6 +139,68 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
         const [record] = await records();
         expect(record).toMatchObject({ source: 'gilde', kind: 'run-blocked', priority: 'high', dedupeKey: 'run-outcome:r1:blocked' });
         expect(record.payload).toEqual({ projectId: P1, repo: 'acme/api', jobId: JOB, runId: 'r1', repoId: REPO, outcome: 'blocked' });
+    });
+
+    describe('global budget hard', () => {
+        it('sends no wake for a high event, consumes no quota and keeps it pending', async () => {
+            globalHard = true;
+            await service.publish(P1, blocked('r1'));
+            const [record] = await records();
+            expect(record).toMatchObject({ kind: 'run-blocked', status: 'pending' });
+            expect(record.metadata?.wake).toBe('deferred');
+            expect(stub.prompts).toHaveLength(0);
+            expect(statusSnapshot).not.toHaveBeenCalled();
+            expect(await ds.getRepository(ScoutWakeDay).count()).toBe(0);
+        });
+
+        it('sends no daily summary while hard, keeps the backlog, and sends it at the next eligible summary after recovery', async () => {
+            globalHard = true;
+            await service.publish(P1, blocked('r1'));
+            await service.publish(P1, review('fb1'));
+            clock = new Date('2030-03-10T06:01:00Z');
+            await dispatch();
+            expect(await service.allowSummary(P1)).toBe(false);
+            expect(stub.prompts).toHaveLength(0);
+            expect(await ds.getRepository(ScoutWakeDay).count()).toBe(0); // no summary or wake quota claimed
+            expect((await records()).every((r) => r.status === 'pending')).toBe(true);
+
+            globalHard = false; // reset, or the limit was raised
+            clock = new Date('2030-03-11T06:05:00Z');
+            await dispatch();
+            await until(() => stub.prompts.length === 1);
+            expect(stub.text()).toContain('<notification-summary pending="2"');
+            expect((await day()).wakesUsed).toBe(1);
+        });
+
+        it('does not bypass the stop with a catch-up wake when a new high event arrives while still hard', async () => {
+            globalHard = true;
+            await service.publish(P1, blocked('r1'));
+            await service.publish(P1, blocked('r2'));
+            clock = new Date('2030-03-10T09:00:00Z');
+            await dispatch();
+            expect(stub.prompts).toHaveLength(0);
+            expect(await records()).toHaveLength(2);
+        });
+
+        it('fails closed when the budget cannot be read', async () => {
+            vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
+            globalHard = new Error('usage db down');
+            await service.publish(P1, blocked('r1'));
+            await service.publish(P1, lesson('l1'));
+            clock = new Date('2030-03-10T06:01:00Z');
+            expect(await service.allowSummary(P1)).toBe(false);
+            expect(stub.prompts).toHaveLength(0);
+            expect(await ds.getRepository(ScoutWakeDay).count()).toBe(0);
+        });
+
+        it('wakes again once the budget is no longer hard', async () => {
+            globalHard = true;
+            await service.publish(P1, blocked('r1'));
+            globalHard = false;
+            await service.publish(P1, blocked('r2'));
+            await until(() => stub.prompts.length > 0);
+            expect((await day()).wakesUsed).toBe(1);
+        });
     });
 
     it('keeps medium and low events pending without waking and without sending board state', async () => {

@@ -14,6 +14,9 @@ import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
+import { BudgetAlertService } from '../budget/budget-alert.service.js';
+import type { BudgetBlocker, BudgetStatusDto } from '../budget/budget.dto.js';
+import { BudgetService } from '../budget/budget.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -39,6 +42,8 @@ export class DispatcherService {
         private readonly repoService: RepoService,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly history: HistorySearchService,
+        private readonly budget: BudgetService,
+        private readonly budgetAlerts: BudgetAlertService,
         @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
@@ -113,7 +118,7 @@ export class DispatcherService {
 
             const report: RepoDispatchReport = {
                 repoId, fullName: repo.fullName, queued: await queuedJobs().getCount(), fired: 0,
-                reason: 'none', detail: null, resetsAt: null, waitingOnDependencies, waitingOnRevisions,
+                reason: 'none', detail: null, resetsAt: null, waitingOnDependencies, waitingOnRevisions, budget: null,
             };
             reports.push(report);
 
@@ -149,6 +154,12 @@ export class DispatcherService {
                 report.resetsAt = nextUtcMidnight().toISOString();
                 continue;
             }
+            // Estimated-spend guard: live recorded spend, evaluated for every repo of this pass.
+            const blocked = await this.budgetBlock(project.id);
+            if (blocked) {
+                applyBudget(report, blocked);
+                continue;
+            }
             const slots = Math.min(repo.maxConcurrentJobs - active, budgets.get(project.id)!);
 
             const jobs = await queuedJobs()
@@ -157,7 +168,16 @@ export class DispatcherService {
                 .orderBy('job.queuedAt', 'ASC')
                 .limit(slots)
                 .getMany();
+            let attempted = 0;
             for (const job of jobs) {
+                // The pre-check above covered the first fire; later ones see spend recorded since, not a stale answer.
+                if (attempted++ > 0) {
+                    const stopped = await this.budgetBlock(project.id);
+                    if (stopped) {
+                        applyBudget(report, stopped);
+                        break;
+                    }
+                }
                 try {
                     const outcome = await this.fireJob(job.id, repo, project);
                     if (outcome === 'skipped') continue;
@@ -175,11 +195,34 @@ export class DispatcherService {
         return { fired, failed, repos: reports };
     }
 
+    /**
+     * Null when new automatic work may fire. Any evaluation error blocks (fail closed) and is reported as such, never as
+     * a $0 status. Never mutates paused flags, runs or jobs; it only reads spend and records a hard notification.
+     */
+    private async budgetBlock(projectId: string): Promise<BudgetGate | null> {
+        let status: BudgetStatusDto;
+        try {
+            status = await this.budget.status(projectId);
+        } catch (e) {
+            this.logger.error(`Budget evaluation failed, new automatic dispatch is stopped: ${errorMessage(e)}`);
+            return { detail: 'budget could not be evaluated; new automatic dispatch is stopped', resetsAt: null, evidence: { blockers: [], recovery: 'unknown', error: true } };
+        }
+        if (!status.hardBlocked) return null;
+        // Recording is best effort: a notification problem never overrides the stop decision.
+        await this.budgetAlerts.capture(status).catch((e: unknown) => this.logger.error(`Recording the budget notification failed: ${errorMessage(e)}`));
+        return {
+            detail: status.blockers.map(describeBlocker).join('; '),
+            resetsAt: status.recovery === 'reset' ? status.recoversAt : null,
+            evidence: { blockers: status.blockers, recovery: status.recovery === 'none' ? 'manual' : status.recovery, error: false },
+        };
+    }
+
     private logChanges(reports: RepoDispatchReport[]): void {
         const seen = new Set<string>();
         for (const r of reports) {
             seen.add(r.repoId);
-            const key = [r.reason, r.detail, r.waitingOnDependencies, r.waitingOnRevisions].join('|');
+            const detail = r.reason === 'budget' ? (r.budget?.blockers.map((b) => `${b.scope}:${b.period}:${b.kind}`).join(',') ?? 'error') : r.detail;
+            const key = [r.reason, detail, r.waitingOnDependencies, r.waitingOnRevisions].join('|');
             const previousKey = this.lastKeys.get(r.repoId) ?? 'none||0|0';
             if (key === previousKey) continue;
             this.logger.log(describeRepo(r, this.lastReasons.get(r.repoId)));
@@ -286,7 +329,33 @@ export class DispatcherService {
 }
 
 export type DispatchReason =
-    | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'none';
+    | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
+
+/** Why the estimated-spend guard stopped a repo: every hard period at once, not only the first one found. */
+export interface DispatchBudgetEvidence {
+    /** Each hard project/global day/week period with scope, period, limit, spend and reset. */
+    blockers: BudgetBlocker[];
+    /** `reset`: the latest blocker reset is the earliest automatic recovery; `manual`: a limit/config change is needed; `unknown`: evaluation failed. */
+    recovery: 'reset' | 'manual' | 'unknown';
+    /** True when the budget could not be evaluated; new automatic dispatch stays stopped. */
+    error: boolean;
+}
+
+interface BudgetGate { detail: string; resetsAt: string | null; evidence: DispatchBudgetEvidence }
+
+function applyBudget(report: RepoDispatchReport, gate: BudgetGate): void {
+    report.reason = 'budget';
+    report.detail = gate.detail;
+    report.resetsAt = gate.resetsAt;
+    report.budget = gate.evidence;
+}
+
+function describeBlocker(b: BudgetBlocker): string {
+    const name = `${b.scope} ${b.period}`;
+    if (b.kind === 'configError') return `${name}: ${b.variable ?? 'budget variable'} is invalid`;
+    const usd = (n: number) => `$${n.toFixed(2)}`;
+    return `${name}: ${usd(b.spent)} of ${b.limit === null ? '–' : usd(b.limit)} estimated, resets ${b.resetsAt}`;
+}
 
 export interface RepoDispatchReport {
     repoId: string;
@@ -294,12 +363,17 @@ export interface RepoDispatchReport {
     queued: number;
     fired: number;
     reason: DispatchReason;
-    /** pausedReason, manifestError, `active/max` or `used/limit`; null otherwise. */
+    /** pausedReason, manifestError, `active/max`, `used/limit` or the budget blockers; null otherwise. */
     detail: string | null;
-    /** Next UTC midnight (ISO) when the reason is daily_limit; null otherwise. */
+    /**
+     * Next UTC midnight (ISO) when the reason is daily_limit. For budget, the LATEST reset of all blockers (the earliest
+     * automatic full recovery); null when a limit or configuration change is needed or the evaluation failed.
+     */
     resetsAt: string | null;
     waitingOnDependencies: number;
     waitingOnRevisions: number;
+    /** Set when the reason is budget. */
+    budget: DispatchBudgetEvidence | null;
 }
 
 export interface DispatchResult {
@@ -323,6 +397,7 @@ export function describeRepo(r: RepoDispatchReport, previous: DispatchReason | u
         case 'no_manifest': text = `no cached .gilde.json (${r.detail ?? 'not refreshed yet'})`; break;
         case 'no_slots': text = `no free slots (${r.detail})`; break;
         case 'daily_limit': text = `daily limit reached (${r.detail}, resets ${r.resetsAt?.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC)`; break;
+        case 'budget': text = `stopped by estimated budget (${r.detail ?? 'unknown'})${r.resetsAt ? `, earliest recovery ${r.resetsAt.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC` : ''}`; break;
         default: text = previous && previous !== 'none' ? 'dispatching again' : 'dispatching';
     }
     const waiting: string[] = [];

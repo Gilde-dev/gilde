@@ -6,6 +6,23 @@ export interface NotificationPr {
   url: string;
 }
 
+/** Facts of a budget.soft / budget.hard event (apps/api/src/notification `NotificationBudget`). */
+export interface NotificationBudget {
+  scope: 'global' | 'project';
+  period: 'day' | 'week';
+  state: 'soft' | 'hard';
+  /** Sum of the known estimated costs in USD. */
+  spent: number;
+  limit: number | null;
+  percent: number | null;
+  startsAt: string;
+  resetsAt: string;
+  unpricedRows: number;
+  /** `configError`: an invalid global environment variable named in `variable`. */
+  reasonKind: 'limit' | 'configError';
+  variable: string | null;
+}
+
 /** Mirrors `NotificationResponseDto` of the API (apps/api/src/notification). */
 export interface GildeNotification {
   id: string;
@@ -19,6 +36,8 @@ export interface GildeNotification {
   repos: string[];
   reason: string;
   prLinks: NotificationPr[];
+  /** Set for the budget kinds only. */
+  budget?: NotificationBudget | null;
   status: 'pending' | 'delivered' | 'failed';
   attempts: number;
   nextRetryAt: string | null;

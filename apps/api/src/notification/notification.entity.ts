@@ -6,11 +6,31 @@ export const NOTIFICATION_KINDS = [
     'job.approval_needed',
     'revision.waiting',
     'feature.ready_to_close',
+    'budget.soft',
+    'budget.hard',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
 export const NOTIFICATION_STATUSES = ['pending', 'delivered', 'failed'] as const;
 export type NotificationStatus = (typeof NOTIFICATION_STATUSES)[number];
+
+/** Structured facts of a budget.soft / budget.hard event; the envelope's job, PR and repo fields stay empty for it. */
+export interface NotificationBudget {
+    scope: 'global' | 'project';
+    period: 'day' | 'week';
+    state: 'soft' | 'hard';
+    /** Sum of the known estimated costs in USD. */
+    spent: number;
+    limit: number | null;
+    percent: number | null;
+    /** UTC period start (inclusive) and reset (exclusive end), ISO. */
+    startsAt: string;
+    resetsAt: string;
+    unpricedRows: number;
+    /** `configError`: an invalid global environment variable, named in `variable` (never its value). */
+    reasonKind: 'limit' | 'configError';
+    variable: string | null;
+}
 
 export interface NotificationPr {
     repo: string;
@@ -84,6 +104,10 @@ export class Notification {
         type: 'simple-json'
     })
     prLinks: NotificationPr[];
+
+    /** Set for the budget kinds only. */
+    @Column({ type: 'simple-json', nullable: true })
+    budget: NotificationBudget | null;
 
     @Column({ type: 'simple-enum', enum: NOTIFICATION_STATUSES, default: 'pending' })
     status: NotificationStatus;

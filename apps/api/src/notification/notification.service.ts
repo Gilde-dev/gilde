@@ -58,6 +58,7 @@ export class NotificationService {
                 repos: input.repos,
                 reason: input.reason,
                 prLinks: input.prLinks ?? [],
+                budget: input.budget ?? null,
             });
             return true;
         } catch (e) {

@@ -30,6 +30,11 @@ export interface ScoutSignalDeps {
     /** The native notification store; used to see whether backlog waits. */
     inbox: () => Promise<NotificationsStorage | undefined>;
     summaryHourUtc: number;
+    /**
+     * The GLOBAL estimated budget (day or week) is hard. While it is, no native wake and no daily summary is sent; records
+     * stay pending and no wake or summary quota is consumed. Optional so the scout works without a budget module.
+     */
+    globalBudgetHard?: () => Promise<boolean>;
 }
 
 /**
@@ -80,7 +85,8 @@ export class ScoutSignalService {
         let claim: { at: Date } | null = null;
         try {
             const target = await this.deps.threads.ensureThread(projectId);
-            if (envelope.priority === 'high') {
+            // Over the global budget the high event is stored like an over-quota one: pending for the next eligible summary.
+            if (envelope.priority === 'high' && !(await this.globalHard())) {
                 claim = await budget.claimWake(projectId, { reserveSummary: await this.hasBacklog(target.threadId) });
                 if (claim) {
                     try {
@@ -107,6 +113,18 @@ export class ScoutSignalService {
             if (claim) await budget.refundWake(projectId, claim.at).catch(() => undefined);
             await this.deps.receipts.delete({ projectId, dedupeKey: envelope.dedupeKey }).catch(() => undefined);
             throw error;
+        }
+    }
+
+    /** True while the global budget is hard, and when it cannot be read: an unknown budget never allows a wake. */
+    private async globalHard(): Promise<boolean> {
+        const check = this.deps.globalBudgetHard;
+        if (!check) return false;
+        try {
+            return await check();
+        } catch (error) {
+            this.logger.warn(`Global budget could not be read, no wake or summary is sent: ${message(error)}`);
+            return true;
         }
     }
 
@@ -171,6 +189,7 @@ export class ScoutSignalService {
             // Mastra summarizes every due pending record of the thread; low-only summaries are persisted, not woken.
             const due = await this.dueRecords(projectId);
             if (due.length === 0) return false; // never an empty summary
+            if (await this.globalHard()) return false; // hold: records stay pending, no quota claimed, no catch-up wake
             const claim = await this.deps.budget.claimSummary(projectId, due.some((r) => r.priority !== 'low'));
             if (claim === 'claimed') {
                 try {

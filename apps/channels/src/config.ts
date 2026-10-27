@@ -8,6 +8,8 @@ export const NOTIFICATION_KINDS = [
   'job.approval_needed',
   'revision.waiting',
   'feature.ready_to_close',
+  'budget.soft',
+  'budget.hard',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

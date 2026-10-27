@@ -19,6 +19,7 @@ export class NotificationMapper {
             repos: e.repos,
             reason: e.reason,
             prLinks: e.prLinks,
+            budget: e.budget ?? null,
             status: e.status,
             attempts: e.attempts,
             nextRetryAt: e.nextRetryAt?.toISOString() ?? null,
