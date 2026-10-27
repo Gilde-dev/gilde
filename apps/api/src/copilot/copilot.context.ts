@@ -95,3 +95,28 @@ export function extractProjectId(body: unknown, depth = 0): string | undefined {
     }
     return undefined;
 }
+
+const AGENT_KEYS = new Set(['agentId', 'agent_id', 'agentName', 'agent']);
+
+/**
+ * Every agent id a Mastra request names: path (`/agents/:id/...`), query and JSON body (including the AG-UI
+ * `params.agentId`). Used to keep internal agents (the scout) from being run or inspected over HTTP.
+ */
+export function agentReferences(path: string, query: unknown, body: unknown): string[] {
+    const refs: string[] = [];
+    const fromPath = /\/agents\/([^/?#]+)/.exec(path);
+    if (fromPath) refs.push(decodeURIComponent(fromPath[1]));
+    const walk = (node: unknown, depth: number) => {
+        if (depth > 8 || typeof node !== 'object' || node === null) return;
+        if (Array.isArray(node)) { for (const item of node) walk(item, depth + 1); return; }
+        for (const [key, value] of Object.entries(node)) {
+            if (AGENT_KEYS.has(key)) {
+                for (const v of Array.isArray(value) ? value : [value]) if (typeof v === 'string') refs.push(v);
+            }
+            walk(value, depth + 1);
+        }
+    };
+    walk(query, 0);
+    walk(body, 0);
+    return refs;
+}

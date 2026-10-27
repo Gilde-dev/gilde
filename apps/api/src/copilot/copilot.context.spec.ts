@@ -1,4 +1,4 @@
-import { copilotResourceId, memoryReferences } from './copilot.context.js';
+import { agentReferences, copilotResourceId, memoryReferences } from './copilot.context.js';
 
 describe('copilotResourceId', () => {
     it('is the user id and never a shared fallback', () => {
@@ -17,5 +17,15 @@ describe('memoryReferences', () => {
 
     it('is empty for a request without memory references', () => {
         expect(memoryReferences('/api/v1/mastra/agents', {}, undefined)).toEqual({ resourceIds: [], threadIds: [], messageIds: [] });
+    });
+});
+
+describe('agentReferences', () => {
+    it('finds agent ids in the path, query and body (including AG-UI params)', () => {
+        expect(agentReferences('/api/v1/mastra/agents/verkenner/stream', {}, {})).toEqual(['verkenner']);
+        expect(agentReferences('/api/v1/mastra/memory/threads', { agentId: 'verkenner' }, {})).toEqual(['verkenner']);
+        expect(agentReferences('/api/v1/mastra/copilotkit', {}, { method: 'agent/run', params: { agentId: 'verkenner' }, body: { agent: 'gilde' } })).toEqual(['verkenner', 'gilde']);
+        expect(agentReferences('/api/v1/mastra/agents/%76erkenner', {}, {})).toEqual(['verkenner']);
+        expect(agentReferences('/api/v1/mastra/health', {}, undefined)).toEqual([]);
     });
 });

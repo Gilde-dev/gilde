@@ -368,6 +368,8 @@ export interface ApiIssue {
 export interface CopilotStatus {
   enabled: boolean;
   model: string | null;
+  /** The unattended scout (Verkenner), configured separately from the co-pilot. */
+  scout: { enabled: boolean; model: string | null };
 }
 
 export class ApiError extends Error {

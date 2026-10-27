@@ -10,9 +10,10 @@ import { usageUser } from '../usage/usage-context.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
 import type { CopilotConfig } from './copilot.config.js';
-import { COPILOT_USER_KEY, copilotResourceId, memoryReferences } from './copilot.context.js';
+import { COPILOT_USER_KEY, agentReferences, copilotResourceId, memoryReferences } from './copilot.context.js';
 import { COPILOT_CONFIG, COPILOT_MASTRA } from './copilot.tokens.js';
 import { MASTRA_PREFIX } from './copilot.mastra.js';
+import { SCOUT_AGENT_ID } from './verkenner.config.js';
 
 /**
  * Runs for every request, acts only on /api/v1/mastra/*. It runs after the global JwtAuthGuard, so
@@ -21,6 +22,8 @@ import { MASTRA_PREFIX } from './copilot.mastra.js';
  * - answers 401 when there is no authenticated account (memory is never shared or anonymous),
  * - puts the user and the memory resourceId (the user id) into the Mastra request context, overriding
  *   anything a client sent in the request body, so tools and memory are scoped per user on every Mastra route,
+ * - rejects (403) any request that names the scout agent or an internal Mastra workflow: the scout runs only unattended,
+ *   with a server-issued context, and is never reachable (or its bot memory readable) through these routes,
  * - rejects requests that name another resource (403) or a thread/message of another user (404), and pins the
  *   resourceId query parameter of memory routes to the user.
  */
@@ -51,6 +54,10 @@ export class CopilotContextInterceptor implements NestInterceptor {
             return this.reject(context, HttpStatus.UNAUTHORIZED, 'Unauthorized', 'The co-pilot needs an authenticated Gilde account');
         }
         const user = { id: req.user.id, name: req.user.name, email: req.user.email };
+
+        if (agentReferences(req.path, req.query, req.body).some((a) => a.toLowerCase() === SCOUT_AGENT_ID) || req.path.includes('/__mastra')) {
+            return this.reject(context, HttpStatus.FORBIDDEN, 'Forbidden', 'This agent cannot be used through the API');
+        }
 
         const refs = memoryReferences(req.path, req.query, req.body);
         if (refs.resourceIds.some((id) => id !== user.id)) {
