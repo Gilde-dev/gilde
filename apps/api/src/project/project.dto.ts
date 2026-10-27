@@ -6,6 +6,9 @@ const slug = z
     .string()
     .regex(/^[a-z0-9][a-z0-9-]{1,62}$/, 'Lowercase letters, digits and dashes, 2–63 characters');
 
+/** Estimated USD: finite and >= 0 (0 stops immediately); null means no limit. */
+const budgetLimit = z.number().finite().min(0).nullable();
+
 export const CreateProjectSchema = z.object({
     slug,
     name: z.string().trim().min(1).max(100),
@@ -16,6 +19,9 @@ export const CreateProjectSchema = z.object({
     retryOnChangesRequested: z.boolean().optional(),
     skillsLibrary: z.enum(SKILLS_LIBRARY_KINDS).optional(),
     skillsLibraryRepoId: z.string().uuid().nullable().optional(),
+    dailyBudgetUsd: budgetLimit.optional(),
+    weeklyBudgetUsd: budgetLimit.optional(),
+    budgetSoftPct: z.number().finite().gt(0).max(100).optional(),
 });
 
 export const UpdateProjectSchema = CreateProjectSchema.omit({ slug: true }).partial();
@@ -32,6 +38,9 @@ export const ProjectResponseSchema = z.object({
     paused: z.boolean(),
     skillsLibrary: z.enum(SKILLS_LIBRARY_KINDS),
     skillsLibraryRepoId: z.string().uuid().nullable(),
+    dailyBudgetUsd: z.number().nullable(),
+    weeklyBudgetUsd: z.number().nullable(),
+    budgetSoftPct: z.number(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });
