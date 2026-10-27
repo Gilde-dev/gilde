@@ -10,6 +10,13 @@ import { computeCost, parsePrices } from './usage-pricing.js';
 
 const DAY_MS = 86_400_000;
 
+export interface LlmCostWindow {
+    knownCostUsd: number;
+    pricedRows: number;
+    totalRows: number;
+    unpricedRows: number;
+}
+
 const emptyTotals = (): UsageTotalsDto => ({ inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: null, runs: 0 });
 
 function add(t: UsageTotalsDto, row: LlmUsage): void {
@@ -61,6 +68,22 @@ export class UsageService {
         } catch (error) {
             this.logger.warn(`Recording LLM usage failed: ${error instanceof Error ? error.message : String(error)}`);
         }
+    }
+
+    /**
+     * Cost of ALL co-pilot rows (every kind, agent and user, background usage included) created in [from, to), summed in SQL.
+     * `knownCostUsd` sums the stored estimates only (0 when none is known: check `pricedRows`); nothing is recalculated.
+     */
+    async costBetween(from: Date, to: Date): Promise<LlmCostWindow> {
+        const raw = await this.usage.createQueryBuilder('u')
+            .select('SUM(u.costUsd)', 'cost')
+            .addSelect('COUNT(u.costUsd)', 'priced')
+            .addSelect('COUNT(*)', 'total')
+            .where('u.createdAt >= :from', { from })
+            .andWhere('u.createdAt < :to', { to })
+            .getRawOne<{ cost: unknown; priced: unknown; total: unknown }>();
+        const priced = Number(raw?.priced ?? 0), total = Number(raw?.total ?? 0);
+        return { knownCostUsd: raw?.cost === null || raw?.cost === undefined ? 0 : Number(raw.cost), pricedRows: priced, totalRows: total, unpricedRows: total - priced };
     }
 
     async summary(q: UsageQuery, now: Date = new Date()): Promise<UsageResponseDto> {

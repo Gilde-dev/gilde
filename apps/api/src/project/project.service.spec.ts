@@ -65,3 +65,32 @@ describe('ProjectService skills library', () => {
         expect(CreateProjectSchema.parse({ slug: 'ab', name: 'x', ...body })).not.toHaveProperty('skillsLibraryPath');
     });
 });
+
+describe('Project budget settings', () => {
+    it('defaults to no limits and 80%', async () => {
+        expect(await service.getById(p1.id)).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 80 });
+    });
+
+    it('persists, raises, clears (null) and preserves (omitted) the limits', async () => {
+        expect(await service.update(p1.id, { dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 })).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
+        expect(await service.update(p1.id, { name: 'Renamed' })).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
+        expect(await service.update(p1.id, { dailyBudgetUsd: 20 })).toMatchObject({ dailyBudgetUsd: 20, weeklyBudgetUsd: 0 });
+        expect(await service.update(p1.id, { dailyBudgetUsd: null, weeklyBudgetUsd: null })).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 50 });
+        expect((await service.list()).find((p) => p.id === p1.id)).toMatchObject({ dailyBudgetUsd: null, budgetSoftPct: 50 });
+    });
+
+    it('creates with limits', async () => {
+        expect(await service.create({ slug: 'p3', name: 'P3', dailyBudgetUsd: 5 })).toMatchObject({ dailyBudgetUsd: 5, weeklyBudgetUsd: null, budgetSoftPct: 80 });
+    });
+
+    it('validates limits and the percentage', () => {
+        for (const bad of [{ dailyBudgetUsd: -1 }, { weeklyBudgetUsd: Number.NaN }, { dailyBudgetUsd: Number.POSITIVE_INFINITY }, { dailyBudgetUsd: '5' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.1 }, { budgetSoftPct: null }, { budgetSoftPct: -5 }]) {
+            expect(UpdateProjectSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+        }
+        for (const good of [{ dailyBudgetUsd: 0 }, { weeklyBudgetUsd: null }, { budgetSoftPct: 100 }, { budgetSoftPct: 0.5 }, {}]) {
+            expect(UpdateProjectSchema.safeParse(good).success, JSON.stringify(good)).toBe(true);
+        }
+        expect(CreateProjectSchema.safeParse({ slug: 'ok-1', name: 'n', dailyBudgetUsd: -0.01 }).success).toBe(false);
+        expect(UpdateProjectSchema.parse({})).toEqual({});
+    });
+});

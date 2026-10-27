@@ -53,6 +53,30 @@ export class Project {
     })
     paused: boolean;
 
+    /** Estimated-USD limit per UTC day for this project's agent runs; null = no limit, 0 = stop immediately. */
+    @Column({
+        name: 'daily_budget_usd',
+        type: 'double precision',
+        nullable: true
+    })
+    dailyBudgetUsd: number | null;
+
+    /** Estimated-USD limit per UTC ISO week (Monday start); null = no limit, 0 = stop immediately. */
+    @Column({
+        name: 'weekly_budget_usd',
+        type: 'double precision',
+        nullable: true
+    })
+    weeklyBudgetUsd: number | null;
+
+    /** Percentage of a limit at which a budget turns soft (a warning); > 0 and <= 100. */
+    @Column({
+        name: 'budget_soft_pct',
+        type: 'double precision',
+        default: 80
+    })
+    budgetSoftPct: number;
+
     @Column({
         name: 'skills_library',
         type: 'simple-enum',

@@ -18,6 +18,9 @@ export class ProjectMapper {
             maxAttempts: entity.maxAttempts,
             skillsLibrary: entity.skillsLibrary ?? 'none',
             skillsLibraryRepoId: entity.skillsLibraryRepoId ?? null,
+            dailyBudgetUsd: entity.dailyBudgetUsd ?? null,
+            weeklyBudgetUsd: entity.weeklyBudgetUsd ?? null,
+            budgetSoftPct: entity.budgetSoftPct ?? 80,
             createdAt: entity.createdAt?.toISOString() || '',
             updatedAt: entity.updatedAt?.toISOString() || ''
         }

@@ -40,6 +40,10 @@ export interface Project {
   paused: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
+  /** Estimated USD per UTC day / ISO week; null = no limit, 0 = stop immediately. */
+  dailyBudgetUsd: number | null;
+  weeklyBudgetUsd: number | null;
+  budgetSoftPct: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -54,12 +58,81 @@ export interface UpdateProjectInput {
   retryOnChangesRequested?: boolean;
   skillsLibrary?: SkillsLibraryKind;
   skillsLibraryRepoId?: string | null;
+  /** Finite >= 0; null clears the limit, omitted keeps it. */
+  dailyBudgetUsd?: number | null;
+  weeklyBudgetUsd?: number | null;
+  /** > 0 and <= 100. */
+  budgetSoftPct?: number;
 }
 
 /** Mirrors CreateProjectSchema. */
 export interface CreateProjectInput extends UpdateProjectInput {
   slug: string;
   name: string;
+}
+
+export type BudgetScope = 'global' | 'project';
+export type BudgetPeriod = 'day' | 'week';
+export type BudgetState = 'ok' | 'soft' | 'hard';
+
+/**
+ * Why a budget period is soft or hard. `configError`: the named GLOBAL_*_BUDGET_USD variable is set but invalid
+ * (never the raw value); a period reset does not clear it, the variable must be corrected.
+ */
+export interface BudgetReason {
+  kind: 'limit' | 'configError';
+  variable: string | null;
+  message: string;
+}
+
+/** empty: no rows; complete: all priced; partial: some unpriced (spent is a lower bound); unknown: rows but none priced. */
+export type BudgetPricing = 'empty' | 'complete' | 'partial' | 'unknown';
+
+export interface BudgetPeriodStatus {
+  scope: BudgetScope;
+  period: BudgetPeriod;
+  projectId: string | null;
+  startsAt: string;
+  resetsAt: string;
+  /** Sum of the known estimated costs in USD. */
+  spent: number;
+  pricedRows: number;
+  totalRows: number;
+  unpricedRows: number;
+  pricing: BudgetPricing;
+  incomplete: boolean;
+  /** Null = no limit (or an unreadable global configuration, see `reason`). */
+  limit: number | null;
+  /** Null without a numeric limit and for a limit of 0. */
+  percent: number | null;
+  softPct: number;
+  state: BudgetState;
+  reason: BudgetReason | null;
+}
+
+export interface BudgetBlocker {
+  scope: BudgetScope;
+  projectId: string | null;
+  period: BudgetPeriod;
+  kind: 'limit' | 'configError';
+  variable: string | null;
+  limit: number | null;
+  spent: number;
+  startsAt: string;
+  resetsAt: string;
+  message: string;
+}
+
+/** GET /v1/budget?projectId= */
+export interface BudgetStatus {
+  evaluatedAt: string;
+  global: { day: BudgetPeriodStatus; week: BudgetPeriodStatus };
+  project: { projectId: string; day: BudgetPeriodStatus; week: BudgetPeriodStatus } | null;
+  blockers: BudgetBlocker[];
+  hardBlocked: boolean;
+  /** reset: `recoversAt` is the latest blocker reset; manual: a configuration/limit change is needed; none: nothing blocks. */
+  recovery: 'none' | 'reset' | 'manual';
+  recoversAt: string | null;
 }
 
 /** Mirrors CreateRepoSchema. */
@@ -690,6 +763,7 @@ export const api = {
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
   createProject: (input: CreateProjectInput) => request<Project>('/v1/projects', 'POST', input),
+  getBudget: (projectId?: string) => request<BudgetStatus>(`/v1/budget${projectId ? `?projectId=${id(projectId)}` : ''}`),
   getProject: (projectId: string) => request<Project>(`/v1/projects/${id(projectId)}`),
   createRepo: (projectId: string, input: CreateRepoInput) =>
     request<Repo>(`/v1/projects/${id(projectId)}/repos`, 'POST', input),

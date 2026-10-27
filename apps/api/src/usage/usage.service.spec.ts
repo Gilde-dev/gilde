@@ -110,3 +110,37 @@ describe('summary', () => {
         expect((await service.summary({ days: 3, userId: user.id }, NOW)).totals.runs).toBe(2);
     });
 });
+
+describe('UsageService.costBetween', () => {
+    let ds2: DataSource;
+    let svc: UsageService;
+
+    beforeEach(async () => {
+        ds2 = await new DataSource({ type: 'better-sqlite3', database: ':memory:', entities: [User, LlmUsage], synchronize: true }).initialize();
+        svc = new UsageService(ds2.getRepository(LlmUsage));
+    });
+    afterEach(() => ds2.destroy());
+
+    const insert = (createdAt: string, costUsd: number | null, kind: 'chat' | 'embedding' = 'chat') =>
+        ds2.getRepository(LlmUsage).insert({ kind, model: 'm', costUsd, createdAt: new Date(createdAt) });
+
+    it('is zero without rows', async () => {
+        expect(await svc.costBetween(new Date('2026-03-10T00:00:00Z'), new Date('2026-03-11T00:00:00Z'))).toEqual({ knownCostUsd: 0, pricedRows: 0, totalRows: 0, unpricedRows: 0 });
+    });
+
+    it('sums known costs over a half-open window, all kinds, and counts unpriced rows', async () => {
+        await insert('2026-03-09T23:59:59.999Z', 100);
+        await insert('2026-03-10T00:00:00.000Z', 0.25);
+        await insert('2026-03-10T12:00:00.000Z', 0.5, 'embedding');
+        await insert('2026-03-10T13:00:00.000Z', null);
+        await insert('2026-03-11T00:00:00.000Z', 100);
+        expect(await svc.costBetween(new Date('2026-03-10T00:00:00Z'), new Date('2026-03-11T00:00:00Z'))).toEqual({ knownCostUsd: 0.75, pricedRows: 2, totalRows: 3, unpricedRows: 1 });
+    });
+
+    it('keeps a true zero apart from unknown', async () => {
+        await insert('2026-03-10T01:00:00Z', 0);
+        await insert('2026-03-12T01:00:00Z', null);
+        expect(await svc.costBetween(new Date('2026-03-10T00:00:00Z'), new Date('2026-03-11T00:00:00Z'))).toMatchObject({ knownCostUsd: 0, pricedRows: 1, totalRows: 1 });
+        expect(await svc.costBetween(new Date('2026-03-12T00:00:00Z'), new Date('2026-03-13T00:00:00Z'))).toMatchObject({ knownCostUsd: 0, pricedRows: 0, totalRows: 1, unpricedRows: 1 });
+    });
+});
