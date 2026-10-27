@@ -35,6 +35,9 @@ export function issueScoutBinding(userId: string, projectId: string): ScoutBindi
     return binding;
 }
 
+/** True when this exact object was issued by issueScoutBinding (a look-alike, even a deep copy, is not). */
+export const isIssuedScoutBinding = (value: unknown): value is ScoutBinding => typeof value === 'object' && value !== null && issued.has(value);
+
 /** The server-issued binding in the request context, or null (not a scout run, or an unissued look-alike). */
 export function scoutBinding(requestContext: Pick<RequestContext, 'get'> | undefined): ScoutBinding | null {
     const value = requestContext?.get(SCOUT_BINDING_KEY) as object | undefined;

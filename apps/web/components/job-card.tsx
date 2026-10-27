@@ -1,4 +1,4 @@
-import { Clock, GitBranch, GitPullRequest, Repeat } from 'lucide-react';
+import { Clock, GitBranch, GitPullRequest, Repeat, Sparkles } from 'lucide-react';
 import type { Job } from '@/lib/api';
 import { JobActions } from './job-actions';
 import { StatusBadge } from './status-badge';
@@ -34,6 +34,7 @@ export function JobCard({
   job,
   repoName,
   featureTitle,
+  scoutUserId,
   onOpen,
   onChanged,
   onEnqueued,
@@ -44,6 +45,8 @@ export function JobCard({
   repoName?: string;
   /** Title of the job's feature; shown as a badge. */
   featureTitle?: string;
+  /** Id of the configured scout (Verkenner) user, read once for the board. A job created by exactly this user gets a "Suggested" badge. */
+  scoutUserId?: string | null;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -79,6 +82,11 @@ export function JobCard({
     >
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusBadge status={job.status} />
+        {scoutUserId && job.createdBy?.id === scoutUserId && (
+          <Badge variant="pr" icon={Sparkles} title="Suggested by Verkenner, the scout">
+            Suggested
+          </Badge>
+        )}
         {job.featureId && (
           <Badge variant="accent" className="max-w-full truncate" title={`Feature: ${featureTitle ?? job.featureId}`}>
             <span className="truncate">{featureTitle ?? 'feature'}</span>

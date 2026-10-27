@@ -183,3 +183,35 @@ describe('JobCard opening', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 });
+
+describe('JobCard Suggested badge', () => {
+  const SCOUT = 'bot-1';
+  const by = (id: string, name: string) => ({ ...base, createdBy: { id, name } });
+
+  it('marks a job whose creator id is the scout user, and keeps the creator avatar', () => {
+    render(<JobCard job={by(SCOUT, 'Verkenner')} scoutUserId={SCOUT} onOpen={() => {}} />);
+    expect(screen.getByText('Suggested')).toBeInTheDocument();
+    expect(screen.getByTitle('Created by Verkenner')).toBeInTheDocument();
+  });
+
+  it('marks a suggestion in triage', () => {
+    render(<JobCard job={{ ...by(SCOUT, 'Verkenner'), status: 'triage' }} scoutUserId={SCOUT} onOpen={() => {}} />);
+    expect(screen.getByText('Suggested')).toBeInTheDocument();
+  });
+
+  it('never matches on the display name: a human called Verkenner has no badge', () => {
+    render(<JobCard job={by('someone-else', 'Verkenner')} scoutUserId={SCOUT} onOpen={() => {}} />);
+    expect(screen.queryByText('Suggested')).toBeNull();
+  });
+
+  it('does not match on text in the task', () => {
+    render(<JobCard job={{ ...by('someone-else', 'Ann'), task: 'Suggested by Verkenner' }} scoutUserId={SCOUT} onOpen={() => {}} />);
+    expect(screen.queryByText('Suggested')).toBeNull();
+  });
+
+  it('has no badge without a known scout user, for system jobs or without a creator', () => {
+    render(<JobCard job={by(SCOUT, 'Verkenner')} scoutUserId={null} onOpen={() => {}} />);
+    render(<JobCard job={{ ...base, createdBy: null }} scoutUserId={SCOUT} onOpen={() => {}} />);
+    expect(screen.queryByText('Suggested')).toBeNull();
+  });
+});

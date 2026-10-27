@@ -25,6 +25,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listJobRevisions').mockResolvedValue([]);
   vi.spyOn(api, 'getJob').mockResolvedValue(detail);
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Me', email: 'me@x.nl' });
+  vi.spyOn(api, 'scoutActivity').mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: null, suggestionsThisWeek: 0, weekStart: '2026-10-26', lastWakeAt: null });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -213,5 +214,38 @@ describe('Dashboard stats', () => {
     render(<Dashboard />);
     fireEvent.click(await screen.findByText('Open me'));
     expect(await screen.findByRole('dialog')).toBeInTheDocument();
+  });
+});
+
+describe('Dashboard Suggested badges', () => {
+  const scoutJob = (over: Partial<Job>) => ({ ...listed('triage'), ...over }) as Job;
+
+  it('reads the scout identity once and marks jobs by creator id, while the scout is on or off', async () => {
+    nav.search = 'project=p2';
+    vi.mocked(api.scoutActivity).mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: 'bot', suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: null });
+    vi.mocked(api.listJobs).mockResolvedValue([
+      scoutJob({ id: 'a', title: 'By the bot', createdBy: { id: 'bot', name: 'Verkenner' } }),
+      scoutJob({ id: 'b', title: 'By a namesake', createdBy: { id: 'human', name: 'Verkenner' } }),
+      scoutJob({ id: 'c', title: 'By nobody', createdBy: null }),
+    ]);
+    render(<Dashboard />);
+    await screen.findByText('By the bot');
+    await waitFor(() => expect(screen.getAllByText('Suggested')).toHaveLength(1));
+    expect(within(screen.getByText('By the bot').closest('[role="button"]') as HTMLElement).getByText('Suggested')).toBeInTheDocument();
+    expect(within(screen.getByText('By a namesake').closest('[role="button"]') as HTMLElement).queryByText('Suggested')).toBeNull();
+    expect(api.scoutActivity).toHaveBeenCalledTimes(1);
+    expect(api.scoutActivity).toHaveBeenCalledWith('p2');
+    expect(api.getJob).not.toHaveBeenCalled();
+    // Counts are unchanged by the badge: all three are in triage.
+    expect(stat('Triage (waiting for you)')).toBe('3');
+  });
+
+  it('shows the board without badges when the scout read fails', async () => {
+    nav.search = 'project=p2';
+    vi.mocked(api.scoutActivity).mockRejectedValue(new Error('boom'));
+    vi.mocked(api.listJobs).mockResolvedValue([scoutJob({ title: 'By the bot', createdBy: { id: 'bot', name: 'Verkenner' } })]);
+    render(<Dashboard />);
+    await screen.findByText('By the bot');
+    expect(screen.queryByText('Suggested')).toBeNull();
   });
 });

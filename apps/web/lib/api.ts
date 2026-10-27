@@ -372,6 +372,24 @@ export interface CopilotStatus {
   scout: { enabled: boolean; model: string | null };
 }
 
+/**
+ * GET /v1/copilot/scout-activity?projectId=: what the scout did in one project. Counts cover the project's whole history
+ * (not the board's loaded list) and stay visible while the scout is off. `scoutUserId` is the configured scout user, for
+ * comparing with a job's creator; it is set whenever that user resolves, also while the scout is off.
+ */
+export interface ScoutActivity {
+  projectId: string;
+  enabled: boolean;
+  model: string | null;
+  scoutUserId: string | null;
+  /** Suggestions since Monday 00:00 UTC of the current week. */
+  suggestionsThisWeek: number;
+  /** The UTC day (YYYY-MM-DD) of that Monday. */
+  weekStart: string;
+  /** The actual most recent wake; null if the scout never woke in this project. */
+  lastWakeAt: string | null;
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -612,6 +630,7 @@ export const api = {
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
   copilotStatus: () => request<CopilotStatus>('/v1/copilot/status'),
+  scoutActivity: (projectId: string) => request<ScoutActivity>(`/v1/copilot/scout-activity?projectId=${id(projectId)}`),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string, createdBy?: 'me') =>
     request<Job[]>(`/v1/jobs?projectId=${id(projectId)}&limit=200${createdBy ? `&createdBy=${createdBy}` : ''}`),

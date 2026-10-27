@@ -29,6 +29,7 @@ function LaneColumn({
   jobs,
   repos,
   features,
+  scoutUserId,
   onOpen,
   onChanged,
   onEnqueued,
@@ -37,6 +38,7 @@ function LaneColumn({
   jobs: Job[];
   repos: Map<string, Repo>;
   features: Map<string, Feature>;
+  scoutUserId?: string | null;
   onOpen: (job: Job) => void;
   onChanged?: () => void | Promise<void>;
   onEnqueued?: (warnings: string[]) => void;
@@ -108,6 +110,7 @@ function LaneColumn({
               job={job}
               repoName={repos.get(job.repoId)?.fullName}
               featureTitle={job.featureId ? features.get(job.featureId)?.title : undefined}
+              scoutUserId={scoutUserId}
               onOpen={onOpen}
               onChanged={onChanged}
               onEnqueued={onEnqueued}
@@ -130,6 +133,7 @@ export function Board({
   repos,
   features = [],
   featureFilter = '',
+  scoutUserId,
   loading = false,
   error,
   totalJobs,
@@ -145,6 +149,8 @@ export function Board({
   features?: Feature[];
   /** Feature id to show jobs of; '' shows all, 'none' the jobs without a feature. */
   featureFilter?: string;
+  /** The configured scout user, from one read at project level; marks the jobs it created. */
+  scoutUserId?: string | null;
   /** The list has not loaded yet: shows a loading state instead of an empty board. */
   loading?: boolean;
   /** The list could not be loaded and there is nothing to show. */
@@ -223,6 +229,7 @@ export function Board({
           jobs={shown.filter((j) => lane.statuses.includes(j.status))}
           repos={repoById}
           features={featureById}
+          scoutUserId={scoutUserId}
           onOpen={onOpen}
           onChanged={onChanged}
           onEnqueued={onEnqueued}

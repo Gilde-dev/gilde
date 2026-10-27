@@ -36,6 +36,12 @@ export class RunService {
         await this.runRepository.update({ id }, { status: 'fire_failed', error, finishedAt: new Date() });
     }
 
+    /** One run, or null when the id is unknown. */
+    async findById(id: string): Promise<RunResponseDto | null> {
+        const entity = await this.runRepository.findOneBy({ id });
+        return entity ? this.runMapper.toDTO(entity) : null;
+    }
+
     async listForJob(jobId: string): Promise<RunResponseDto[]> {
         const entities = await this.runRepository.find({ where: { jobId }, order: { attempt: 'ASC' } });
         return entities.map((e) => this.runMapper.toDTO(e));
