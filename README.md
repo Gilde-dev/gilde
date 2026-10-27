@@ -133,9 +133,8 @@ recall and history search report errors; job dispatch does not depend on the co-
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory
 events to well-supported follow-up suggestions. It lives in the same Mastra instance and shares its storage (`MemoryInfrastructure`:
-Postgres in production, LibSQL locally) and memory. **Status:** the first step of the feature is in: gated registration, project threads,
-read-only tools and the verified signal APIs. Event publishing, the daily summary and `suggestJob` are separate, later steps; until then the
-scout has nothing that wakes it and cannot create anything. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
+Postgres in production, LibSQL locally) and memory. **Status:** gated registration, project threads, read-only tools, the verified signal APIs,
+event publishing, wake budgets and the daily summary are in. `suggestJob` is a separate, later step; until then the scout cannot create anything. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
 
 **Configuration** (all in the API environment; see `apps/api/.env.example`):
 
@@ -176,6 +175,50 @@ starts or cancels work.
 held for a `<notification-summary>` that a Mastra scheduled dispatch emits when due; a repeated `dedupeKey` only coalesces while the record is still pending;
 state signals with an unchanged `cacheKey` are skipped and need an existing thread. The exact imports, options and observed behaviour are in
 [docs/verkenner-signals.md](docs/verkenner-signals.md).
+
+**Events and signals.** Six recorded events are published into the scout's native inbox (`source: gilde`), after the existing write succeeded.
+Nothing is published while the scout is off, nothing is replayed at startup (only events after enablement), and a failure anywhere
+(enrichment, storage, model) is logged and never reaches the code that recorded the event, nor the Slack/channels outbox, which is untouched.
+
+| Event | Where it is published | Kind | Priority |
+|---|---|---|---|
+| Blocked or partial run result | `JobEventsService.recordProposals` (shared by initial PR linking and edited PR parsing), only when the run row really stores that result, whether or not proposals are collected | `run-blocked`, `run-partial` | high |
+| Job parked (every capture path: CI failure, sent back, dispatch failure) | `NotificationCaptureService.jobParked` | `job-parked` | high |
+| Changes requested on an agent PR | `FeedbackService.record`, for a newly stored `changes_requested` review | `review-changes-requested` | medium |
+| New lesson candidate | `LessonCollectorService`, after the lesson and its source committed | `lesson-new` | low |
+| Feature closed | `FeatureService.done` (a successful active to done; not "ready to close", not cancel) | `feature-done` | low |
+| Job merged | `JobEventsService.prClosed` | `job-merged` | low |
+
+There is deliberately no repeated-CI-failure event; CI problems show up through blocked/partial results and parked jobs. A signal carries a one-line
+summary of at most 240 characters with ids, and a payload limited to ids, status, repo name and a few numbers (`jobId`, `runId`, `featureId`,
+`lessonId`, `feedbackId`, `repoId`, `repo`, `outcome`, `status`, `cause`, `attempt`, `prNumber`). PR bodies, tasks, diffs, reasons, retros and review
+text are never copied; the scout reads them by id with its tools. Producers only depend on a small publisher (`apps/api/src/scout-signal/`),
+so the co-pilot and the domains do not import each other.
+
+**Dedupe.** The native inbox only coalesces a `dedupeKey` while the first record is still pending, so each event also claims a durable receipt
+(`scout_signal_receipts`, unique per project and key) before it is sent. The key is built from event identity, never the clock: run id and
+outcome, job id + attempt + head + cause, feedback id, lesson id, job id, feature id + `doneAt` (so reopening and closing a feature again is a new
+occurrence). Redelivery, concurrent redelivery and a restart publish once. If sending fails, the receipt is removed so a redelivery can retry.
+
+**Delivery policy and budget (UTC).** `high` events wake the scout at once, but only inside a durable per-project, per-UTC-day budget
+`SCOUT_MAX_WAKES_PER_DAY` (`scout_wake_days`; a conditional update, so concurrent calls, several processes and restarts cannot exceed it). Summaries
+count against the same cap. While backlog that would wake the agent (medium, low or over-budget events) is waiting and today's summary is
+not yet claimed, one slot is reserved for it. `medium`, `low` and over-budget `high` events stay `pending` in the inbox with a `summaryAt` of the
+next `SCOUT_SUMMARY_HOUR_UTC`. The delivery policy (`scout-delivery-policy.ts`) is the only thing that can wake the agent: it delivers an event only if a
+wake was claimed for it, and when Mastra's scheduled dispatch (cron `*/5 * * * *`, created lazily by Mastra) finds a summary due it
+claims the project's one summary of the day (from the summary hour on, once per UTC day, only while a wake is left) or `hold`s the records, which
+stay pending until the next eligible day. A summary of low-priority records only is persisted by Mastra without waking the agent, so it costs no
+wake. A claimed wake is not given back once the signal was handed to Mastra (an ambiguous failure may still have woken the agent); it is
+given back only when sending provably never started. `lastWakeAt` is the actual last wake (stored per project and day; read through
+`ScoutWakeReader`), not the arrival of a signal. Decisions of one project are serialized in the process.
+
+**Board state.** Before an actual high wake and before a daily summary the scout gets a project board as a native state signal (`id: board`):
+exact job counts for every status (aggregated in the database through `JobService.statusSnapshot`, not the capped job list), up to 20 parked job
+ids and up to 20 open (draft or active) feature ids with their count. The `cacheKey` is a hash of that content, so an unchanged board is not
+sent again, and it is never sent for queued medium/low events.
+
+**Bookkeeping and storage.** Mastra owns its notification tables. Gilde adds `scout_signal_receipts` and `scout_wake_days` (snake_case, UUID project
+references, SQLite-compatible; Postgres migration `1793300000000-ScoutSignals`). Jobs are not changed.
 
 **Spike limitations.** Verified by `apps/api/src/copilot/verkenner.signals.spike.spec.ts` with the real `@mastra/core` 1.79.0, a real LibSQL store
 and a stub model. The same spec ran against a real local Postgres 16 (opt-in, `VERKENNER_SPIKE_PG_URL`, skipped otherwise) and passed; the Postgres

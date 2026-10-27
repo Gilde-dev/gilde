@@ -22,6 +22,7 @@ import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
 import type { RepoContextService } from './repo-context.service.js';
 import { SCOUT_AGENT_ID, type ScoutConfig } from './verkenner.config.js';
+import { scoutDeliveryDecider, type ScoutDispatchGate } from './scout-delivery-policy.js';
 import { scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
 import { VERKENNER_INSTRUCTIONS } from './verkenner.instructions.js';
 import { createScoutTools } from './verkenner.tools.js';
@@ -30,6 +31,7 @@ import { createScoutTools } from './verkenner.tools.js';
 export const MASTRA_PREFIX = '/api/v1/mastra';
 export const COPILOTKIT_PATH = `${MASTRA_PREFIX}/copilotkit`;
 export const COPILOT_AGENT_ID = 'gilde';
+export const SCOUT_DISPATCH_CRON = '*/5 * * * *';
 
 /** Postgres on DATABASE_URL when it is a postgres URL, otherwise a LibSQL file in the working directory. */
 export function createMemoryStorage(databaseUrl: string | undefined = process.env.DATABASE_URL): MastraCompositeStore {
@@ -102,6 +104,8 @@ export interface ScoutSetup {
     config: Extract<ScoutConfig, { enabled: true }>;
     user: CopilotUser;
     model?: unknown;
+    /** Native delivery policy of the scout. Without it (unit tests) the default decision is used. */
+    gate?: ScoutDispatchGate;
 }
 
 interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
@@ -179,6 +183,9 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
         agents,
         storage: memoryInfra.storage,
         ...(config.enabled ? { server: { apiRoutes: [copilotKitRoute()] } } : {}),
+        // Scheduled dispatch of deferred notifications and summaries, only while the scout is on. The cron says how often
+        // Mastra looks; the delivery policy (scout-delivery-policy.ts) decides what may wake the agent.
+        ...(scout ? { notifications: { dispatch: { enabled: true, cron: SCOUT_DISPATCH_CRON, batchSize: 100 } } } : {}),
     });
 }
 
@@ -194,7 +201,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
         // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
         // server-issued project binding of the notification's own thread. The project is parsed from the thread id.
         notifications: {
-            deliveryPolicy: {
+            deliveryPolicy: scout.gate ? { decide: scoutDeliveryDecider(scout.user, scout.gate) } : {
                 decide: (input) => {
                     const projectId = scoutProjectOfThread(input.record.threadId);
                     if (!projectId) return undefined;

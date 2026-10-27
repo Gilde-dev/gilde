@@ -8,6 +8,7 @@ import { TERMINAL, type JobStatus } from '../job/job-state.js';
 import { AgentUsageService, emptyAgentTotals } from '../usage/agent-usage.service.js';
 import { JobService } from '../job/job.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ProjectService } from '../project/project.service.js';
 import type {
     CreateFeatureDto,
@@ -35,6 +36,7 @@ export class FeatureService {
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @Optional() private readonly capture?: NotificationCaptureService,
         @Optional() private readonly agentUsage?: AgentUsageService,
+        @Optional() private readonly scout?: ScoutSignalPublisher,
     ) { }
 
     async create(projectId: string, dto: CreateFeatureDto): Promise<FeatureResponseDto> {
@@ -108,7 +110,10 @@ export class FeatureService {
 
     /** active → done. Allowed while jobs are open; those are listed in the response. */
     async done(id: string): Promise<FeatureDoneResponseDto> {
-        await this.transition(id, 'done', { doneAt: new Date() });
+        const doneAt = new Date();
+        const feature = await this.transition(id, 'done', { doneAt });
+        // A successful active -> done only (not readiness, not cancel); a later reopen and done is a new occurrence.
+        await this.scout?.publish(feature.projectId, { type: 'feature_done', featureId: id, doneAt: doneAt.toISOString() });
         return { ...(await this.getById(id)), openJobs: await this.openJobs(id) };
     }
 
@@ -139,11 +144,12 @@ export class FeatureService {
         return this.getById(id);
     }
 
-    private async transition(id: string, event: FeatureEvent, changes: Partial<Feature> = {}): Promise<void> {
+    private async transition(id: string, event: FeatureEvent, changes: Partial<Feature> = {}): Promise<Feature> {
         const feature = await this.getOrFail(id);
         const to = this.transitionTarget(feature, event);
         const result = await this.featureRepository.update({ id, status: feature.status }, { ...changes, status: to });
         if (!result.affected) throw new ConflictException('Feature changed in the meantime, try again');
+        return feature;
     }
 
     private transitionTarget(feature: Feature, event: FeatureEvent) {

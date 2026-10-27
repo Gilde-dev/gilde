@@ -17,7 +17,7 @@ import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, Jo
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
-import { nextStatus, type JobEvent } from './job-state.js';
+import { JOB_STATUSES, nextStatus, type JobEvent, type JobStatus } from './job-state.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { User } from '../user/user.entity.js';
 
@@ -242,6 +242,23 @@ export class JobService {
         }
         const entities = await this.jobRepository.find({ where, order: { createdAt: 'DESC' }, take: q.limit });
         return this.toDTOs(entities);
+    }
+
+    /**
+     * Exact job counts per status for a whole project, and up to `parkedLimit` parked job ids (oldest first; the parked count is exact).
+     * Aggregated in the database, so it is not limited like the public list.
+     */
+    async statusSnapshot(projectId: string, parkedLimit = 20): Promise<{ counts: Record<JobStatus, number>; parkedIds: string[] }> {
+        const rows = await this.jobRepository.createQueryBuilder('job')
+            .select('job.status', 'status')
+            .addSelect('COUNT(*)', 'count')
+            .where('job.projectId = :projectId', { projectId })
+            .groupBy('job.status')
+            .getRawMany<{ status: JobStatus; count: string | number }>();
+        const counts = Object.fromEntries(JOB_STATUSES.map((s) => [s, 0])) as Record<JobStatus, number>;
+        for (const r of rows) counts[r.status] = Number(r.count);
+        const parked = await this.jobRepository.find({ where: { projectId, status: 'parked' }, select: { id: true }, order: { createdAt: 'ASC', id: 'ASC' }, take: parkedLimit });
+        return { counts, parkedIds: parked.map((j) => j.id) };
     }
 
     async getById(id: string): Promise<JobResponseDto> {

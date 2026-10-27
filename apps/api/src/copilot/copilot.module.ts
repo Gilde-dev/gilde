@@ -2,6 +2,8 @@ import { Inject, Injectable, Logger, Module, type OnModuleDestroy } from '@nestj
 import { APP_INTERCEPTOR, RouterModule } from '@nestjs/core';
 import type { Mastra } from '@mastra/core/mastra';
 import { MastraModule } from '@mastra/nestjs';
+import { getRepositoryToken, TypeOrmModule } from '@nestjs/typeorm';
+import type { Repository } from 'typeorm';
 
 import { DispatchModule } from '../dispatch/dispatch.module.js';
 import { DispatcherService } from '../dispatch/dispatcher.service.js';
@@ -38,7 +40,14 @@ import { UsageService } from '../usage/usage.service.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { createMastra, MASTRA_PREFIX, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS } from './copilot.tokens.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
+import { ScoutDispatchGate } from './scout-delivery-policy.js';
+import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
+import { ScoutSignalService } from './scout-signal.service.js';
+import { ScoutWakeDay } from './scout-wake-day.entity.js';
+import { ScoutWakeBudgetService } from './scout-wake-budget.service.js';
+import { ScoutWakeReader } from './scout-wake.reader.js';
 import { resolveScoutSetup } from './verkenner.setup.js';
 import { ScoutThreads } from './verkenner.threads.js';
 import { RepoContextService } from './repo-context.service.js';
@@ -67,7 +76,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay]), JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
     providers: [
         RepoContextService,
         {
@@ -87,6 +96,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
             useFactory: (users: UserService): Promise<ScoutSetup | null> => resolveScoutSetup(users),
             inject: [UserService],
         },
+        { provide: SCOUT_GATE, useFactory: (): ScoutDispatchGate => new ScoutDispatchGate() },
         {
             provide: COPILOT_MASTRA,
             useFactory: (
@@ -107,20 +117,51 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 history: HistorySearchService,
                 usage: UsageService,
                 scout: ScoutSetup | null,
+                gate: ScoutDispatchGate,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout);
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE],
         },
         {
             provide: SCOUT_THREADS,
             useFactory: (scout: ScoutSetup | null, mastra: Mastra, projects: ProjectService): ScoutThreads | null => (scout ? new ScoutThreads(mastra, scout.user, projects) : null),
             inject: [SCOUT_SETUP, COPILOT_MASTRA, ProjectService],
         },
+        {
+            // Publishes the six factory events into the scout's inbox. Null (and nothing registered) while the scout is off.
+            provide: SCOUT_SIGNALS,
+            useFactory: (
+                scout: ScoutSetup | null,
+                mastra: Mastra,
+                threads: ScoutThreads | null,
+                gate: ScoutDispatchGate,
+                publisher: ScoutSignalPublisher,
+                memory: MemoryInfrastructure,
+                receipts: Repository<ScoutSignalReceipt>,
+                days: Repository<ScoutWakeDay>,
+                jobs: JobService,
+                features: FeatureService,
+                repos: RepoService,
+            ): ScoutSignalService | null => {
+                if (!scout || !threads) return null;
+                const budget = new ScoutWakeBudgetService(days, { maxWakesPerDay: scout.config.maxWakesPerDay, summaryHourUtc: scout.config.summaryHourUtc });
+                const service = new ScoutSignalService({
+                    mastra, threads, receipts, budget, jobs, features, repos,
+                    inbox: async () => (await memory.storage.getStore('notifications')) as never,
+                    summaryHourUtc: scout.config.summaryHourUtc,
+                });
+                gate.bind({ now: () => budget.now(), summaryAt: (now) => service.summaryAt(now), allowSummary: (projectId) => service.allowSummary(projectId) });
+                publisher.register(service.sink);
+                return service;
+            },
+            inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService],
+        },
+        ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS],
+    exports: [COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader],
 })
 export class CopilotCoreModule { }
 

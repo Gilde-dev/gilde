@@ -12,6 +12,7 @@ import { JobRun } from '../run/run.entity.js';
 import type { GildeProposal } from '../webhook/pr-body.js';
 import type { RecordNotificationInput } from './notification.dto.js';
 import type { NotificationPr } from './notification.entity.js';
+import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { NotificationService, sanitizeReason } from './notification.service.js';
 
 /** Why a job was parked; part of the occurrence key so different causes are different events. */
@@ -32,6 +33,7 @@ export class NotificationCaptureService {
         @InjectRepository(Job) private readonly jobs: Repository<Job>,
         @InjectRepository(Feature) private readonly features: Repository<Feature>,
         @Optional() @InjectRepository(JobRun) private readonly runs?: Repository<JobRun>,
+        @Optional() private readonly scout?: ScoutSignalPublisher,
     ) { }
 
     /** The job entered awaiting_review (CI passed on its current head). */
@@ -45,13 +47,16 @@ export class NotificationCaptureService {
     }
 
     /** The job was parked. `cause` keeps a CI park, a reviewer send-back and a failed fire apart. */
-    jobParked(job: Job, reason: string, cause: ParkCause): Promise<boolean> {
-        return this.notifications.recordQuietly(async () => ({
+    async jobParked(job: Job, reason: string, cause: ParkCause): Promise<boolean> {
+        const recorded = await this.notifications.recordQuietly(async () => ({
             ...(await this.jobEnvelope(job)),
             occurrenceKey: `${jobKey('job.parked', job)}:${cause}`,
             kind: 'job.parked',
             reason: sanitizeReason(reason),
         }));
+        // The scout gets the ids only, never the free-form reason; it has its own dedupe, independent of the inbox row above.
+        await this.scout?.publish(job.projectId, { type: 'job_parked', jobId: job.id, repoId: job.repoId, attempts: job.attempts, cause, headSha: job.headSha });
+        return recorded;
     }
 
     /** A gate failed on the job's current head: one approval request per job, attempt and head. */
