@@ -1,6 +1,6 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { JOB_STATUSES, api, type Metrics, type Usage } from '@/lib/api';
+import { JOB_STATUSES, api, type Metrics, type ScoutActivity, type Usage } from '@/lib/api';
 import { agentUsage } from './agent-usage.fixture';
 import { MetricsView, formatMinutes } from './metrics-view';
 
@@ -51,11 +51,16 @@ const withData: Metrics = {
 
 const noUsage: Usage = { days: 30, totals: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: null, runs: 0 }, daily: [], byModel: [], byKind: [], byUser: [] };
 
+const activity = (over: Partial<ScoutActivity> = {}): ScoutActivity => ({
+  projectId: 'p1', enabled: true, model: 'openai/scout', scoutUserId: 'bot', suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: '2026-10-27T06:00:00.000Z', ...over,
+});
+
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'p1', name: 'Proj' } as never]);
   vi.spyOn(api, 'getUsage').mockResolvedValue(noUsage);
   vi.spyOn(api, 'getAgentUsage').mockResolvedValue(agentUsage());
+  vi.spyOn(api, 'scoutActivity').mockResolvedValue(activity());
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r1', fullName: 'o/r' } as never]);
 });
 
@@ -121,5 +126,62 @@ describe('formatMinutes', () => {
     expect(formatMinutes(25)).toBe('25m');
     expect(formatMinutes(130)).toBe('2.2h');
     expect(formatMinutes(60 * 72)).toBe('3.0d');
+  });
+});
+
+describe('MetricsView Verkenner section', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'getMetrics').mockResolvedValue(empty);
+  });
+  const section = () => screen.findByRole('region', { name: 'Verkenner' });
+
+  it('shows on, the weekly suggestions and the actual last wake, with the project and week scope', async () => {
+    render(<MetricsView />);
+    const s = await section();
+    await waitFor(() => expect(s).toHaveTextContent('Suggestions this week'));
+    await waitFor(() => expect(within(s).getByText('2')).toBeInTheDocument());
+    expect(s).toHaveTextContent('This project');
+    expect(s).toHaveTextContent('Monday 2026-10-26 (UTC)');
+    expect(s).toHaveTextContent(new Date('2026-10-27T06:00:00.000Z').toLocaleString());
+    expect(within(s).getAllByText('On').length).toBeGreaterThan(0);
+    expect(api.scoutActivity).toHaveBeenCalledWith('p1');
+  });
+
+  it('shows off with its history, zero suggestions and Never for a null last wake', async () => {
+    vi.spyOn(api, 'scoutActivity').mockResolvedValue(activity({ enabled: false, model: null, suggestionsThisWeek: 0, lastWakeAt: null }));
+    render(<MetricsView />);
+    const s = await section();
+    await waitFor(() => expect(within(s).getByText('Never')).toBeInTheDocument());
+    expect(within(s).getAllByText('Off').length).toBeGreaterThan(0);
+    expect(within(s).getByText('0')).toBeInTheDocument();
+  });
+
+  it('is independent of the factory period and repo filters', async () => {
+    render(<MetricsView />);
+    await section();
+    await waitFor(() => expect(api.scoutActivity).toHaveBeenCalledTimes(1));
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    await screen.findByRole('option', { name: 'o/r' });
+    fireEvent.change(screen.getByLabelText('Repo'), { target: { value: 'r1' } });
+    await waitFor(() => expect(api.getMetrics).toHaveBeenLastCalledWith({ projectId: 'p1', repoId: 'r1', days: 7 }));
+    expect(api.scoutActivity).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows loading placeholders, not zeros, while the read is pending', async () => {
+    vi.spyOn(api, 'scoutActivity').mockReturnValue(new Promise(() => {}));
+    render(<MetricsView />);
+    const s = await section();
+    expect(within(s).getAllByText('…').length).toBe(3);
+    expect(within(s).queryByText('0')).toBeNull();
+    expect(within(s).queryByText('Never')).toBeNull();
+  });
+
+  it('shows an error and dashes, not zeros, when the read fails', async () => {
+    vi.spyOn(api, 'scoutActivity').mockRejectedValue(new Error('scout activity unavailable'));
+    render(<MetricsView />);
+    const s = await section();
+    expect(await within(s).findByRole('alert')).toHaveTextContent('scout activity unavailable');
+    expect(within(s).getAllByText('–').length).toBe(3);
+    expect(within(s).queryByText('0')).toBeNull();
   });
 });

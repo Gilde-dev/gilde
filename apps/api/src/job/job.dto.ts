@@ -14,6 +14,9 @@ export const CreateJobSchema = z.object({
     featureId: z.string().uuid().optional(),
 });
 
+/** The text limits of a job, shared by every creator of jobs (HTTP, the co-pilot's validateJob, the scout's suggestJob). */
+export const JobContentSchema = CreateJobSchema.pick({ title: true, task: true, acceptanceCriteria: true });
+
 export const UpdateJobSchema = z.object({
     title: z.string().trim().min(3).max(200).optional(),
     task: z.string().trim().min(10).optional(),

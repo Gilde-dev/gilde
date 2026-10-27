@@ -43,6 +43,7 @@ describe('Verkenner tools', () => {
     }
 
     beforeEach(async () => {
+        suggest.mockClear();
         dir = mkdtempSync(join(tmpdir(), 'verkenner-tools-'));
         storage = new LibSQLStore({ id: 't', url: `file:${join(dir, 't.db')}` });
         await storage.init();
@@ -50,7 +51,8 @@ describe('Verkenner tools', () => {
     });
     afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-    const tools = () => createScoutTools(s as unknown as ScoutServices, storage);
+    const suggest = vi.fn(async (_binding: unknown, _input: unknown) => ({ created: true as const, jobId: 'j', status: 'triage' as const, basedOn: [], link: '/' }));
+    const tools = () => createScoutTools(s as unknown as ScoutServices, storage, { suggest });
     const bound = (projectId = P1) => {
         const rc = new RequestContext();
         rc.set(SCOUT_BINDING_KEY, issueScoutBinding(BOT, projectId));
@@ -64,9 +66,29 @@ describe('Verkenner tools', () => {
         expect(tools().notificationInbox.id).toBe('notification-inbox');
     });
 
+    it('suggestJob is the scout\'s only mutation: no approval interrupt, no actor, project or status input, and the binding comes from the server', async () => {
+        const tool = tools().suggestJob as unknown as { requireApproval?: boolean; inputSchema: { shape?: Record<string, unknown> } };
+        expect(tool.requireApproval).toBeFalsy();
+        const body = { repoId: REPO1, title: 'A title', task: 'Do the task now', acceptanceCriteria: ['It works'], reason: 'Because of the runs', basedOn: [JOB1] };
+        const rc = bound();
+        await run('suggestJob', { ...body, projectId: P2, status: 'queued', actor: 'x', userId: 'x' }, rc);
+        expect(suggest).toHaveBeenCalledTimes(1);
+        const [binding, input] = suggest.mock.calls[0] as [{ projectId: string; userId: string }, Record<string, unknown>];
+        expect(binding).toBe(rc.get(SCOUT_BINDING_KEY));
+        expect(binding.projectId).toBe(P1);
+        expect(Object.keys(input).sort()).toEqual(['acceptanceCriteria', 'basedOn', 'reason', 'repoId', 'task', 'title']);
+    });
+
+    it('suggestJob passes no trusted binding when the request context is not server-bound', async () => {
+        const forged = new RequestContext();
+        forged.set(SCOUT_BINDING_KEY, { userId: BOT, projectId: P1, threadId: `verkenner:${P1}` });
+        await run('suggestJob', { repoId: REPO1, title: 'A title', task: 'Do the task now', acceptanceCriteria: [], reason: 'Because of the runs', basedOn: [JOB1] }, forged);
+        expect(suggest.mock.calls[0][0]).toBeNull();
+    });
+
     it('has none of the co-pilot creation, planning or approval tools, nor any mutation tool', () => {
         const names = Object.keys(tools());
-        for (const forbidden of ['planFeature', 'createPlannedFeature', 'validateJob', 'createJob', 'suggestJob', 'getDispatchStatus', 'listProposals', 'getMetrics', 'getRepoSkills', 'listProjects']) {
+        for (const forbidden of ['planFeature', 'createPlannedFeature', 'validateJob', 'createJob', 'getDispatchStatus', 'listProposals', 'getMetrics', 'getRepoSkills', 'listProjects']) {
             expect(names).not.toContain(forbidden);
         }
         expect(names.every((n) => SCOUT_TOOL_NAMES.includes(n as never))).toBe(true);

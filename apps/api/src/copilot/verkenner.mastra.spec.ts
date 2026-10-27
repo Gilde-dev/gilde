@@ -89,6 +89,7 @@ describe('createMastra with the scout', () => {
         const tools = Object.keys(await mastra.getAgent(COPILOT_AGENT_ID).listTools());
         expect(tools).toHaveLength(19);
         expect(tools).toEqual(expect.arrayContaining(['createJob', 'createPlannedFeature']));
+        expect(tools).not.toContain('suggestJob');
         expect(mastra.getServer()?.apiRoutes?.map((r) => r.path)).toEqual([COPILOTKIT_PATH]);
     });
 

@@ -24,6 +24,8 @@ const POLL_MS = 5000;
 /** The most jobs api.listJobs returns; the board and its counts cover at most this many. */
 const LOADED_LIMIT = 200;
 const fetchMe = () => api.me();
+/** The scout user changes only with the server's configuration. */
+const SCOUT_POLL_MS = 5 * 60_000;
 
 export function Dashboard() {
   const router = useRouter();
@@ -48,6 +50,9 @@ export function Dashboard() {
   const jobs = usePolling(fetchJobs, POLL_MS);
   const dispatch = usePolling(api.getDispatchStatus, POLL_MS);
   const me = usePolling(fetchMe, 5 * 60_000);
+  // One read for the whole board: who the scout is. If it fails, only the "Suggested" badge is missing.
+  const fetchScout = useCallback(() => (projectId ? api.scoutActivity(projectId) : Promise.resolve(null)), [projectId]);
+  const scout = usePolling(fetchScout, SCOUT_POLL_MS);
 
   const loadedJobs = (jobs.data ?? []).filter((j) => j.projectId === projectId);
   const jobsLoading = jobs.data === undefined && jobs.error === null;
@@ -218,6 +223,7 @@ export function Dashboard() {
           repos={repos.data ?? []}
           features={features.data ?? []}
           featureFilter={featureFilter}
+          scoutUserId={scout.data?.scoutUserId ?? null}
           loading={jobsLoading || (creatorPending && !creatorFailed)}
           error={jobsFailed ? jobs.error!.message : creatorFailed ? 'Your user could not be loaded to filter on "Me".' : null}
           onResetFilters={filtersActive ? resetFilters : undefined}

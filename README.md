@@ -133,8 +133,8 @@ recall and history search report errors; job dispatch does not depend on the co-
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory
 events to well-supported follow-up suggestions. It lives in the same Mastra instance and shares its storage (`MemoryInfrastructure`:
-Postgres in production, LibSQL locally) and memory. **Status:** gated registration, project threads, read-only tools, the verified signal APIs,
-event publishing, wake budgets and the daily summary are in. `suggestJob` is a separate, later step; until then the scout cannot create anything. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
+Postgres in production, LibSQL locally) and memory. **Status:** complete: gated registration, project threads, read tools, the verified signal APIs,
+event publishing, wake budgets, the daily summary, bounded `suggestJob` triage suggestions, and the Suggested badge and metrics on the board. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
 
 **Configuration** (all in the API environment; see `apps/api/.env.example`):
 
@@ -150,7 +150,7 @@ event publishing, wake budgets and the daily summary are in. `suggestJob` is a s
 The scout is configured independently of the co-pilot: a valid scout configuration also works when `COPILOT_MODEL` is unset (the
 co-pilot is then off and its routes answer 503). A missing flag, user, model or key, an unknown user, or an explicit invalid number
 leaves the scout **off**, logs a reason (never a secret or the email) and the API starts normally. `GET /api/v1/copilot/status` reports
-`{ enabled, model, scout: { enabled, model } }`.
+`{ enabled, model, scout: { enabled, model } }`. Use a recognisable display name for the bot (**Verkenner** is recommended): it is shown as the creator of its jobs.
 
 **Bot user setup.** The scout acts as a normal user that you create once; Gilde never creates it, and it needs no API key:
 
@@ -167,9 +167,9 @@ The scout is refused (`403`) on every `/api/v1/mastra` route, so a user cannot r
 the bot's threads belong to the bot (`404`/`403` for everyone else). Its memory is scoped to the thread (no resource-wide working memory or recall)
 so projects do not mix.
 
-**Tools.** An explicit read-only allowlist: repos, jobs, features, lessons, history search and repo code reads of its own project, plus the native
-notification inbox pinned to its own thread. It has none of the co-pilot's plan/create/validate tools and nothing that changes, queues,
-starts or cancels work.
+**Tools.** An explicit allowlist: read tools for repos, jobs, features, lessons, history search and repo code of its own project, the native
+notification inbox pinned to its own thread, and `suggestJob`. It has none of the co-pilot's plan/create/validate tools and nothing that edits, queues,
+starts, retries or cancels work, creates features, applies lessons or touches the co-pilot. Capability: **read plus triage-only suggestions**.
 
 **Signal semantics (verified).** Notifications are stored in a native inbox before delivery; `high` wakes an idle thread, `low`/`medium` can be
 held for a `<notification-summary>` that a Mastra scheduled dispatch emits when due; a repeated `dedupeKey` only coalesces while the record is still pending;
@@ -217,8 +217,42 @@ exact job counts for every status (aggregated in the database through `JobServic
 ids and up to 20 open (draft or active) feature ids with their count. The `cacheKey` is a hash of that content, so an unchanged board is not
 sent again, and it is never sent for queued medium/low events.
 
+**Suggestions (`suggestJob`).** The scout's only mutation. Input: `repoId`, `title`, `task`, `acceptanceCriteria`, `reason` and a non-empty
+`basedOn` (ids of runs, jobs, lessons or features it looked at). There is no actor, project or status parameter: the project and the bot user come
+from the server-issued binding of the run (a look-alike or copied binding is refused as `untrusted_context`), and the repo and every evidence id are
+resolved inside that project (`foreign_repo`, `foreign_evidence`, `invalid_evidence`, `missing_evidence`). The tool calls services only (`ScoutSuggestionService`,
+`JobService.create`) and asks no approval: the human gate is triage. The service appends a final `## Why` section (the reason, `Based on:` the canonical
+evidence ids and the marker `Suggested by Verkenner`) to the task, validates the assembled task against the job limits (shared `JobContentSchema`) and calls
+`JobService.create` with explicit `status: 'triage'`, the bot as creator, no dependencies and no feature. The marker lives in the task text only; jobs have
+no `suggestedBy` column. A human queues (approves), edits or cancels the job like any other.
+
+Limits, all enforced by the server and all refusals return `{ created: false, stop: true, refusal: { reason, message, ids? } }` for the agent to stop on:
+
+| Limit | Refusal | Rule |
+|---|---|---|
+| Daily quota | `daily_limit` | `SCOUT_DAILY_SUGGESTIONS` (default 3) successful suggestions per project per UTC day |
+| Same evidence | `duplicate_evidence` | the sorted, unique, lower-cased `basedOn` set is hashed (SHA-256) and compared with **all** earlier suggestions in the project, whatever later happened to their jobs |
+| Same title | `duplicate_title` | case-insensitive, trimmed title equal to any non-terminal job of the project (triage, queued, dispatched, pr_open, awaiting_review, parked), counted in the database, not in the capped job list |
+| Off | `scout_off` | no suggestion is created while the scout is off |
+| Invalid | `invalid_input`, `unknown_repo` | job limits (title 3-200, task 10+, 20 criteria of 3+, reason 10-2000, at most 20 evidence ids) |
+
+A refusal writes nothing, so it never consumes the daily allowance. Quota, hash and title checks, the job and its receipt are **one transaction** under a
+per-project lock row (`scout_suggestion_guards`: the first statement of the transaction updates it, which serializes callers and processes on Postgres; a
+process-wide queue does the same for SQLite's single connection) and a unique index on `(project_id, evidence_hash)` is the last line of defence. The receipt
+(`scout_suggestions`: project, job, actor, evidence hash, UTC day, time; no foreign key to the job, so the hash outlives cancellation or deletion) is written
+with the job, so a crash or a failing receipt insert rolls the job back and a retry cannot create a second one. `JobService.create` has an optional
+`manager` argument for this; existing callers and defaults (including the default status `queued`) are unchanged.
+
+**Board and metrics.** `GET /api/v1/copilot/scout-activity?projectId=<uuid>` (authenticated; 400 for a malformed id, 404 for an unknown project) returns
+`{ projectId, enabled, model, scoutUserId, suggestionsThisWeek, weekStart, lastWakeAt }`. `suggestionsThisWeek` counts the project's receipts from Monday 00:00 UTC
+through now; `lastWakeAt` is the actual most recent wake (`null` = never); both come from the database and stay visible while the scout is off. `scoutUserId` is the
+id of the user `SCOUT_USER_EMAIL` resolves to (also while the scout is off); the bot's email, credentials and inbox content are never returned. The board reads it once per
+project and marks jobs whose `createdBy.id` equals it with a **Suggested** badge (never by name or task text, including in triage and for historical jobs while the
+scout is off). The metrics page has a Verkenner section (on/off, suggestions this week, last wake or *Never*), scoped to the selected project and the current UTC
+week, independent of the factory period and repo filters.
+
 **Bookkeeping and storage.** Mastra owns its notification tables. Gilde adds `scout_signal_receipts` and `scout_wake_days` (snake_case, UUID project
-references, SQLite-compatible; Postgres migration `1793300000000-ScoutSignals`). Jobs are not changed.
+references, SQLite-compatible; Postgres migration `1793300000000-ScoutSignals`) and `scout_suggestions` and `scout_suggestion_guards` (migration `1793400000000-ScoutSuggestions`). Jobs are not changed.
 
 **Spike limitations.** Verified by `apps/api/src/copilot/verkenner.signals.spike.spec.ts` with the real `@mastra/core` 1.79.0, a real LibSQL store
 and a stub model. The same spec ran against a real local Postgres 16 (opt-in, `VERKENNER_SPIKE_PG_URL`, skipped otherwise) and passed; the Postgres

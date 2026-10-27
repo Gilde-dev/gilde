@@ -12,7 +12,8 @@ import { HistorySearchSchema } from '../memory/history/history.dto.js';
 
 import { createCodeTools } from './copilot.code-tools.js';
 import { compactFeature, compactJob, type CopilotServices } from './copilot.tools.js';
-import { requireScoutBinding } from './verkenner.context.js';
+import type { ScoutSuggestionService } from './scout-suggestion.service.js';
+import { requireScoutBinding, scoutBinding } from './verkenner.context.js';
 
 /** The services the scout tools may call: reads only. */
 export type ScoutServices = Pick<CopilotServices, 'jobs' | 'features' | 'lessons' | 'repos' | 'history' | 'github' | 'workspace'>;
@@ -20,7 +21,7 @@ export type ScoutServices = Pick<CopilotServices, 'jobs' | 'features' | 'lessons
 /** Names of the tools the scout gets. Anything not listed here is not exposed to it (see verkenner.tools.spec.ts). */
 export const SCOUT_TOOL_NAMES = [
     'listRepos', 'listJobs', 'getJob', 'listFeatures', 'getFeature', 'listLessons', 'searchHistory',
-    'listRepoFiles', 'readRepoFile', 'searchRepoCode', 'notificationInbox',
+    'listRepoFiles', 'readRepoFile', 'searchRepoCode', 'notificationInbox', 'suggestJob',
 ] as const;
 
 type ToolContext = { requestContext?: RequestContext };
@@ -34,7 +35,7 @@ const wrongProject = (what: string, ref: string) => new Error(`${what} ${ref} is
  * server put in the request context (verkenner.context.ts), and every id the model passes is checked against it.
  * The tools call services and return DTOs; none of them creates, changes, queues, starts or cancels anything.
  */
-export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>) {
+export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>, suggestions: Pick<ScoutSuggestionService, 'suggest'>) {
     const projectOf = (requestContext: Parameters<typeof requireScoutBinding>[0]) => requireScoutBinding(requestContext).projectId;
 
     async function assertRepo(repoId: string, projectId: string) {
@@ -149,9 +150,29 @@ export function createScoutTools(s: ScoutServices, storage: Pick<MastraComposite
         },
     } as never);
 
+    // The scout's only mutation. It takes no actor, project or status: the service reads the project and user from the
+    // server-issued binding, always creates the job in triage, and refuses with a reason (and "stop") instead of throwing.
+    const suggestJob = createTool({
+        id: 'suggestJob',
+        description:
+            'Suggest ONE follow-up job for a human to review. It is created in triage (never queued) under the scout user with a Why section; ' +
+            'a human decides whether to queue, edit or cancel it. Every claim must be backed by basedOn: the ids of the runs, jobs, lessons or features you actually looked at in this project. ' +
+            'Limits: a few suggestions per project per UTC day, never the same evidence set twice, never the title of a job that is still open. ' +
+            'Returns { created: true, jobId, link } or { created: false, stop: true, refusal: { reason, message, ids? } }: on a refusal stop, do not retry with tweaked wording.',
+        inputSchema: z.object({
+            repoId: id('repo'),
+            title: z.string().describe('3-200 characters'),
+            task: z.string().describe('The full task for the agent, at least 10 characters. The Why section is added for you.'),
+            acceptanceCriteria: z.array(z.string()).describe('At most 20 concrete, testable criteria of at least 3 characters'),
+            reason: z.string().describe('Why this job, in a few sentences: the recurrence or the missing follow-up you found'),
+            basedOn: z.array(z.string()).describe('Ids of the runs, jobs, lessons or features that support the suggestion; at least one'),
+        }),
+        execute: async (input, { requestContext }) => suggestions.suggest(scoutBinding(requestContext), input),
+    });
+
     return {
         listRepos, listJobs, getJob, listFeatures, getFeature, listLessons, searchHistory,
         listRepoFiles: guarded(code.listRepoFiles), readRepoFile: guarded(code.readRepoFile as never), searchRepoCode: guarded(code.searchRepoCode as never),
-        notificationInbox,
+        notificationInbox, suggestJob,
     };
 }
