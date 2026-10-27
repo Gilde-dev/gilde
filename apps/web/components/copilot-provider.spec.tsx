@@ -36,7 +36,7 @@ beforeEach(() => {
 
 describe('CopilotProvider', () => {
   it('wraps the app with a collapsed sidebar through the proxy when the co-pilot is enabled', async () => {
-    status.mockResolvedValue({ enabled: true, model: 'openai/m' });
+    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null } } });
     render(<CopilotProvider><p>app</p></CopilotProvider>);
     const sidebar = await screen.findByTestId('sidebar');
     expect(sidebar).toHaveAttribute('data-open', 'false');
@@ -47,7 +47,7 @@ describe('CopilotProvider', () => {
   });
 
   it('shows a not-configured note instead of the sidebar when disabled', async () => {
-    status.mockResolvedValue({ enabled: false, model: null });
+    status.mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null } });
     render(<CopilotProvider><p>app</p></CopilotProvider>);
     expect(await screen.findByText('Co-pilot not configured')).toBeInTheDocument();
     expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
@@ -70,7 +70,7 @@ describe('CopilotProvider', () => {
   });
 
   it('shares page context with the co-pilot only while it is enabled', async () => {
-    status.mockResolvedValue({ enabled: true, model: 'openai/m' });
+    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null } } });
     render(
       <CopilotProvider>
         <CopilotPageContext description="The project selected in the Gilde UI" value={{ projectId: 'p1' }} />

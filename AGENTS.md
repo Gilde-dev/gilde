@@ -51,6 +51,7 @@ One NestJS module per domain:
 - `metrics/` — `GET /api/v1/metrics`
 - `health/` — `GET /api/health`, returns `{ status, checks }`, 503 when the DB is down
 - `copilot/` — the co-pilot: a Mastra agent (`gilde`) built in a Nest provider (`copilot.mastra.ts`) so its tools get the services by injection; `@mastra/nestjs` is mounted under `/api/v1/mastra` (RouterModule) and the CopilotKit/AG-UI route is `/api/v1/mastra/copilotkit`. Behind the global JWT guard; `CopilotContextInterceptor` puts `req.user` and the memory resourceId (the user id) into the Mastra request context on every Mastra route. Tools are in `copilot.tools.ts` (read-only, call services, return DTOs). `GET /api/v1/copilot/status` returns `{ enabled, model }`. Env: `OPENAI_API_KEY` and `COPILOT_MODEL` (`openai/<model>`, no default); without them the routes answer 503 and the API still starts. Memory: Postgres on `DATABASE_URL`, otherwise `mastra.db` (gitignored)
+- Verkenner (the scout, in `copilot/verkenner.*`): an opt-in, unattended second Mastra agent (id `verkenner`) in the same Mastra instance and storage as `gilde`. Env `SCOUT_ENABLED=true`, `SCOUT_USER_EMAIL` (an existing bot user), `SCOUT_MODEL` (fallback `COPILOT_MODEL`); it is off, and the API still starts, otherwise. It has read tools and its notification inbox only, thread `verkenner:<projectId>` under the bot user, and the project comes from a server-issued binding, never from tool input. It is refused on every Mastra HTTP route. Verified signal APIs: `docs/verkenner-signals.md`; setup: README "Verkenner"
 - `common/` — shared pipes and helpers (zod validation, db errors)
 
 Each domain has: `*.entity.ts`, `*.dto.ts` (zod), `*.mapper.ts`, `*.service.ts`, `*.controller.ts`, `*.module.ts`.
@@ -89,7 +90,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Every route requires a JWT unless marked `@Public()` (from `common/`). Only mark routes public that authenticate in another way (like the webhook signature) or must be reachable without login.
 - e2e tests: create an authenticated agent with `authedAgent(app)` from `test/helpers/auth.ts`; don't log in per test (login is throttled).
 - Job status changes only through the state machine in `job/job-state.ts`.
-- Co-pilot tools call existing services and return their DTOs; never query repositories or call the HTTP API from a tool. A tool that changes state must ask the user for confirmation first. The acting user comes from the Mastra request context (`copilotUser`), never from tool input.
+- Co-pilot tools call existing services and return their DTOs; never query repositories or call the HTTP API from a tool. A tool of the human co-pilot that changes state must ask the user for confirmation first (`requireApproval`); the one exception is the Verkenner scout's bounded triage-only `suggestJob` (ADR 0007). The acting user comes from the Mastra request context (`copilotUser`), never from tool input.
 - Keep routes of the co-pilot under `/api/v1/mastra`; Mastra's catch-all controller must not shadow other routes.
 
 ## Rules for agents

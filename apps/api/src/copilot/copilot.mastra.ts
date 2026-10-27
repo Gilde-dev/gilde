@@ -2,6 +2,7 @@ import { registerCopilotKit } from '@ag-ui/mastra/copilotkit';
 import { Logger } from '@nestjs/common';
 import { Agent } from '@mastra/core/agent';
 import { Mastra } from '@mastra/core/mastra';
+import { defaultNotificationDeliveryDecision } from '@mastra/core/notifications';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import type { MastraCompositeStore } from '@mastra/core/storage';
 import { LibSQLStore } from '@mastra/libsql';
@@ -16,10 +17,14 @@ import type { UsageService } from '../usage/usage.service.js';
 import { withEmbeddingUsage } from '../usage/usage-context.js';
 
 import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig } from './copilot.config.js';
-import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId } from './copilot.context.js';
+import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId, type CopilotUser } from './copilot.context.js';
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
 import type { RepoContextService } from './repo-context.service.js';
+import { SCOUT_AGENT_ID, type ScoutConfig } from './verkenner.config.js';
+import { scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
+import { VERKENNER_INSTRUCTIONS } from './verkenner.instructions.js';
+import { createScoutTools } from './verkenner.tools.js';
 
 /** Where Mastra is mounted: the global prefix plus the route of the copilot module. */
 export const MASTRA_PREFIX = '/api/v1/mastra';
@@ -69,6 +74,36 @@ export function createCopilotMemory(infra: MemoryInfrastructure, usage?: Pick<Us
     });
 }
 
+/**
+ * The scout's Mastra Memory: the same storage (and, when configured, embedder and vector store) as the co-pilot, but
+ * everything is scoped to the thread. The scout has one resource (the bot user) and one thread per project, so
+ * thread scope is what keeps projects apart; there is no resource-wide working memory or recall.
+ */
+export function createScoutMemory(infra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Memory {
+    const recall = infra.embeddingsEnabled;
+    let embedder = infra.embedder;
+    if (usage && embedder) {
+        const name = infra.config.embeddings ? infra.config.model : 'custom';
+        embedder = withEmbeddingUsage(typeof embedder === 'string' ? new ModelRouterEmbeddingModel(embedder) : embedder, name, usage) as typeof embedder;
+    }
+    return new Memory({
+        storage: infra.storage,
+        ...(recall ? { vector: infra.personalVector, embedder, embeddingDimension: infra.embeddingDimension } : { vector: false as const }),
+        options: {
+            lastMessages: 20,
+            workingMemory: { enabled: false },
+            semanticRecall: recall ? { ...SEMANTIC_RECALL, scope: 'thread' as const } : false,
+        },
+    });
+}
+
+/** An enabled scout: its configuration and the existing bot user it acts as. `model` replaces the configured one in tests. */
+export interface ScoutSetup {
+    config: Extract<ScoutConfig, { enabled: true }>;
+    user: CopilotUser;
+    model?: unknown;
+}
+
 interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
 
 interface RunFinish {
@@ -97,6 +132,7 @@ export function copilotDefaultOptions(
     maxSteps: number = DEFAULT_COPILOT_MAX_STEPS,
     logger: Pick<Logger, 'warn' | 'log'> = new Logger('Copilot'),
     usage?: { service: Pick<UsageService, 'record'>; model: string },
+    agentId: string = COPILOT_AGENT_ID,
 ) {
     return {
         maxSteps,
@@ -108,7 +144,7 @@ export function copilotDefaultOptions(
             void usage.service.record({
                 kind: 'chat',
                 model: usage.model,
-                agent: COPILOT_AGENT_ID,
+                agent: agentId,
                 userId: copilotUser(result.requestContext as Parameters<typeof copilotUser>[0])?.id ?? null,
                 threadId: threadId === undefined || threadId === null ? null : String(threadId),
                 steps: result.steps?.length ?? 0,
@@ -130,12 +166,48 @@ export function copilotDefaultOptions(
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Mastra {
-    if (!config.enabled) return new Mastra({});
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null): Mastra {
+    // The scout is configured independently of the co-pilot: either one alone gets an instance, neither gets an empty one.
+    if (!config.enabled && !scout) return new Mastra({});
 
     const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
+    const agents: Record<string, Agent> = {};
+    if (config.enabled) agents[COPILOT_AGENT_ID] = createCopilotAgent(config, services, memoryInfra, repoContext, usage);
+    if (scout) agents[SCOUT_AGENT_ID] = createScoutAgent(scout, services, memoryInfra, usage);
 
-    const agent = new Agent({
+    return new Mastra({
+        agents,
+        storage: memoryInfra.storage,
+        ...(config.enabled ? { server: { apiRoutes: [copilotKitRoute()] } } : {}),
+    });
+}
+
+function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+    return new Agent({
+        id: SCOUT_AGENT_ID,
+        name: SCOUT_AGENT_ID,
+        description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
+        instructions: VERKENNER_INSTRUCTIONS,
+        model: (scout.model ?? scout.config.model) as `openai/${string}`,
+        tools: createScoutTools(services, memoryInfra.storage),
+        memory: createScoutMemory(memoryInfra, usage),
+        // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
+        // server-issued project binding of the notification's own thread. The project is parsed from the thread id.
+        notifications: {
+            deliveryPolicy: {
+                decide: (input) => {
+                    const projectId = scoutProjectOfThread(input.record.threadId);
+                    if (!projectId) return undefined;
+                    return { ...defaultNotificationDeliveryDecision(input), streamOptions: scoutStreamOptions(scout.user, projectId) as never };
+                },
+            },
+        },
+        defaultOptions: copilotDefaultOptions(scout.config.maxSteps, undefined, usage && { service: usage, model: scout.config.model }, SCOUT_AGENT_ID) as never,
+    });
+}
+
+function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, services: CopilotServices, memoryInfra: MemoryInfrastructure, repoContext?: RepoContextService, usage?: Pick<UsageService, 'record'>): Agent {
+    return new Agent({
         id: COPILOT_AGENT_ID,
         name: COPILOT_AGENT_ID,
         description: 'Gilde co-pilot: answers questions about projects, jobs, features, proposals, dispatching, metrics and lessons.',
@@ -151,29 +223,50 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
         memory: createCopilotMemory(memoryInfra, usage),
         defaultOptions: copilotDefaultOptions(config.maxSteps, undefined, usage && { service: usage, model: config.model }) as never,
     });
+}
 
-    return new Mastra({
-        agents: { [COPILOT_AGENT_ID]: agent },
-        storage: memoryInfra.storage,
-        server: {
-            apiRoutes: [
-                registerCopilotKit({
-                    path: COPILOTKIT_PATH,
-                    // Replaced per request by the authenticated user (see CopilotContextInterceptor).
-                    resourceId: UNAUTHENTICATED_RESOURCE,
-                    setContext: async (c, requestContext) => {
-                        // Remember the project the page says is selected, so the instructions can include its repos.
-                        try {
-                            const projectId = extractProjectId(await c.req.raw.clone().json());
-                            if (projectId) requestContext.set(COPILOT_PROJECT_KEY, projectId);
-                        } catch { /* no JSON body: no page context */ }
-                        // The interceptor has put req.user here; make sure memory is scoped to it.
-                        requestContext.set(MASTRA_RESOURCE_ID_KEY, copilotResourceId(copilotUser(requestContext)));
-                    },
-                }),
-            ],
+/**
+ * The Mastra instance as the CopilotKit route sees it: without the scout. The route turns every registered agent into
+ * a CopilotKit agent for the calling user; the scout is internal (unattended, bound to a project and the bot user) and
+ * must be neither listed nor runnable there.
+ */
+export function withoutScout(mastra: Mastra): Mastra {
+    return new Proxy(mastra, {
+        get(target, prop) {
+            if (prop === 'listAgents') {
+                return () => Object.fromEntries(Object.entries(target.listAgents() ?? {}).filter(([id]) => id !== SCOUT_AGENT_ID));
+            }
+            const value = Reflect.get(target, prop, target) as unknown;
+            return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
         },
     });
+}
+
+interface HonoContext { get(key: string): unknown; set(key: string, value: unknown): void }
+
+function copilotKitRoute() {
+    const route = registerCopilotKit({
+        path: COPILOTKIT_PATH,
+        // Replaced per request by the authenticated user (see CopilotContextInterceptor).
+        resourceId: UNAUTHENTICATED_RESOURCE,
+        setContext: async (c, requestContext) => {
+            // Remember the project the page says is selected, so the instructions can include its repos.
+            try {
+                const projectId = extractProjectId(await c.req.raw.clone().json());
+                if (projectId) requestContext.set(COPILOT_PROJECT_KEY, projectId);
+            } catch { /* no JSON body: no page context */ }
+            // The interceptor has put req.user here; make sure memory is scoped to it.
+            requestContext.set(MASTRA_RESOURCE_ID_KEY, copilotResourceId(copilotUser(requestContext)));
+        },
+    });
+    const handle = (route as unknown as { handler: (c: HonoContext) => Promise<Response> }).handler;
+    return {
+        ...route,
+        handler: (c: HonoContext) => {
+            c.set('mastra', withoutScout(c.get('mastra') as Mastra));
+            return handle(c);
+        },
+    } as typeof route;
 }
 
 export { COPILOT_USER_KEY };

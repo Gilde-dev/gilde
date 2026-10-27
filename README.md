@@ -129,6 +129,59 @@ recall and history search report errors; job dispatch does not depend on the co-
 `PGVECTOR_SMOKE_URL=postgres://gilde:gilde@localhost:5432/gilde pnpm --filter @gilde/api test -- memory.pgvector`
 (creates and drops a `gilde_smoke_*` index and checks insert/query with the fake embedder).
 
+## Verkenner (scout agent)
+
+Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory
+events to well-supported follow-up suggestions. It lives in the same Mastra instance and shares its storage (`MemoryInfrastructure`:
+Postgres in production, LibSQL locally) and memory. **Status:** the first step of the feature is in: gated registration, project threads,
+read-only tools and the verified signal APIs. Event publishing, the daily summary and `suggestJob` are separate, later steps; until then the
+scout has nothing that wakes it and cannot create anything. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
+
+**Configuration** (all in the API environment; see `apps/api/.env.example`):
+
+| Variable | Meaning |
+|---|---|
+| `SCOUT_ENABLED` | must be exactly `true`; anything else (or unset) keeps the scout off |
+| `SCOUT_USER_EMAIL` | email of an **existing** bot user the scout acts as |
+| `SCOUT_MODEL` | `openai/<model>`; falls back to `COPILOT_MODEL`; needs `OPENAI_API_KEY` |
+| `SCOUT_SUMMARY_HOUR_UTC` | integer 0..23, default `6`: hour of the daily summary |
+| `SCOUT_MAX_WAKES_PER_DAY` | positive integer, default `6`: wakes per project per UTC day |
+| `SCOUT_DAILY_SUGGESTIONS` | positive integer, default `3`: suggestions per project per UTC day |
+
+The scout is configured independently of the co-pilot: a valid scout configuration also works when `COPILOT_MODEL` is unset (the
+co-pilot is then off and its routes answer 503). A missing flag, user, model or key, an unknown user, or an explicit invalid number
+leaves the scout **off**, logs a reason (never a secret or the email) and the API starts normally. `GET /api/v1/copilot/status` reports
+`{ enabled, model, scout: { enabled, model } }`.
+
+**Bot user setup.** The scout acts as a normal user that you create once; Gilde never creates it, and it needs no API key:
+
+```sh
+pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verkenner
+```
+
+then set `SCOUT_ENABLED=true` and `SCOUT_USER_EMAIL=verkenner@example.com` and restart the API.
+
+**Identity and isolation.** The memory resource is the bot user's id and there is one thread per project, `verkenner:<projectId>`,
+created by the server. A scout run receives its project from a server-issued binding that is attached when a notification starts the run
+(immediately or from the scheduler); tools never take the project or user from their input and check every id the model passes against it.
+The scout is refused (`403`) on every `/api/v1/mastra` route, so a user cannot run it, send it a request context, or list it in CopilotKit;
+the bot's threads belong to the bot (`404`/`403` for everyone else). Its memory is scoped to the thread (no resource-wide working memory or recall)
+so projects do not mix.
+
+**Tools.** An explicit read-only allowlist: repos, jobs, features, lessons, history search and repo code reads of its own project, plus the native
+notification inbox pinned to its own thread. It has none of the co-pilot's plan/create/validate tools and nothing that changes, queues,
+starts or cancels work.
+
+**Signal semantics (verified).** Notifications are stored in a native inbox before delivery; `high` wakes an idle thread, `low`/`medium` can be
+held for a `<notification-summary>` that a Mastra scheduled dispatch emits when due; a repeated `dedupeKey` only coalesces while the record is still pending;
+state signals with an unchanged `cacheKey` are skipped and need an existing thread. The exact imports, options and observed behaviour are in
+[docs/verkenner-signals.md](docs/verkenner-signals.md).
+
+**Spike limitations.** Verified by `apps/api/src/copilot/verkenner.signals.spike.spec.ts` with the real `@mastra/core` 1.79.0, a real LibSQL store
+and a stub model. The same spec ran against a real local Postgres 16 (opt-in, `VERKENNER_SPIKE_PG_URL`, skipped otherwise) and passed; the Postgres
+run is not part of CI. The cron was not waited on (the dispatcher pass it triggers was run directly), only one process was used, and native
+`dedupeKey` is not restart-safe after delivery, so event publishing keeps its own durable receipt.
+
 ## Factory history (searchable)
 
 A separate, shared index of what the factory has learned, built on the same Mastra vector store and OpenAI embedder as the co-pilot memory

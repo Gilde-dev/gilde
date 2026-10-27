@@ -1,6 +1,6 @@
 # 0004. Run the co-pilot as a Mastra agent in the API, with CopilotKit over AG-UI
 
-- **Status:** Accepted
+- **Status:** Accepted; its approval clause is superseded for the Verkenner scout only by [0007](0007-verkenner-scout-may-create-triage-jobs.md)
 - **Date:** 2026-10-25
 - **Related:** PR #48 (commit 1c07058, co-pilot base), PR #49 (commit 5f2345e, planning and approval), PR #59 (commit dd61769, memory), PR #84 (commit 43eeeae, createJob); recorded retrospectively
 
