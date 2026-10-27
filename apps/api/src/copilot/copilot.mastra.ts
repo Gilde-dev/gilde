@@ -26,6 +26,7 @@ import { scoutDeliveryDecider, type ScoutDispatchGate } from './scout-delivery-p
 import { scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
 import { VERKENNER_INSTRUCTIONS } from './verkenner.instructions.js';
 import { createScoutTools } from './verkenner.tools.js';
+import type { ScoutSuggestionService } from './scout-suggestion.service.js';
 
 /** Where Mastra is mounted: the global prefix plus the route of the copilot module. */
 export const MASTRA_PREFIX = '/api/v1/mastra';
@@ -106,6 +107,8 @@ export interface ScoutSetup {
     model?: unknown;
     /** Native delivery policy of the scout. Without it (unit tests) the default decision is used. */
     gate?: ScoutDispatchGate;
+    /** Creates the scout's triage suggestions (the suggestJob tool). */
+    suggestions?: ScoutSuggestionService;
 }
 
 interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
@@ -189,6 +192,11 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
     });
 }
 
+/** Used when no suggestion service is wired (unit tests of the agent): every suggestion is refused and nothing is created. */
+const REFUSING_SUGGESTIONS: Pick<ScoutSuggestionService, 'suggest'> = {
+    suggest: async () => ({ created: false, stop: true, refusal: { reason: 'scout_off', message: 'Suggestions are not available.' } }),
+};
+
 function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
     return new Agent({
         id: SCOUT_AGENT_ID,
@@ -196,7 +204,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
         instructions: VERKENNER_INSTRUCTIONS,
         model: (scout.model ?? scout.config.model) as `openai/${string}`,
-        tools: createScoutTools(services, memoryInfra.storage),
+        tools: createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS),
         memory: createScoutMemory(memoryInfra, usage),
         // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
         // server-issued project binding of the notification's own thread. The project is parsed from the thread id.

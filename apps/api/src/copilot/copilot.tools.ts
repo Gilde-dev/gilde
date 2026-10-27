@@ -9,7 +9,7 @@ import { FEATURE_STATUSES } from '../feature/feature-state.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import type { GitHubPort } from '../github/github.port.js';
 import type { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
-import { CreateJobSchema, type JobResponseDto } from '../job/job.dto.js';
+import { CreateJobSchema, JobContentSchema, type JobResponseDto } from '../job/job.dto.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
@@ -290,7 +290,7 @@ export function createCopilotTools(s: CopilotServices) {
         dependsOn: z.array(z.string()).default([]).describe('Ids of existing jobs in the same project that must be merged first; [] when none'),
         featureId: id('feature').optional().describe('An existing open feature of the same project to put the job in'),
     });
-    const JobDraftSchema = CreateJobSchema.pick({ title: true, task: true, acceptanceCriteria: true, dependsOn: true });
+    const JobDraftSchema = JobContentSchema.extend({ dependsOn: CreateJobSchema.shape.dependsOn });
 
     /** Checks a single job against the repo, feature, dependencies and the limits of CreateJobSchema. Writes nothing. */
     async function validateJobDraft(input: z.infer<typeof jobInput>) {

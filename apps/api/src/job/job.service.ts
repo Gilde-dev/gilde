@@ -17,7 +17,7 @@ import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, Jo
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
-import { JOB_STATUSES, nextStatus, type JobEvent, type JobStatus } from './job-state.js';
+import { JOB_STATUSES, TERMINAL, nextStatus, type JobEvent, type JobStatus } from './job-state.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { User } from '../user/user.entity.js';
 
@@ -37,8 +37,13 @@ export class JobService {
         @Optional() private readonly agentUsage?: AgentUsageService,
     ) { }
 
-    /** `actor` is the user creating the job; null for system-created jobs. */
-    async create(repoId: string, dto: CreateJobDto, actor: { id: string } | null = null): Promise<JobResponseDto> {
+    /**
+     * `actor` is the user creating the job; null for system-created jobs. `manager` runs the writes (and the read-back) in
+     * the caller's transaction, so a caller can commit the job together with its own records; without it nothing changes.
+     */
+    async create(repoId: string, dto: CreateJobDto, actor: { id: string } | null = null, manager?: EntityManager): Promise<JobResponseDto> {
+        const jobs = manager?.getRepository(Job) ?? this.jobRepository;
+        const dependencies = manager?.getRepository(JobDependency) ?? this.dependencyRepository;
         const repo = await this.repoService.getById(repoId); // 404 if unknown
         const dependsOn = dto.dependsOn ?? [];
         await this.validateDependencies(null, repo.projectId, dependsOn);
@@ -48,8 +53,8 @@ export class JobService {
         }
         const { dependsOn: _ignored, status: _status, ...fields } = dto;
         const status = dto.status ?? (feature?.status === 'draft' ? 'triage' : 'queued');
-        const entity = await this.jobRepository.save(
-            this.jobRepository.create({
+        const entity = await jobs.save(
+            jobs.create({
                 ...fields,
                 featureId: feature?.id ?? null,
                 acceptanceCriteria: dto.acceptanceCriteria ?? [],
@@ -60,8 +65,20 @@ export class JobService {
                 queuedAt: status === 'queued' ? new Date() : null,
             }),
         );
-        await this.dependencyRepository.insert(dependsOn.map((dependsOnJobId) => ({ jobId: entity.id, dependsOnJobId })));
-        return this.toDTO(entity);
+        await dependencies.insert(dependsOn.map((dependsOnJobId) => ({ jobId: entity.id, dependsOnJobId })));
+        return (await this.toDTOs([entity], manager))[0];
+    }
+
+    /** Ids of the non-terminal jobs of a project whose title equals `title` (case-insensitive, trimmed). Counts all of them, not a capped list. */
+    async findOpenByTitle(projectId: string, title: string, manager?: EntityManager): Promise<string[]> {
+        const rows = await (manager?.getRepository(Job) ?? this.jobRepository).createQueryBuilder('job')
+            .select('job.id', 'id')
+            .where('job.projectId = :projectId', { projectId })
+            .andWhere('job.status NOT IN (:...terminal)', { terminal: [...TERMINAL] })
+            .andWhere('LOWER(TRIM(job.title)) = :title', { title: title.trim().toLowerCase() })
+            .orderBy('job.createdAt', 'ASC')
+            .getRawMany<{ id: string }>();
+        return rows.map((r) => r.id);
     }
 
     /** Edits title, task and criteria while the job is in triage; the feature link also while it is queued. */
@@ -197,21 +214,23 @@ export class JobService {
     }
 
     /** Loads dependencies for all jobs with two queries, whatever the number of jobs. */
-    private async toDTOs(entities: Job[]): Promise<JobResponseDto[]> {
+    private async toDTOs(entities: Job[], manager?: EntityManager): Promise<JobResponseDto[]> {
         if (!entities.length) return [];
-        const links = await this.dependencyRepository.find({ where: { jobId: In(entities.map((e) => e.id)) } });
+        const jobRepository = manager?.getRepository(Job) ?? this.jobRepository;
+        const m = manager ?? this.jobRepository.manager;
+        const links = await (manager?.getRepository(JobDependency) ?? this.dependencyRepository).find({ where: { jobId: In(entities.map((e) => e.id)) } });
         const depIds = [...new Set(links.map((l) => l.dependsOnJobId))];
         const deps = depIds.length
-            ? await this.jobRepository.find({ where: { id: In(depIds) }, select: { id: true, title: true, status: true } })
+            ? await jobRepository.find({ where: { id: In(depIds) }, select: { id: true, title: true, status: true } })
             : [];
         const depById = new Map(deps.map((d) => [d.id, d]));
-        const revisions = await this.jobRepository.manager.getRepository(JobRevision).find({
+        const revisions = await m.getRepository(JobRevision).find({
             where: { jobId: In(entities.map((e) => e.id)), status: In(['proposed', 'accepted']) },
             select: { jobId: true, status: true, revision: true },
         });
         const creatorIds = [...new Set(entities.map((e) => e.createdById).filter((i): i is string => !!i))];
         const creators = creatorIds.length
-            ? await this.jobRepository.manager.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true } })
+            ? await m.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true } })
             : [];
         const creatorById = new Map(creators.map((u) => [u.id, { id: u.id, name: u.name }]));
         return entities.map((e) => {

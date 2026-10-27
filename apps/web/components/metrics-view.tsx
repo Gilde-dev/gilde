@@ -5,7 +5,9 @@ import { api, type Metrics } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { useProject } from '@/lib/use-project';
 import { NoProjects } from './no-projects';
+import { Badge } from './ui/badge';
 import { Button } from './ui/button';
+import { StatCard } from './ui/stat-card';
 import { UsageSection } from './usage-section';
 
 const POLL_MS = 30_000;
@@ -74,8 +76,41 @@ export function MetricsView() {
         {metrics.error && <p className="p-4 text-sm text-danger">{metrics.error.message}</p>}
         {metrics.loading && !metrics.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {metrics.data && <MetricsBody metrics={metrics.data} />}
+        {projectId && <ScoutSection projectId={projectId} />}
         <UsageSection days={days} projectId={projectId} projectName={projects?.find((p) => p.id === projectId)?.name} />
     </>
+  );
+}
+
+/**
+ * Verkenner, the scout, for the selected project. Independent of the period and repo filters above: suggestions count
+ * from Monday 00:00 UTC of the current week, and the last wake is the actual most recent one. Shown while the scout is off.
+ */
+export function ScoutSection({ projectId }: { projectId: string }) {
+  const fetchScout = useCallback(() => api.scoutActivity(projectId), [projectId]);
+  const scout = usePolling(fetchScout, POLL_MS);
+  const a = scout.data;
+  const failed = a === undefined && scout.error !== null;
+  const value = <T,>(show: (activity: NonNullable<typeof a>) => T) => (failed ? '–' : a ? show(a) : '…');
+  const hint = failed ? 'Could not load' : a === undefined ? 'Loading' : undefined;
+  return (
+    <section aria-label="Verkenner" className="space-y-3 p-4">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 className="text-md font-semibold">Verkenner</h3>
+        {a && <Badge variant={a.enabled ? 'success' : 'neutral'}>{a.enabled ? 'On' : 'Off'}</Badge>}
+        <span className="text-sm text-muted-foreground">This project · current week since Monday {a?.weekStart ?? '…'} (UTC)</span>
+      </div>
+      {failed && (
+        <p role="alert" className="text-sm text-danger">
+          {scout.error!.message}
+        </p>
+      )}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+        <StatCard label="Status" value={value((x) => (x.enabled ? 'On' : 'Off'))} hint={hint ?? (a?.enabled ? a.model ?? undefined : 'Not running; history stays visible')} />
+        <StatCard label="Suggestions this week" value={value((x) => x.suggestionsThisWeek)} hint={hint} />
+        <StatCard label="Last wake" value={value((x) => (x.lastWakeAt ? new Date(x.lastWakeAt).toLocaleString() : 'Never'))} hint={hint} />
+      </div>
+    </section>
   );
 }
 

@@ -21,6 +21,9 @@ import { ProjectModule } from '../project/project.module.js';
 import { ProjectService } from '../project/project.service.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { RepoService } from '../repo/repo.service.js';
+import { RunModule } from '../run/run.module.js';
+import { RunService } from '../run/run.service.js';
+import { DataSource } from 'typeorm';
 import { RevisionModule } from '../revision/revision.module.js';
 import { RevisionService } from '../revision/revision.service.js';
 import { UserModule } from '../user/user.module.js';
@@ -45,6 +48,10 @@ import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js'
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
 import { ScoutSignalService } from './scout-signal.service.js';
+import { ScoutSuggestion } from './scout-suggestion.entity.js';
+import { ScoutSuggestionGuard } from './scout-suggestion-guard.entity.js';
+import { ScoutSuggestionService } from './scout-suggestion.service.js';
+import { ScoutActivityService } from './scout-activity.service.js';
 import { ScoutWakeDay } from './scout-wake-day.entity.js';
 import { ScoutWakeBudgetService } from './scout-wake-budget.service.js';
 import { ScoutWakeReader } from './scout-wake.reader.js';
@@ -76,7 +83,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay]), JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
     providers: [
         RepoContextService,
         {
@@ -95,6 +102,19 @@ export class ScoutLifecycle implements OnModuleDestroy {
             provide: SCOUT_SETUP,
             useFactory: (users: UserService): Promise<ScoutSetup | null> => resolveScoutSetup(users),
             inject: [UserService],
+        },
+        {
+            // Null-safe: also constructed while the scout is off, where every suggestion is refused with scout_off.
+            provide: ScoutSuggestionService,
+            useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null) =>
+                new ScoutSuggestionService(ds, jobs, features, lessons, runs, repos, scout && { user: scout.user, dailySuggestions: scout.config.dailySuggestions }),
+            inject: [DataSource, JobService, FeatureService, LessonService, RunService, RepoService, SCOUT_SETUP],
+        },
+        {
+            provide: ScoutActivityService,
+            useFactory: (suggestions: Repository<ScoutSuggestion>, wakes: ScoutWakeReader, projects: ProjectService, users: UserService, scout: ScoutSetup | null) =>
+                new ScoutActivityService(suggestions, wakes, projects, users, { enabled: scout !== null, model: scout?.config.model ?? null, userId: scout?.user.id ?? null }),
+            inject: [getRepositoryToken(ScoutSuggestion), ScoutWakeReader, ProjectService, UserService, SCOUT_SETUP],
         },
         { provide: SCOUT_GATE, useFactory: (): ScoutDispatchGate => new ScoutDispatchGate() },
         {
@@ -118,11 +138,12 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 usage: UsageService,
                 scout: ScoutSetup | null,
                 gate: ScoutDispatchGate,
+                suggestions: ScoutSuggestionService,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate });
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService],
         },
         {
             provide: SCOUT_THREADS,
@@ -161,7 +182,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader],
+    exports: [COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 
