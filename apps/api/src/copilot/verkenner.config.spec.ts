@@ -7,7 +7,7 @@ describe('scoutConfig', () => {
     it('is on with the flag, user, model and key, and applies the defaults', () => {
         expect(scoutConfig(valid)).toEqual({
             enabled: true, model: 'openai/scout-model', userEmail: 'verkenner@example.com',
-            summaryHourUtc: 6, maxWakesPerDay: 6, dailySuggestions: 3, maxSteps: 30,
+            summaryHourUtc: 6, maxWakesPerDay: 6, dailySuggestions: 3, patternMinSize: 4, maxSteps: 30,
         });
     });
 
@@ -44,6 +44,14 @@ describe('scoutConfig', () => {
         for (const bad of ['0', '-3', '2.5', 'many']) {
             expect(scoutConfig({ ...valid, SCOUT_MAX_WAKES_PER_DAY: bad })).toMatchObject({ enabled: false, reason: expect.stringContaining('SCOUT_MAX_WAKES_PER_DAY') });
             expect(scoutConfig({ ...valid, SCOUT_DAILY_SUGGESTIONS: bad })).toMatchObject({ enabled: false, reason: expect.stringContaining('SCOUT_DAILY_SUGGESTIONS') });
+        }
+    });
+
+    it('reads SCOUT_PATTERN_MIN_SIZE (default 4) and disables the scout on an invalid value', () => {
+        expect(scoutConfig({ ...valid, SCOUT_PATTERN_MIN_SIZE: '6' })).toMatchObject({ enabled: true, patternMinSize: 6 });
+        expect(scoutConfig({ ...valid, SCOUT_PATTERN_MIN_SIZE: ' ' })).toMatchObject({ enabled: true, patternMinSize: 4 });
+        for (const bad of ['1', '0', '101', '2.5', 'many', '-4']) {
+            expect(scoutConfig({ ...valid, SCOUT_PATTERN_MIN_SIZE: bad })).toMatchObject({ enabled: false, reason: expect.stringContaining('SCOUT_PATTERN_MIN_SIZE') });
         }
     });
 

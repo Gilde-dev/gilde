@@ -942,7 +942,7 @@ export const LESSON_STATUSES = ['candidate', 'approved', 'applying', 'applied', 
 export type LessonStatus = (typeof LESSON_STATUSES)[number];
 
 /** The kinds the UI offers. */
-export const LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
+export const LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'library_skill', 'other'] as const;
 /** `skill` is a legacy value on old rows: it behaves like repo_skill and can no longer be set. */
 export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number] | 'skill';
 
@@ -969,6 +969,8 @@ export interface Lesson {
   appliedJobId: string | null;
   /** PR of the job applying the lesson, if it has one. */
   appliedJobPrUrl: string | null;
+  /** The library skill the lesson is becoming or became (library_skill lessons). */
+  appliedSkillName: string | null;
   appliedAt: string | null;
   sources: LessonSource[];
   /** Number of distinct jobs among the sources. */
@@ -997,7 +999,21 @@ export interface LessonPattern {
   firstSeen: string;
   lastSeen: string;
   /** Applied or applying lessons that already say (nearly) the same. */
-  alreadyCovered: { lessonId: string; text: string; status: LessonStatus; appliedJobId: string | null }[];
+  alreadyCovered: { lessonId: string; text: string; status: LessonStatus; appliedJobId: string | null; skillName: string | null }[];
+}
+
+/** Mirrors ProposeSkillSchema. */
+export interface ProposeSkillInput {
+  name: string;
+  scope: 'global' | 'stack';
+  stacks?: Stack[];
+  title?: string;
+}
+
+export interface ProposeSkillResult {
+  jobId: string;
+  skillName: string;
+  lessonIds: string[];
 }
 
 export interface LessonPatterns {
@@ -1097,6 +1113,8 @@ export const api = {
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
   listLessonPatterns: (projectId: string, minSize?: number) =>
     request<LessonPatterns>(`/v1/projects/${id(projectId)}/lessons/patterns${minSize ? `?minSize=${minSize}` : ''}`),
+  proposeSkillFromPattern: (projectId: string, patternId: string, input: ProposeSkillInput) =>
+    request<ProposeSkillResult>(`/v1/projects/${id(projectId)}/lessons/patterns/${id(patternId)}/propose-skill`, 'POST', input),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),
   replaceLesson: (lessonId: string, input: ReplaceLessonInput) =>
     request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PUT', input),

@@ -1,9 +1,11 @@
 'use client';
 
 import { useCallback, useState } from 'react';
-import { api, type LessonPattern, type LessonPatterns } from '@/lib/api';
+import { api, type LessonPattern, type LessonPatterns, type ProposeSkillResult } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { Badge } from './ui/badge';
+import { withProject } from '@/lib/use-project';
+import { ProposeSkillDialog } from './propose-skill-dialog';
 import { Button } from './ui/button';
 
 const POLL_MS = 60_000;
@@ -30,15 +32,20 @@ export function LessonPatternsPanel({ projectId, onMerged }: { projectId: string
       )}
       <ul className="space-y-3">
         {(patterns.data?.patterns ?? []).map((p) => (
-          <PatternCard key={p.id} pattern={p} onMerged={() => { onMerged(); void patterns.refresh(); }} />
+          <PatternCard key={p.id} projectId={projectId} pattern={p} onMerged={() => { onMerged(); void patterns.refresh(); }} />
         ))}
       </ul>
     </div>
   );
 }
 
-function PatternCard({ pattern, onMerged }: { pattern: LessonPattern; onMerged: () => void }) {
+function PatternCard({ projectId, pattern, onMerged }: { projectId: string; pattern: LessonPattern; onMerged: () => void }) {
   const [open, setOpen] = useState(false);
+  const [proposing, setProposing] = useState(false);
+  const [proposed, setProposed] = useState<ProposeSkillResult | null>(null);
+  const applying = pattern.alreadyCovered.find((c) => c.status === 'applying' && c.appliedJobId);
+  const became = pattern.alreadyCovered.find((c) => c.status === 'applied' && c.skillName);
+  const jobLink = (jobId: string) => withProject(`/?job=${encodeURIComponent(jobId)}`, projectId);
   const representative = pattern.members.find((m) => m.text === pattern.representativeText) ?? pattern.members[0];
   const [target, setTarget] = useState(representative.lessonId);
   const [busy, setBusy] = useState(false);
@@ -78,9 +85,39 @@ function PatternCard({ pattern, onMerged }: { pattern: LessonPattern; onMerged: 
           </ul>
         </div>
       )}
+      {became && (
+        <p className="text-sm">
+          Became skill <span className="font-mono">{became.skillName}</span> ·{' '}
+          <a className="underline" href={withProject('/skills?tab=impact', projectId)}>See its impact</a>
+        </p>
+      )}
+      {(applying || proposed) && (
+        <p className="text-sm">
+          Being applied by{' '}
+          <a className="underline" href={jobLink((applying?.appliedJobId ?? proposed?.jobId)!)}>
+            job {(applying?.appliedJobId ?? proposed?.jobId)!.slice(0, 8)}
+          </a>
+          {proposed && !applying ? ` (skill ${proposed.skillName})` : ''}
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+      {!applying && !proposed && (
+        <Button size="sm" variant="outline" onClick={() => setProposing(true)}>
+          Propose skill
+        </Button>
+      )}
       <Button size="sm" variant="ghost" aria-expanded={open} onClick={() => setOpen(!open)}>
         {open ? 'Hide' : 'Show'} lessons ({pattern.members.length})
       </Button>
+      </div>
+      {proposing && (
+        <ProposeSkillDialog
+          projectId={projectId}
+          pattern={pattern}
+          onClose={() => setProposing(false)}
+          onProposed={(r) => { setProposed(r); onMerged(); }}
+        />
+      )}
       {open && (
         <>
           <ul className="space-y-2">

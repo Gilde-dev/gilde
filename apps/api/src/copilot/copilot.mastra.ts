@@ -236,7 +236,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
         instructions: VERKENNER_INSTRUCTIONS,
         model: (scout.model ?? scout.config.model) as `openai/${string}`,
-        tools: createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS),
+        tools: createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, scout.config.patternMinSize),
         memory: createScoutMemory(memoryInfra, usage),
         // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
         // server-issued project binding of the notification's own thread. The project is parsed from the thread id.

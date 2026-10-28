@@ -3,9 +3,9 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 import { LESSON_STATUSES, type LessonStatus } from './lesson-state.js';
 
 /** `skill` is legacy: rows that have it still load and apply like `repo_skill`, but it can no longer be set. */
-export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
+export const LESSON_TARGET_KINDS = ['skill', 'agents_md', 'repo_skill', 'routine_prompt', 'library_skill', 'other'] as const;
 export type LessonTargetKind = (typeof LESSON_TARGET_KINDS)[number];
-export const SETTABLE_LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'other'] as const;
+export const SETTABLE_LESSON_TARGET_KINDS = ['agents_md', 'repo_skill', 'routine_prompt', 'library_skill', 'other'] as const;
 
 @Entity({ name: 'lessons' })
 @Index(['projectId', 'status'])
@@ -34,6 +34,10 @@ export class Lesson {
 
     @Column({ name: 'applied_job_id', type: 'uuid', nullable: true })
     appliedJobId: string | null;
+
+    /** The library skill a `library_skill` lesson is being turned into (set by a skill proposal). */
+    @Column({ name: 'applied_skill_name', type: 'varchar', nullable: true })
+    appliedSkillName: string | null;
 
     @Column({ name: 'applied_at', type: Date, nullable: true })
     appliedAt: Date | null;

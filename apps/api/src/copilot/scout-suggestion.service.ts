@@ -7,12 +7,15 @@ import { isUniqueViolation } from '../common/db-errors.js';
 import { FeatureService } from '../feature/feature.service.js';
 import { JobContentSchema } from '../job/job.dto.js';
 import { JobService } from '../job/job.service.js';
+import { LessonPatternService } from '../lesson/lesson-pattern.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
+import { ProjectService } from '../project/project.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
 
 import { ScoutSuggestionGuard } from './scout-suggestion-guard.entity.js';
 import { ScoutSuggestion } from './scout-suggestion.entity.js';
+import { DEFAULT_SCOUT_PATTERN_MIN_SIZE } from './verkenner.config.js';
 import { isIssuedScoutBinding, type ScoutBinding } from './verkenner.context.js';
 
 export const SUGGESTION_MARKER = 'Suggested by Verkenner';
@@ -22,7 +25,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export type SuggestionRefusalReason =
     | 'scout_off' | 'untrusted_context' | 'invalid_input' | 'missing_evidence' | 'invalid_evidence' | 'foreign_evidence'
-    | 'unknown_repo' | 'foreign_repo' | 'duplicate_evidence' | 'duplicate_title' | 'daily_limit';
+    | 'unknown_repo' | 'foreign_repo' | 'unknown_pattern' | 'pattern_in_progress' | 'not_library_repo' | 'duplicate_evidence' | 'duplicate_title' | 'daily_limit';
 
 export interface SuggestionRefusal {
     reason: SuggestionRefusalReason;
@@ -43,6 +46,8 @@ export interface SuggestionInput {
     acceptanceCriteria: string[];
     reason: string;
     basedOn: string[];
+    /** A lesson pattern (see listLessonPatterns) this suggestion proposes a skill for; the evidence becomes its lessons. */
+    patternId?: string;
 }
 
 /** Sorted, unique, lower-case ids: the same evidence set in any order, with repeats, gives the same list. */
@@ -81,8 +86,11 @@ export class ScoutSuggestionService {
         private readonly runs: Pick<RunService, 'findById'>,
         private readonly repos: Pick<RepoService, 'getById'>,
         /** The enabled scout's settings and bot user, or null when the scout is off. */
-        private readonly scout: { user: { id: string }; dailySuggestions: number } | null,
+        private readonly scout: { user: { id: string }; dailySuggestions: number; patternMinSize?: number } | null,
         private readonly clock: () => Date = () => new Date(),
+        /** Read-only: a pattern suggestion never changes a lesson. */
+        private readonly patterns?: Pick<LessonPatternService, 'list'>,
+        private readonly projects?: Pick<ProjectService, 'getById'>,
     ) { }
 
     async suggest(binding: unknown, input: SuggestionInput): Promise<SuggestionResult> {
@@ -97,7 +105,8 @@ export class ScoutSuggestionService {
 
     private async validate(binding: ScoutBinding, input: SuggestionInput) {
         const raw = [...(input.basedOn ?? [])];
-        if (raw.length === 0 || raw.every((i) => !i.trim())) return refuse('missing_evidence', 'basedOn needs at least one run, job, lesson or feature id.');
+        const patternId = input.patternId?.trim();
+        if (!patternId && (raw.length === 0 || raw.every((i) => !i.trim()))) return refuse('missing_evidence', 'basedOn needs at least one run, job, lesson or feature id.');
         const ids = canonicalEvidence(raw.filter((i) => i.trim()));
         const malformed = ids.filter((i) => !UUID.test(i));
         if (malformed.length) return refuse('invalid_evidence', 'basedOn may only hold ids of runs, jobs, lessons or features.', { ids: malformed });
@@ -120,6 +129,13 @@ export class ScoutSuggestionService {
         }
         if (repo.projectId !== binding.projectId) return refuse('foreign_repo', `Repo ${input.repoId} is not in this project.`, { ids: [input.repoId] });
 
+        let evidence = ids;
+        if (patternId) {
+            const refusal = await this.checkPattern(binding, patternId, repo.id);
+            if ('created' in refusal) return refusal;
+            evidence = canonicalEvidence([...ids, ...refusal.lessonIds]);
+        }
+
         const unknown: string[] = [];
         const foreign: string[] = [];
         for (const id of ids) {
@@ -131,10 +147,30 @@ export class ScoutSuggestionService {
         if (foreign.length) return refuse('foreign_evidence', 'These ids belong to another project.', { ids: foreign });
 
         // The final text is validated too: the Why section must not push the task past what a job may hold.
-        const task = `${content.data.task}\n\n## Why\n${reason}\n\nBased on: ${ids.join(', ')}\n\n${SUGGESTION_MARKER}`;
+        const source = patternId ? `\n\nSource pattern: ${patternId}` : '';
+        const task = `${content.data.task}\n\n## Why\n${reason}\n\nBased on: ${evidence.join(', ')}${source}\n\n${SUGGESTION_MARKER}`;
         const final = JobContentSchema.safeParse({ ...content.data, task });
         if (!final.success) return refuse('invalid_input', 'The suggestion does not fit the limits of a job.', { problems: final.error.issues.map((i) => `${i.path.join('.') || 'job'}: ${i.message}`) });
-        return { repoId: repo.id, title: content.data.title, task, acceptanceCriteria: content.data.acceptanceCriteria ?? [], ids };
+        return { repoId: repo.id, title: content.data.title, task, acceptanceCriteria: content.data.acceptanceCriteria ?? [], ids: evidence };
+    }
+
+    /**
+     * A pattern suggestion needs a current pattern of at least the configured size, none of whose neighbours is being applied,
+     * aimed at the project's skills library repo. Read-only: lessons are never touched.
+     */
+    private async checkPattern(binding: ScoutBinding, patternId: string, repoId: string): Promise<SuggestionResult | { lessonIds: string[] }> {
+        if (!this.patterns || !this.projects) return refuse('unknown_pattern', 'Pattern suggestions are not available.', { ids: [patternId] });
+        const minSize = this.scout!.patternMinSize ?? DEFAULT_SCOUT_PATTERN_MIN_SIZE;
+        const pattern = (await this.patterns.list(binding.projectId, { minSize })).patterns.find((p) => p.id === patternId);
+        if (!pattern) return refuse('unknown_pattern', `No current lesson pattern of at least ${minSize} lessons has this id; list the patterns again.`, { ids: [patternId] });
+        if (pattern.alreadyCovered.some((c) => c.status === 'applying')) {
+            return refuse('pattern_in_progress', 'Lessons like these are already being applied by a job.', { ids: pattern.alreadyCovered.flatMap((c) => (c.status === 'applying' && c.appliedJobId ? [c.appliedJobId] : [])) });
+        }
+        const project = await this.projects.getById(binding.projectId);
+        if (project.skillsLibrary !== 'repo' || project.skillsLibraryRepoId !== repoId) {
+            return refuse('not_library_repo', 'A skill proposal belongs in the project\'s skills library repo.', { ids: [repoId] });
+        }
+        return { lessonIds: pattern.members.map((m) => m.lessonId) };
     }
 
     /** The project an evidence id belongs to (a job, feature, lesson or run), or null when it is none of them. */

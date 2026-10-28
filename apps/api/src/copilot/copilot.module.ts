@@ -126,9 +126,9 @@ export class ScoutLifecycle implements OnModuleDestroy {
         {
             // Null-safe: also constructed while the scout is off, where every suggestion is refused with scout_off.
             provide: ScoutSuggestionService,
-            useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null) =>
-                new ScoutSuggestionService(ds, jobs, features, lessons, runs, repos, scout && { user: scout.user, dailySuggestions: scout.config.dailySuggestions }),
-            inject: [DataSource, JobService, FeatureService, LessonService, RunService, RepoService, SCOUT_SETUP],
+            useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null, patterns: LessonPatternService, projects: ProjectService) =>
+                new ScoutSuggestionService(ds, jobs, features, lessons, runs, repos, scout && { user: scout.user, dailySuggestions: scout.config.dailySuggestions, patternMinSize: scout.config.patternMinSize }, undefined, patterns, projects),
+            inject: [DataSource, JobService, FeatureService, LessonService, RunService, RepoService, SCOUT_SETUP, LessonPatternService, ProjectService],
         },
         {
             provide: ScoutActivityService,

@@ -271,6 +271,7 @@ event publishing, wake budgets, the daily summary, bounded `suggestJob` triage s
 | `SCOUT_SUMMARY_HOUR_UTC` | integer 0..23, default `6`: hour of the daily summary |
 | `SCOUT_MAX_WAKES_PER_DAY` | positive integer, default `6`: wakes per project per UTC day |
 | `SCOUT_DAILY_SUGGESTIONS` | positive integer, default `3`: suggestions per project per UTC day |
+| `SCOUT_PATTERN_MIN_SIZE` | integer 2..100, default `4`: smallest lesson pattern the scout may suggest a skill for (see [The learning loop](#the-learning-loop)) |
 
 The scout is configured independently of the co-pilot: a valid scout configuration also works when `COPILOT_MODEL` is unset (the
 co-pilot is then off and its routes answer 503). A missing flag, user, model or key, an unknown user, or an explicit invalid number
@@ -716,6 +717,20 @@ docker compose exec api node dist/cli/lesson-reject-retro-candidates.js [--dry-r
 `GET /api/v1/projects/:id/skills/impact?days=` (default 30, max 180) and the **Impact** tab on `/skills` compare how runs went per skill version. Every run records the skills (name and content hash) the agent had; for each version seen, Gilde shows the finished runs with that exact version next to the finished runs in the same repos without the skill: sample size, counts and rates of done, partial, blocked, merged, rejected or parked and CI failed, average revision rounds (accepted proposals) and median attributed Claude Code tokens. A run is finished when its job reached merged, rejected, parked or cancelled, or a later attempt superseded it. Versions of one skill are listed in the order they were first seen.
 
 These are descriptive comparisons only: no significance tests and no effect claims. Job difficulty and other changes differ between the groups. A group with fewer than `SKILL_IMPACT_MIN_RUNS` finished runs (default 10, a positive integer; an invalid value stops the API at startup) is marked `insufficient` and has no rates. The co-pilot and the MCP server expose the same summary read-only as `getSkillImpact`.
+
+### The learning loop
+
+Lessons, patterns, a proposed skill and its impact form one loop, with a human at every step that changes something.
+
+1. **Lessons** are collected hourly (above) and reviewed on `/lessons`.
+2. **Patterns.** `GET /api/v1/projects/:id/lessons/patterns` (the **Patterns** view) groups candidate and approved lessons that say the same thing, deterministically on the server (embeddings when the memory infrastructure has them, otherwise normalized-text similarity). Nothing is changed by looking at patterns.
+3. **Proposed skill.** A verified human (a JWT, never an API key) uses **Propose skill** on a pattern, or `POST /api/v1/projects/:id/lessons/patterns/:patternId/propose-skill` with `{ name, scope: 'global' | 'stack', stacks?, title? }`. This needs a repo-backed skills library (`skillsLibraryRepoId`). The name is validated like a skill promotion and must not exist in the library or be in another proposal. In one transaction Gilde creates **one triage job** in the library repo (never queued) and moves every candidate or approved lesson of the pattern to `applying` (candidates are approved first, through the lesson state machine), with target kind `library_skill` and the skill name. The job task names the skill and scope, quotes every member lesson verbatim with links to the jobs and PRs it came from, and asks for a short procedural `SKILL.md`, a registry entry and the library's validation (its test commands). Secrets are redacted and full PR bodies are never included. A pattern id is a hash of its members: if they changed, the answer is 409 and the view must be reloaded.
+4. **Outcome.** When the job merges the lessons become `applied`; when it is rejected, parked or cancelled they return to `approved`. The Patterns view then shows the job for a pattern being applied, and "became skill *name*" with a link to the **Impact** tab for one that was applied.
+5. **Impact.** Once the skill is synced to repos, the Impact tab (above) shows runs with and without each of its versions.
+
+The Verkenner may suggest step 3 through its existing triage-only `suggestJob` (`patternId` plus the library repo as `repoId`) for patterns of at least `SCOUT_PATTERN_MIN_SIZE` lessons that no applying lesson covers. The pattern's lessons are the evidence, the same daily cap and evidence/title dedupe apply, and it never calls the propose endpoint or changes a lesson, so the lessons stay as they are until a human acts on the suggested job or the pattern.
+
+Limits: patterns cover the 1000 most recent candidate, approved, applying and applied lessons of a project; a pattern whose lessons are all `applying` disappears from the list (the Lessons list still shows them); grouping is a similarity heuristic and can group lessons that differ in a way that matters, which is why the agent is told to verify each lesson first; the Impact comparison is descriptive, not causal.
 
 ## Updating resources (PUT)
 
