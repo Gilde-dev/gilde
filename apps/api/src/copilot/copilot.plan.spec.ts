@@ -99,6 +99,16 @@ describe('planFeature', () => {
         expect(result.problems.join('\n')).toMatch(/jobs\.0\.task/);
     });
 
+    it('names the plan job whose task and criteria are over 40000 characters together, at the boundary', async () => {
+        const { run } = setup();
+        const sized = (task: number, criterion: number) => ({ ...job('big'), task: 't'.repeat(task), acceptanceCriteria: ['c'.repeat(criterion)] });
+        expect((await run('planFeature', draft([sized(39_997, 3)]))).valid).toBe(true);
+        expect((await run('planFeature', draft([sized(39_000, 1_000)]))).valid).toBe(true);
+        const over = await run('planFeature', draft([job('ok'), sized(39_000, 1_001)]));
+        expect(over.valid).toBe(false);
+        expect(over.problems).toEqual([expect.stringMatching(/^Job "big": the task and acceptance criteria are 40001 characters together/)]);
+    });
+
     it('reports an unknown project', async () => {
         const { s, run } = setup();
         s.projects.getById.mockRejectedValue(new Error('Project not found'));
@@ -129,6 +139,14 @@ describe('createPlannedFeature', () => {
             jobs: [{ key: 'web', jobId: 'job-2', status: 'triage' }, { key: 'api', jobId: 'job-1', status: 'triage' }],
         });
         expect(s.jobs.cancel).not.toHaveBeenCalled();
+    });
+
+    it('creates nothing for a plan with an oversized job, even if the draft was never planned', async () => {
+        const { s, run } = setup();
+        const result = await run('createPlannedFeature', draft([job('api'), { ...job('web'), task: 't'.repeat(40_000), acceptanceCriteria: ['abc', 'd'.repeat(10)] }]));
+        expect(result.created).toBe(false);
+        expect(result.problems[0]).toContain('Job "web"');
+        expect(writes(s)).toBe(0);
     });
 
     it('does not create anything for an invalid draft', async () => {

@@ -24,6 +24,7 @@ describe('Job prompt preview with lessons (e2e)', () => {
   let headers: { Authorization: string };
   let project: Project;
   let job: Job;
+  let repoId: string;
   let lessonId: string;
   const http = () => request(app.getHttpServer());
 
@@ -44,6 +45,7 @@ describe('Job prompt preview with lessons (e2e)', () => {
     const tag = randomUUID().slice(0, 8);
     project = await ds.getRepository(Project).save({ slug: `prompt-${tag}`, name: 'Prompt project' });
     const repo = await ds.getRepository(Repo).save({ projectId: project.id, fullName: `acme/prompt-${tag}`, testCommands: ['pnpm test'] });
+    repoId = repo.id;
     const foreign = await ds.getRepository(Project).save({ slug: `prompt-foreign-${tag}`, name: 'Foreign' });
     job = await ds.getRepository(Job).save({ projectId: project.id, repoId: repo.id, title: 'Export zebra data', task: 'Export zebra data as CSV', acceptanceCriteria: ['streams'], status: 'queued' });
     lessonId = (await ds.getRepository(Lesson).save({ projectId: project.id, text: 'Stream zebra exports', status: 'approved' })).id;
@@ -77,5 +79,32 @@ describe('Job prompt preview with lessons (e2e)', () => {
     await app.get(DataSource).getRepository(Lesson).update({ id: lessonId }, { status: 'rejected' });
     const res = await http().get(`/api/v1/jobs/${job.id}/prompt`).set(headers).expect(200);
     expect(res.body.text).not.toContain('"lessons"');
+  });
+
+  it('returns size, limit and trimmed from the same renderer', async () => {
+    const res = await http().get(`/api/v1/jobs/${job.id}/prompt`).set(headers).expect(200);
+    expect(res.body).toEqual({ text: res.body.text, instructionsVersion: null, length: res.body.text.length, limit: 60_000, trimmed: null });
+  });
+
+  it('returns an inspectable preview when the prompt cannot fit, instead of a 400', async () => {
+    const big = await app.get(DataSource).getRepository(Job).save({ projectId: project.id, repoId, title: 'Huge', task: 'T'.repeat(61_000), status: 'queued' });
+    const res = await http().get(`/api/v1/jobs/${big.id}/prompt`).set(headers).expect(200);
+    expect(res.body.limit).toBe(60_000);
+    expect(res.body.length).toBeGreaterThan(60_000);
+    expect(res.body.length).toBe(res.body.text.length);
+  });
+
+  it('rejects task plus criteria above 40000 characters on create and update, accepting exactly 40000', async () => {
+    const create = (task: number, criterion: number) => http().post(`/api/v1/repos/${repoId}/jobs`).set(headers)
+      .send({ title: 'Sized job', task: 't'.repeat(task), acceptanceCriteria: ['c'.repeat(criterion)], status: 'triage' });
+    await create(39_000, 1_000).expect(201);
+    const rejected = await create(39_000, 1_001).expect(400);
+    expect(rejected.body.message).toMatch(/40001 characters together.*over the 40000 limit/);
+
+    const created = await create(100, 100).expect(201);
+    await http().patch(`/api/v1/jobs/${created.body.id}`).set(headers).send({ task: 't'.repeat(40_000) }).expect(400);
+    await http().patch(`/api/v1/jobs/${created.body.id}`).set(headers).send({ task: 't'.repeat(39_900) }).expect(200);
+    const after = await http().get(`/api/v1/jobs/${created.body.id}`).set(headers).expect(200);
+    expect(after.body.task).toHaveLength(39_900);
   });
 });

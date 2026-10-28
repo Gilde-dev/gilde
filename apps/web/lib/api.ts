@@ -438,9 +438,24 @@ export interface Revision {
   pr: { number: number; url: string } | null;
 }
 
+/** What was cut from the optional context of a prompt; absent fields are unchanged. */
+export interface PromptTrimmed {
+  lessonsRemoved?: string[];
+  /** Characters kept per downstream task, or 'title-only' when the task text was left out (criteria are kept). */
+  downstreamTaskCap?: number | 'title-only';
+  /** Downstream jobs left out by the initial 20-job cutoff. */
+  downstreamOmitted?: number;
+  downstreamRemoved?: string[];
+  featureSpecCap?: number;
+}
+
 export interface JobPrompt {
+  /** Exactly what a fire would send; a fire refuses it when `length` is over `limit`. */
   text: string;
   instructionsVersion: string | null;
+  length: number;
+  limit: number;
+  trimmed: PromptTrimmed | null;
 }
 
 export interface JobDetail extends Job {

@@ -10,6 +10,7 @@ import { JOB_STATUSES } from '../job/job-state.js';
 import type { GitHubPort } from '../github/github.port.js';
 import type { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 import { CreateJobSchema, JobContentSchema, type JobResponseDto } from '../job/job.dto.js';
+import { taskContentProblem } from '../job/task-size.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
@@ -24,7 +25,7 @@ import type { SkillService } from '../skill/skill.service.js';
 
 import { createCodeTools } from './copilot.code-tools.js';
 import { copilotUser } from './copilot.context.js';
-import { dependencyOrder, FeaturePlanSchema, graphProblems, type FeaturePlan } from './copilot.plan.js';
+import { dependencyOrder, FeaturePlanSchema, graphProblems, sizeProblems, type FeaturePlan } from './copilot.plan.js';
 
 /** A job without its task text and criteria, for list results. */
 export const compactJob = (j: JobResponseDto) => ({
@@ -170,7 +171,7 @@ export function createCopilotTools(s: CopilotServices) {
             return { valid: false, problems: parsed.error.issues.map((i) => `${i.path.join('.') || 'draft'}: ${i.message}`) };
         }
         const draft = parsed.data;
-        const problems = graphProblems(draft.jobs);
+        const problems = [...graphProblems(draft.jobs), ...sizeProblems(draft.jobs)];
         let repoIds: Set<string>;
         try {
             await s.projects.getById(draft.projectId);
@@ -297,6 +298,10 @@ export function createCopilotTools(s: CopilotServices) {
         const problems: string[] = [];
         const parsed = JobDraftSchema.safeParse({ title: input.title, task: input.task, acceptanceCriteria: input.acceptanceCriteria, dependsOn: [] });
         if (!parsed.success) problems.push(...parsed.error.issues.map((i) => `${i.path.join('.') || 'job'}: ${i.message}`));
+        else {
+            const tooLarge = taskContentProblem(parsed.data.task, parsed.data.acceptanceCriteria ?? []);
+            if (tooLarge) problems.push(tooLarge);
+        }
         const dependsOn = input.dependsOn ?? [];
         if (dependsOn.length > 20) problems.push('dependsOn: at most 20 dependencies');
         if (new Set(dependsOn).size !== dependsOn.length) problems.push('dependsOn: duplicate dependencies');

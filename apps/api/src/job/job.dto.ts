@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import type { PromptTrimmed } from '../execution/execution.port.js';
 import { FeedbackResponseSchema } from '../feedback/feedback.dto.js';
 import { RunDetailResponseSchema } from '../run/run.dto.js';
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
@@ -105,11 +106,16 @@ export const EnqueueResponseSchema = JobResponseSchema.extend({
     warnings: z.array(EnqueueWarningSchema),
 });
 
-export const JobPromptResponseSchema = z.object({
-    text: z.string(),
-    instructionsVersion: z.string().nullable(),
-});
-export type JobPromptResponseDto = z.infer<typeof JobPromptResponseSchema>;
+
+export interface JobPromptResponseDto {
+    /** Exactly what a fire would send, even when it is over the limit (then a fire refuses it). */
+    text: string;
+    instructionsVersion: string | null;
+    length: number;
+    limit: number;
+    /** What was cut from the optional context; null when nothing was. */
+    trimmed: PromptTrimmed | null;
+}
 
 export type ReplaceJobDto = z.infer<typeof ReplaceJobSchema>;
 export type BulkEnqueueDto = z.infer<typeof BulkEnqueueSchema>;

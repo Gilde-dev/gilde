@@ -1,10 +1,11 @@
+import { prepareJobPrompt } from '../execution/job-prompt.js';
 import { BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DispatcherService } from '../dispatch/dispatcher.service.js';
 import { User } from '../user/user.entity.js';
-import { loadDownstream } from '../execution/downstream.js';
+import { loadDownstream, loadDownstreamContext } from '../execution/downstream.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import { Feature } from '../feature/feature.entity.js';
 import { Feedback } from '../feedback/feedback.entity.js';
@@ -253,7 +254,7 @@ describe('RevisionService', () => {
 describe('dispatch with revisions', () => {
     it('does not fire a queued job with a proposed revision until it is decided', async () => {
         const fire = vi.fn().mockResolvedValue({ sessionId: 's', sessionUrl: 'https://x/s' });
-        const execution: ExecutionPort = { fire, preview: () => ({ text: '', instructionsVersion: null }) };
+        const execution: ExecutionPort = { fire: (r, i) => fire(r, 'prepared' in i ? i.payload : i), prepare: (p, c) => prepareJobPrompt(p, { text: null, version: null }, c) };
         const repoService = new RepoService(new RepoMapper(), {} as never, ds.getRepository(Repo));
         const dispatcher = new DispatcherService(
             new RunService(new RunMapper(), runs), execution, jobs, ds.getRepository(Repo), ds.getRepository(Project), runs,
@@ -321,6 +322,32 @@ describe('loadDownstream', () => {
             await deps.insert({ jobId: j.id, dependsOnJobId: root.id });
         }
         expect(await loadDownstream(ds.manager, root)).toHaveLength(20);
+    });
+
+    it('classifies dependents from the full graph, orders by age then id, and reports the initial cutoffs', async () => {
+        const feature = await ds.getRepository(Feature).save(ds.getRepository(Feature).create({
+            projectId: project.id, title: 'F', spec: 's', status: 'active',
+        } as never));
+        const root = await seedJob('dispatched', { featureId: feature.id });
+        const sameTime = new Date('2026-01-01T00:00:00Z');
+        const siblings: Job[] = [];
+        for (let i = 0; i < 20; i++) siblings.push(await seedJob('queued', { featureId: feature.id, createdAt: sameTime, ...(i === 0 ? { task: 't'.repeat(4500) } : {}) }));
+        // A dependent that is younger than 20 siblings falls beyond the cutoff but is still classified from the graph.
+        const late = await seedJob('queued', { featureId: feature.id, createdAt: new Date('2026-06-01T00:00:00Z') });
+        await deps.insert({ jobId: late.id, dependsOnJobId: root.id });
+        const early = await seedJob('queued', { createdAt: new Date('2025-01-01T00:00:00Z') });
+        await deps.insert({ jobId: early.id, dependsOnJobId: root.id });
+
+        const ctx = await loadDownstreamContext(ds.manager, root);
+        expect(ctx.jobs).toHaveLength(20);
+        expect(ctx.jobs[0].jobId).toBe(early.id);
+        expect(ctx.dependents).toEqual(new Set([early.id]));
+        expect(ctx.omitted).toBe(2);
+        expect(ctx.taskCapped).toBe(siblings.some((j) => j.task.length > 4000));
+        const tied = ctx.jobs.slice(1).map((j) => j.jobId);
+        expect(tied).toEqual([...tied].sort());
+        // Nothing internal leaks into the entries the agent sees.
+        expect(Object.keys(ctx.jobs[0]).sort()).toEqual(['acceptanceCriteria', 'dependsOn', 'jobId', 'task', 'title']);
     });
 });
 

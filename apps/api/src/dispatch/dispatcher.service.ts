@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -5,10 +7,11 @@ import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeor
 
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
-import { loadDownstream } from '../execution/downstream.js';
+import { loadDownstreamContext } from '../execution/downstream.js';
 import { selectJobLessons } from '../execution/job-lessons.js';
-import { buildJobPayload } from '../execution/job-payload.js';
-import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult } from '../execution/execution.port.js';
+import { buildJobPromptInput } from '../execution/job-payload.js';
+import { promptTooLargeError } from '../execution/job-prompt.js';
+import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult, type PreparedPrompt } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
@@ -163,33 +166,48 @@ export class DispatcherService {
             }
             const slots = Math.min(repo.maxConcurrentJobs - active, budgets.get(project.id)!);
 
-            const jobs = await queuedJobs()
-                .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
-                .andWhere((qb) => `NOT EXISTS ${revised(qb)}`)
-                .orderBy('job.queuedAt', 'ASC')
-                .limit(slots)
-                .getMany();
+            // A job that cannot fit its prompt is parked without using a slot, so the batch is refilled for the others.
+            const tried = new Set<string>();
+            let capacity = slots;
             let attempted = 0;
-            for (const job of jobs) {
-                // The pre-check above covered the first fire; later ones see spend recorded since, not a stale answer.
-                if (attempted++ > 0) {
-                    const stopped = await this.budgetBlock(project.id);
-                    if (stopped) {
-                        applyBudget(report, stopped);
-                        break;
+            let stop = false;
+            while (capacity > 0 && !stop) {
+                const jobs = await queuedJobs()
+                    .andWhere((qb) => `NOT EXISTS ${unmerged(qb)}`)
+                    .andWhere((qb) => `NOT EXISTS ${revised(qb)}`)
+                    .andWhere(tried.size ? 'job.id NOT IN (:...tried)' : '1 = 1', { tried: [...tried] })
+                    .orderBy('job.queuedAt', 'ASC')
+                    .limit(capacity)
+                    .getMany();
+                if (!jobs.length) break;
+                let refill = false;
+                for (const job of jobs) {
+                    tried.add(job.id);
+                    // The pre-check above covered the first fire; later ones see spend recorded since, not a stale answer.
+                    if (attempted++ > 0) {
+                        const stopped = await this.budgetBlock(project.id);
+                        if (stopped) {
+                            applyBudget(report, stopped);
+                            stop = true;
+                            break;
+                        }
+                    }
+                    try {
+                        const outcome = await this.fireJob(job.id, repo, project);
+                        if (outcome === 'skipped') { capacity--; continue; }
+                        if (outcome === 'oversized') { attempted--; refill = true; continue; }
+                        if (outcome === 'fired') { fired++; report.fired++; }
+                        else failed++;
+                        capacity--;
+                        budgets.set(project.id, budgets.get(project.id)! - 1);
+                        // The repo is now paused; don't fire its remaining jobs this pass.
+                        if (outcome === 'config_error') { stop = true; break; }
+                    } catch (e) {
+                        capacity--;
+                        this.logger.error(`Job ${job.id}: ${errorMessage(e)}`);
                     }
                 }
-                try {
-                    const outcome = await this.fireJob(job.id, repo, project);
-                    if (outcome === 'skipped') continue;
-                    if (outcome === 'fired') { fired++; report.fired++; }
-                    else failed++;
-                    budgets.set(project.id, budgets.get(project.id)! - 1);
-                    // The repo is now paused; don't fire its remaining jobs this pass.
-                    if (outcome === 'config_error') break;
-                } catch (e) {
-                    this.logger.error(`Job ${job.id}: ${errorMessage(e)}`);
-                }
+                if (!refill) break;
             }
         }
         this.logChanges(reports);
@@ -245,7 +263,7 @@ export class DispatcherService {
         return project.dailyRunLimit - used;
     }
 
-    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped' | 'config_error'> {
+    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped' | 'config_error' | 'oversized'> {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
@@ -262,14 +280,23 @@ export class DispatcherService {
 
         // Optional context: never throws, so a retrieval problem cannot fail the run or cost an attempt.
         const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
+        const downstream = await loadDownstreamContext(this.jobRepository.manager, job);
 
         let runId: string | undefined;
         let session: ExecutionResult;
         try {
-            runId = await this.startRun(job, project.id, repo.id);
+            // The prompt is sized with the run id it will carry, before any run row exists.
+            const reserved = await this.reserveRunId(job);
+            const { payload, context } = buildJobPromptInput(job, repo, feature, reserved.id, job.attempts, downstream, lessons);
+            const prompt = this.execution.prepare(payload, context);
+            if (!prompt.fits) {
+                await this.parkOversized(job, prompt);
+                return 'oversized';
+            }
+            runId = await this.startRun(job, project.id, repo.id, reserved);
             session = await this.execution.fire(
                 { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
-                buildJobPayload(job, repo, feature, runId, job.attempts, await loadDownstream(this.jobRepository.manager, job), lessons),
+                prompt,
             );
         } catch (e) {
             const message = errorMessage(e);
@@ -292,20 +319,46 @@ export class DispatcherService {
     }
 
     /**
-     * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
-     * the earlier fire_failed run (runs are unique per job and attempt) instead of creating a new one.
+     * The id of the run this attempt will use: an earlier fire_failed run of the same attempt (runs are unique per job and
+     * attempt) or a new id. Nothing is written.
      */
-    private async startRun(job: Job, projectId: string, repoId: string): Promise<string> {
+    private async reserveRunId(job: Job): Promise<{ id: string; reuse: boolean }> {
         const previous = await this.runRepository.findOneBy({ jobId: job.id, attempt: job.attempts, status: 'fire_failed' });
-        if (previous) {
+        return previous ? { id: previous.id, reuse: true } : { id: randomUUID(), reuse: false };
+    }
+
+    /**
+     * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
+     * the earlier fire_failed run instead of creating a new one.
+     */
+    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean }): Promise<string> {
+        if (reserved.reuse) {
             await this.runRepository.update(
-                { id: previous.id },
+                { id: reserved.id },
                 { status: 'firing', error: null, finishedAt: null },
             );
-            return previous.id;
+            return reserved.id;
         }
-        const run = await this.runService.create({ jobId: job.id, projectId, repoId, attempt: job.attempts });
+        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: job.attempts });
         return run.id;
+    }
+
+    /**
+     * The prompt does not fit after trimming, which is about this job only: park it, give the claim's attempt back and
+     * leave the repo, the daily allowance and the other queued jobs alone. No run exists and nothing was sent.
+     */
+    private async parkOversized(job: Job, prompt: PreparedPrompt): Promise<void> {
+        const reason = promptTooLargeError(prompt, job.id).message;
+        const to = nextStatus('dispatched', 'park');
+        if (!to) throw new Error('Job state machine does not allow park from dispatched');
+        const res = await this.jobRepository.update(
+            { id: job.id, status: 'dispatched' },
+            { status: to, lastReason: reason, attempts: () => 'attempts - 1' },
+        );
+        if (res.affected === 1) {
+            this.logger.warn(`Job ${job.id} parked: ${reason}`);
+            await this.capture?.jobParked(job, reason, 'dispatch');
+        }
     }
 
     /** A config error says nothing about the job: back to the queue, and the claim's attempt is given back. */

@@ -19,6 +19,7 @@ import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
 import { JOB_STATUSES, TERMINAL, nextStatus, type JobEvent, type JobStatus } from './job-state.js';
+import { taskContentProblem } from './task-size.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { User } from '../user/user.entity.js';
 
@@ -46,6 +47,7 @@ export class JobService {
         const jobs = manager?.getRepository(Job) ?? this.jobRepository;
         const dependencies = manager?.getRepository(JobDependency) ?? this.dependencyRepository;
         const repo = await this.repoService.getById(repoId); // 404 if unknown
+        this.assertTaskContent(dto.task, dto.acceptanceCriteria ?? []);
         const dependsOn = dto.dependsOn ?? [];
         await this.validateDependencies(null, repo.projectId, dependsOn);
         const feature = dto.featureId ? await this.linkableFeature(dto.featureId, repo.projectId) : null;
@@ -121,6 +123,12 @@ export class JobService {
             await this.capture?.featureReadiness(changes.featureId);
         }
         return this.getById(id);
+    }
+
+    /** 400 when the task and criteria together are over TASK_CONTENT_LIMIT. Runs before any write. */
+    private assertTaskContent(task: string, acceptanceCriteria: string[]): void {
+        const problem = taskContentProblem(task, acceptanceCriteria);
+        if (problem) throw new BadRequestException(problem);
     }
 
     /** The feature a job may be linked to: it must exist in the project (400) and still be open (409). */
