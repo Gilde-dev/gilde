@@ -29,3 +29,8 @@ export function parseApiKeyCreateArgs(argv: string[]): { email: string; name: st
     }
     return { email: values.email, name: values.name };
 }
+
+export function parseRejectRetroCandidatesArgs(argv: string[]): { dryRun: boolean } {
+    const { values } = parseArgs({ args: argv, options: { 'dry-run': { type: 'boolean' } }, strict: true });
+    return { dryRun: values['dry-run'] === true };
+}

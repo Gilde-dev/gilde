@@ -18,6 +18,7 @@
     "start:prod": "node dist/main",
     "user:create": "nest build && node --env-file-if-exists=.env dist/cli/user-create.js",
     "user:mark-bot": "nest build && node --env-file-if-exists=.env dist/cli/user-mark-bot.js",
+    "lesson:reject-retro-candidates": "nest build && node --env-file-if-exists=.env dist/cli/lesson-reject-retro-candidates.js",
     "apikey:create": "nest build && node --env-file-if-exists=.env dist/cli/apikey-create.js",
     "migration:generate": "node scripts/migration.mjs generate",
     "migration:run": "node scripts/migration.mjs run",

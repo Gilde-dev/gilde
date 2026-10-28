@@ -49,7 +49,7 @@ export class LessonCollectorService {
         }
     }
 
-    /** Creates one candidate lesson per source that isn't a lesson source yet. A pass that overlaps a running one returns immediately. */
+    /** Creates one candidate lesson per suggested lesson or member feedback that isn't a lesson source yet (retros stay on the run and are not collected). A pass that overlaps a running one returns immediately. */
     async collect(): Promise<CollectResultDto> {
         if (this.running) return { created: 0 };
         this.running = true;
@@ -74,10 +74,6 @@ export class LessonCollectorService {
             const suggested = run.result?.suggestedLesson?.trim();
             if (suggested) {
                 out.push({ ...base, kind: 'suggested_lesson', key: lessonSourceKey('suggested_lesson', run.id), text: suggested, excerpt: suggested });
-            }
-            const retro = run.retro?.trim();
-            if (retro) {
-                out.push({ ...base, kind: 'retro', key: lessonSourceKey('retro', run.id), text: retro.slice(0, TEXT_MAX), excerpt: retro.slice(0, EXCERPT_MAX) });
             }
         }
         for (const f of await this.feedback.find({ order: { createdAt: 'ASC' } })) {

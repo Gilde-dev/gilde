@@ -501,6 +501,22 @@ In the UI, **Metrics** shows *Co-pilot usage* (always all projects, not filtered
 
 Cost is always labelled *estimated*: it is Claude Code's own figure, and under a subscription it is notional, not billing. An unknown cost is shown as `unavailable`, never `$0`; a partly known one as `$x+ (n requests unknown)`. "No telemetry received" (no rows) is shown differently from loading, an error, and real zero values.
 
+## Lessons
+
+Gilde collects candidate lessons hourly from two sources: the agent's `suggestedLesson` in its result block and review feedback from repository members
+(owner, member or collaborator). PR retros are not collected: a retro is a report, and agents distil the useful part into `suggestedLesson`. The retro stays
+on the run and is shown in the run and job detail. Older `retro` lesson sources remain valid.
+
+Before retros stopped becoming candidates, they filled the candidate list. To reject those, run the operator CLI (idempotent). It moves candidate lessons whose
+only sources are retros to `rejected` with an explanatory note, and never touches lessons with another source or in any other status. `--dry-run` only
+prints the count and the ids.
+
+```bash
+pnpm --filter @gilde/api lesson:reject-retro-candidates [--dry-run]
+# production
+docker compose exec api node dist/cli/lesson-reject-retro-candidates.js [--dry-run]
+```
+
 ## Updating resources (PUT)
 
 Jobs, features, projects, repos and lessons are updated with `PUT` on the resource, which replaces its updatable fields as a whole. There are no `PATCH` routes, and a body that omits a key is answered with 400 and a zod issue for that key. A nullable field is a required key too: send `null` to clear it. Fields that are not listed (ids, `slug`, `fullName`, `paused`, status, manifest fields) cannot be changed this way and are ignored when sent.

@@ -15,6 +15,8 @@ import { LessonSource } from './lesson-source.entity.js';
 import type { LessonJobHook } from './lesson-hook.js';
 import { nextLessonStatus, type LessonEvent } from './lesson-state.js';
 
+export const RETRO_REJECT_NOTE = 'Retro excerpt, not a lesson (collected before retros stopped becoming candidates)';
+
 @Injectable()
 export class LessonService implements LessonJobHook {
 
@@ -140,6 +142,30 @@ export class LessonService implements LessonJobHook {
             await m.update(Lesson, { id: target.id }, { updatedAt: new Date() });
         });
         return this.getById(target.id);
+    }
+
+    /** Rejects candidate lessons whose only sources are retros. With `dryRun` it changes nothing. Returns the affected lesson ids. */
+    async rejectRetroCandidates(dryRun: boolean): Promise<string[]> {
+        const candidates = await this.lessons.find({ where: { status: 'candidate' } });
+        const ids: string[] = [];
+        for (let i = 0; i < candidates.length; i += 500) {
+            const chunk = candidates.slice(i, i + 500);
+            const sources = await this.sources.find({ where: { lessonId: In(chunk.map((l) => l.id)) } });
+            const kinds = new Map<string, string[]>();
+            for (const s of sources) kinds.set(s.lessonId, [...(kinds.get(s.lessonId) ?? []), s.kind]);
+            for (const l of chunk) {
+                const k = kinds.get(l.id) ?? [];
+                if (k.length === 0 || !k.every((kind) => kind === 'retro')) continue;
+                const next = nextLessonStatus(l.status, 'reject');
+                if (!next) continue;
+                ids.push(l.id);
+                if (dryRun) continue;
+                l.status = next;
+                l.note = RETRO_REJECT_NOTE;
+                await this.lessons.save(l);
+            }
+        }
+        return ids;
     }
 
     private async transition(id: string, event: LessonEvent): Promise<LessonResponseDto> {

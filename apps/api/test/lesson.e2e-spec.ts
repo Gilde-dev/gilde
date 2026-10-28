@@ -40,6 +40,10 @@ describe('Lessons (e2e)', () => {
       jobId: job.id, projectId: project.id, repoId: repo.id, prNumber: 1, kind: 'comment', githubId: randomUUID(),
       author: 'a', authorAssociation: 'NONE', body: 'ignored', url: 'u',
     });
+    await ds.getRepository(Feedback).save({
+      jobId: job.id, projectId: project.id, repoId: repo.id, prNumber: 1, kind: 'comment', githubId: randomUUID(),
+      author: 'm', authorAssociation: 'MEMBER', body: 'Use the helper', url: 'u',
+    });
 
     const collected = await http().post('/api/v1/lessons/collect').expect(200);
     expect(collected.body.created).toBeGreaterThanOrEqual(2);
