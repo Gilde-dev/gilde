@@ -14,6 +14,7 @@ import { taskContentProblem } from '../job/task-size.js';
 import type { JobService } from '../job/job.service.js';
 import { LESSON_STATUSES } from '../lesson/lesson-state.js';
 import type { LessonService } from '../lesson/lesson.service.js';
+import type { LessonPatternService } from '../lesson/lesson-pattern.service.js';
 import { HistorySearchSchema } from '../memory/history/history.dto.js';
 import type { HistorySearchService } from '../memory/history/history-search.service.js';
 import type { MetricsService } from '../metrics/metrics.service.js';
@@ -87,6 +88,7 @@ export interface CopilotServices {
     dispatcher: DispatcherService;
     metrics: MetricsService;
     lessons: LessonService;
+    lessonPatterns: LessonPatternService;
     skills: SkillService;
     projects: ProjectService;
     repos: RepoService;
@@ -121,6 +123,10 @@ export const getMetricsInput = z.object({
     repoId: id('repo').optional(),
 });
 export const listLessonsInput = z.object({ status: z.enum(LESSON_STATUSES).optional(), projectId: id('project').optional() });
+export const listLessonPatternsInput = z.object({
+    projectId: id('project'),
+    minSize: z.number().int().min(2).max(100).default(2).describe('Smallest number of lessons in a pattern'),
+});
 export const getRepoSkillsInput = z.object({ repoId: id('repo') });
 export const listSpecsInput = z.object({ projectId: id('project') });
 export const getSpecInput = z.object({ specId: id('spec') });
@@ -280,6 +286,15 @@ export function createReadToolBodies(s: CopilotServices) {
     const getDispatchStatus = async () => s.dispatcher.status();
     const getMetrics = async (q: z.infer<typeof getMetricsInput>) => s.metrics.get(q);
     const listLessons = async (q: z.infer<typeof listLessonsInput>) => s.lessons.list(q);
+    /** Patterns without per-source excerpts: lesson ids, texts and statuses are enough to cite, getJob/listLessons give the rest. */
+    const listLessonPatterns = async ({ projectId, minSize }: z.infer<typeof listLessonPatternsInput>) => {
+        const { method, threshold, patterns } = await s.lessonPatterns.list(projectId, { minSize });
+        return {
+            method,
+            threshold,
+            patterns: patterns.map(({ members, ...p }) => ({ ...p, members: members.map(({ sources: _s, ...m }) => m) })),
+        };
+    };
     const getRepoSkills = async ({ repoId }: z.infer<typeof getRepoSkillsInput>) => s.skills.forRepo(repoId);
     const listSpecs = async ({ projectId }: z.infer<typeof listSpecsInput>) => s.specs.list(projectId);
     const getSpec = async ({ specId }: z.infer<typeof getSpecInput>) => compactSpec(await s.specs.getDetail(specId, null));
@@ -296,6 +311,6 @@ export function createReadToolBodies(s: CopilotServices) {
     return {
         ...createCodeToolBodies(s),
         listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics,
-        listLessons, getRepoSkills, listSpecs, getSpec, planFeature, validateJob, searchHistory,
+        listLessons, listLessonPatterns, getRepoSkills, listSpecs, getSpec, planFeature, validateJob, searchHistory,
     };
 }

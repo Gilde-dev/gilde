@@ -941,6 +941,35 @@ export interface Lesson {
   updatedAt: string;
 }
 
+export interface LessonPatternMember {
+  lessonId: string;
+  text: string;
+  status: LessonStatus;
+  sources: LessonSource[];
+}
+
+/** Mirrors LessonPatternSchema: a group of candidate/approved lessons that say the same thing. */
+export interface LessonPattern {
+  /** Hash of the member lesson ids. */
+  id: string;
+  representativeText: string;
+  size: number;
+  members: LessonPatternMember[];
+  jobIds: string[];
+  runIds: string[];
+  repoIds: string[];
+  firstSeen: string;
+  lastSeen: string;
+  /** Applied or applying lessons that already say (nearly) the same. */
+  alreadyCovered: { lessonId: string; text: string; status: LessonStatus; appliedJobId: string | null }[];
+}
+
+export interface LessonPatterns {
+  method: 'embeddings' | 'text';
+  threshold: number;
+  patterns: LessonPattern[];
+}
+
 /** Mirrors ReplaceLessonSchema: every key is required; null clears the target and the note. */
 export interface ReplaceLessonInput {
   text: string;
@@ -1030,6 +1059,8 @@ export const api = {
     request<AgentUsage>(`/v1/usage/agents?days=${days}${projectId ? `&projectId=${encodeURIComponent(projectId)}` : ''}`),
   getDispatchStatus: () => request<DispatchStatus>('/v1/dispatch/status'),
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
+  listLessonPatterns: (projectId: string, minSize?: number) =>
+    request<LessonPatterns>(`/v1/projects/${id(projectId)}/lessons/patterns${minSize ? `?minSize=${minSize}` : ''}`),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),
   replaceLesson: (lessonId: string, input: ReplaceLessonInput) =>
     request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PUT', input),

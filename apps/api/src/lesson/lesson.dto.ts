@@ -60,3 +60,51 @@ export type LessonSourceResponseDto = z.infer<typeof LessonSourceResponseSchema>
 export type LessonResponseDto = z.infer<typeof LessonResponseSchema>;
 export const CollectResultSchema = z.object({ created: z.number().int() });
 export type CollectResultDto = z.infer<typeof CollectResultSchema>;
+
+export const LESSON_PATTERN_MIN_SIZE = 2;
+
+/** Query of the patterns endpoint; the default minimum size is applied by the service. */
+export const ListLessonPatternsQuerySchema = z.object({
+    minSize: z.coerce.number().int().min(LESSON_PATTERN_MIN_SIZE).max(100).optional(),
+});
+
+export const LessonPatternMemberSchema = z.object({
+    lessonId: z.string().uuid(),
+    text: z.string(),
+    status: z.enum(LESSON_STATUSES),
+    sources: z.array(LessonSourceResponseSchema),
+});
+
+/** An applied or applying lesson that says (nearly) the same as the pattern: context, not a member. */
+export const LessonPatternCoveredSchema = z.object({
+    lessonId: z.string().uuid(),
+    text: z.string(),
+    status: z.enum(LESSON_STATUSES),
+    appliedJobId: z.string().nullable(),
+});
+
+export const LessonPatternSchema = z.object({
+    /** Hash of the sorted member lesson ids: changes when the members change. */
+    id: z.string(),
+    representativeText: z.string(),
+    size: z.number().int(),
+    members: z.array(LessonPatternMemberSchema),
+    jobIds: z.array(z.string()),
+    runIds: z.array(z.string()),
+    repoIds: z.array(z.string()),
+    firstSeen: z.string().datetime(),
+    lastSeen: z.string().datetime(),
+    alreadyCovered: z.array(LessonPatternCoveredSchema),
+});
+
+export const LessonPatternsResponseSchema = z.object({
+    /** How lessons were compared: cached embeddings, or normalized-text similarity. */
+    method: z.enum(['embeddings', 'text']),
+    threshold: z.number(),
+    patterns: z.array(LessonPatternSchema),
+});
+
+export type ListLessonPatternsQuery = z.infer<typeof ListLessonPatternsQuerySchema>;
+export type LessonPatternMemberDto = z.infer<typeof LessonPatternMemberSchema>;
+export type LessonPatternDto = z.infer<typeof LessonPatternSchema>;
+export type LessonPatternsResponseDto = z.infer<typeof LessonPatternsResponseSchema>;

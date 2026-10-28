@@ -13,6 +13,7 @@ import {
 } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { useProject } from '@/lib/use-project';
+import { LessonPatternsPanel } from './lesson-patterns';
 import { NoProjects } from './no-projects';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -28,6 +29,7 @@ export function sortLessons(lessons: Lesson[]): Lesson[] {
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 export function LessonsView() {
+  const [view, setView] = useState<'list' | 'patterns'>('list');
   const [tab, setTab] = useState<LessonStatus>('candidate');
   const [selected, setSelected] = useState<string[]>([]);
   const [mergeTarget, setMergeTarget] = useState('');
@@ -83,12 +85,22 @@ export function LessonsView() {
         <header className="flex flex-wrap items-center gap-3 border-b border-border px-4 py-3">
           <h2 className="font-serif text-lg font-semibold">Lessons</h2>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div role="group" aria-label="View" className="flex gap-1">
+              {(['list', 'patterns'] as const).map((v) => (
+                <Button key={v} size="sm" variant={v === view ? 'primary' : 'outline'} aria-pressed={v === view} onClick={() => setView(v)}>
+                  {v === 'list' ? 'List' : 'Patterns'}
+                </Button>
+              ))}
+            </div>
             <Button size="sm" onClick={collect} disabled={busy}>
               Collect now
             </Button>
           </div>
         </header>
         {projects?.length === 0 && <NoProjects />}
+        {view === 'patterns' && projectId && <LessonPatternsPanel projectId={projectId} onMerged={() => lessons.refresh()} />}
+        {view === 'list' && (
+        <>
         <div role="tablist" aria-label="Status" className="flex gap-1 border-b border-border px-4 py-2">
           {LESSON_STATUSES.map((s) => (
             <Button
@@ -144,6 +156,8 @@ export function LessonsView() {
             />
           ))}
         </ul>
+        </>
+        )}
     </>
   );
 }

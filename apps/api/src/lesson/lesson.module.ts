@@ -9,6 +9,9 @@ import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import { SkillModule } from '../skill/skill.module.js';
 import { LessonController } from './lesson.controller.js';
+import { LessonPatternController } from './lesson-pattern.controller.js';
+import { LessonPatternService } from './lesson-pattern.service.js';
+import { LessonEmbedding } from './lesson-embedding.entity.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
 import { LessonService } from './lesson.service.js';
@@ -17,9 +20,9 @@ import { LessonCollectorService } from './lesson-collector.service.js';
 import { LessonSource } from './lesson-source.entity.js';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Lesson, LessonSource, JobRun, Feedback, Job, Repo]), JobModule, ProjectModule, SkillModule],
-    controllers: [LessonController],
-    providers: [LessonMapper, LessonService, LessonCollectorService, { provide: LESSON_JOB_HOOK, useExisting: LessonService }],
-    exports: [LessonService],
+    imports: [TypeOrmModule.forFeature([Lesson, LessonSource, LessonEmbedding, JobRun, Feedback, Job, Repo]), JobModule, ProjectModule, SkillModule],
+    controllers: [LessonController, LessonPatternController],
+    providers: [LessonMapper, LessonService, LessonPatternService, LessonCollectorService, { provide: LESSON_JOB_HOOK, useExisting: LessonService }],
+    exports: [LessonService, LessonPatternService],
 })
 export class LessonModule { }

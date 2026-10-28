@@ -19,6 +19,7 @@ import {
     jobInput,
     listFeaturesInput,
     listJobsInput,
+    listLessonPatternsInput,
     listLessonsInput,
     listProjectsInput,
     listProposalsInput,
@@ -111,6 +112,13 @@ export function createCopilotTools(s: CopilotServices) {
         execute: async (input) => b.getMetrics(input),
     });
 
+    const listLessonPatterns = createTool({
+        id: 'listLessonPatterns',
+        description:
+            'List recurring patterns among a project\'s candidate and approved lessons: groups of lessons that say the same thing, with the representative text, member lessons, how many distinct jobs and repos they come from and when first and last seen. Grouped on the server; read-only, nothing is approved, merged or applied.',
+        inputSchema: listLessonPatternsInput,
+        execute: async (input) => b.listLessonPatterns(input),
+    });
     const listLessons = createTool({
         id: 'listLessons',
         description:
@@ -235,7 +243,7 @@ export function createCopilotTools(s: CopilotServices) {
         execute: async (input) => b.searchHistory(input),
     });
 
-    return { ...createCodeTools(s), searchHistory, listSpecs, getSpec, draftSpec, planFeature, createPlannedFeature, validateJob, createJob, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
+    return { ...createCodeTools(s), searchHistory, listSpecs, getSpec, draftSpec, planFeature, createPlannedFeature, validateJob, createJob, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, listLessonPatterns, getRepoSkills };
 }
 
 export type CopilotTools = ReturnType<typeof createCopilotTools>;

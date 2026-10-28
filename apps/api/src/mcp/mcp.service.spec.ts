@@ -43,7 +43,7 @@ function setup() {
     const projects = { list: vi.fn().mockResolvedValue([{ id: PROJECT }]) };
     const repos = { getById: vi.fn().mockResolvedValue({ id: REPO, projectId: PROJECT, fullName: 'o/r' }), listForProject: vi.fn() };
     const noop = {} as never;
-    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
+    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, noop, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
     const connect = async (user: AuthUser | undefined) => {
         const server = service.buildServer(user);
         const [a, b] = InMemoryTransport.createLinkedPair();
@@ -60,12 +60,12 @@ const text = (r: unknown) => ((r as { content: { text: string }[] }).content[0].
 const isError = (r: unknown) => (r as { isError?: boolean }).isError === true;
 
 describe('MCP tool registry', () => {
-    it('exposes exactly the 22 allowlisted tools', async () => {
+    it('exposes exactly the 23 allowlisted tools', async () => {
         const { connect, as } = setup();
         const client = await connect(as(ME));
         const { tools } = await client.listTools();
         expect(tools.map((t) => t.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(22);
+        expect(tools).toHaveLength(23);
     });
 
     it('never exposes queueing, dispatching, cancelling, retrying, merging, approval, settings, identity or notification tools', async () => {
