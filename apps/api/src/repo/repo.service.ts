@@ -1,7 +1,7 @@
 // repo.service.ts
 import { ConflictException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { In, Repository } from 'typeorm';
 
 import { isUniqueViolation } from '../common/db-errors.js';
 
@@ -62,6 +62,13 @@ export class RepoService {
     /** Pauses a repo and records why (e.g. a configuration error found by the dispatcher). */
     pauseWithReason(id: string, reason: string): Promise<RepoResponseDto> {
         return this.setPaused(id, true, reason);
+    }
+
+    /** The given ids that are not a registered repository. */
+    async findMissingIds(ids: string[]): Promise<string[]> {
+        if (!ids.length) return [];
+        const found = new Set((await this.repoRepository.find({ select: { id: true }, where: { id: In(ids) } })).map((r) => r.id));
+        return ids.filter((id) => !found.has(id));
     }
 
     findByFullName(fullName: string): Promise<Repo | null> {
