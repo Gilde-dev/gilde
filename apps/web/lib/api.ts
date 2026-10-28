@@ -302,6 +302,87 @@ export interface Job {
   updatedAt: string;
 }
 
+export const SPEC_STATUSES = ['draft', 'approved'] as const;
+export type SpecStatus = (typeof SPEC_STATUSES)[number];
+
+export interface SpecCriterion {
+  number: number;
+  id: string;
+  text: string;
+}
+
+export interface SpecApprovalEvidence {
+  id: string;
+  approvedById: string | null;
+  approvedByName: string;
+  approvedByEmail: string;
+  approvedAt: string;
+}
+
+export const RECORDING_STATES = ['triage', 'queued', 'in_flight', 'recorded', 'failed', 'superseded'] as const;
+export type SpecRecordingState = (typeof RECORDING_STATES)[number];
+
+export interface SpecRecording {
+  id: string;
+  jobId: string;
+  jobStatus: JobStatus;
+  jobTitle: string;
+  prUrl: string | null;
+  state: SpecRecordingState;
+  mergedWithoutWork: boolean;
+  dependsOnJobId: string | null;
+  supersededByRecordingId: string | null;
+  supersededAt: string | null;
+  pinnedByFeatureId: string | null;
+  createdAt: string;
+}
+
+export interface SpecEligibility {
+  eligible: boolean;
+  reasons: string[];
+}
+
+export interface SpecVersion {
+  id: string;
+  version: number;
+  title: string;
+  /** Exactly the bytes that were saved. */
+  body: string;
+  bodySha256: string;
+  criteria: SpecCriterion[];
+  createdById: string | null;
+  createdAt: string;
+  eligibility: SpecEligibility;
+  approval: SpecApprovalEvidence | null;
+  recording: SpecRecording | null;
+}
+
+export interface Spec {
+  id: string;
+  projectId: string;
+  repoId: string;
+  slug: string;
+  title: string;
+  status: SpecStatus;
+  currentVersion: number;
+  approvedVersion: number | null;
+  createdById: string | null;
+  updatedById: string | null;
+  approvedById: string | null;
+  approvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface SpecDetail extends Spec {
+  /** Whether the calling user is a verified human who may approve (not whether the current version is eligible). */
+  mayApprove: boolean;
+  mayApproveReasons: string[];
+  eligibility: SpecEligibility;
+  /** Newest first. */
+  versions: SpecVersion[];
+}
+
 export const FEATURE_STATUSES = ['draft', 'active', 'done', 'cancelled'] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
@@ -317,12 +398,34 @@ export interface FeatureProgress {
   leadTimeMinutes: number | null;
 }
 
+/** The approved spec version a feature was planned from: the stored snapshot, never the latest draft. */
+export interface PinnedSpec {
+  specId: string;
+  specVersionId: string;
+  version: number;
+  slug: string;
+  title: string;
+  repoId: string;
+  repoFullName: string;
+  /** docs/specs/<slug>.md in that repo. */
+  path: string;
+  bodySha256: string;
+  approvalId: string;
+  approvedAt: string;
+  approvedByName: string;
+  recordingId: string;
+  recordingJobId: string;
+  recordingJobTitle: string;
+}
+
 export interface Feature {
   id: string;
   projectId: string;
   title: string;
   spec: string;
   acceptanceCriteria: string[];
+  /** Null for features without a spec. */
+  pinnedSpec: PinnedSpec | null;
   status: FeatureStatus;
   startedAt: string | null;
   doneAt: string | null;
@@ -837,6 +940,7 @@ export const api = {
     request<Feature[]>(`/v1/projects/${id(projectId)}/features${status ? `?status=${status}` : ''}`),
   createFeature: (projectId: string, input: CreateFeatureInput) =>
     request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
+  getSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}`),
   getFeature: (featureId: string) => request<FeatureDetail>(`/v1/features/${id(featureId)}`),
   replaceFeature: (featureId: string, input: ReplaceFeatureInput) =>
     request<Feature>(`/v1/features/${id(featureId)}`, 'PUT', input),

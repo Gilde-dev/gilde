@@ -63,6 +63,10 @@ describe('Verkenner tools', () => {
 
     it('exposes exactly the explicit read-only allowlist plus the native inbox', () => {
         expect(Object.keys(tools()).sort()).toEqual([...SCOUT_TOOL_NAMES].sort());
+        expect(Object.keys(tools()).sort()).toEqual([
+            'getFeature', 'getJob', 'listFeatures', 'listJobs', 'listLessons', 'listRepoFiles', 'listRepos', 'notificationInbox',
+            'readRepoFile', 'searchHistory', 'searchRepoCode', 'suggestJob',
+        ]);
         expect(tools().notificationInbox.id).toBe('notification-inbox');
     });
 
@@ -88,7 +92,7 @@ describe('Verkenner tools', () => {
 
     it('has none of the co-pilot creation, planning or approval tools, nor any mutation tool', () => {
         const names = Object.keys(tools());
-        for (const forbidden of ['planFeature', 'createPlannedFeature', 'validateJob', 'createJob', 'getDispatchStatus', 'listProposals', 'getMetrics', 'getRepoSkills', 'listProjects']) {
+        for (const forbidden of ['draftSpec', 'getSpec', 'listSpecs', 'approveSpec', 'planFeature', 'createPlannedFeature', 'validateJob', 'createJob', 'getDispatchStatus', 'listProposals', 'getMetrics', 'getRepoSkills', 'listProjects']) {
             expect(names).not.toContain(forbidden);
         }
         expect(names.every((n) => SCOUT_TOOL_NAMES.includes(n as never))).toBe(true);
@@ -96,6 +100,7 @@ describe('Verkenner tools', () => {
         const human = createCopilotTools({} as CopilotServices) as Record<string, { requireApproval?: boolean }>;
         expect(human.createJob.requireApproval).toBe(true);
         expect(human.createPlannedFeature.requireApproval).toBe(true);
+        expect(human.draftSpec.requireApproval).toBe(true);
         // No scout tool asks for approval: none of them changes state.
         for (const tool of Object.values(tools()) as Array<{ requireApproval?: boolean }>) expect(tool.requireApproval).toBeFalsy();
     });

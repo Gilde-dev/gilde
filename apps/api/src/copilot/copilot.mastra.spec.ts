@@ -28,7 +28,7 @@ describe('createMastra', () => {
         const mastra = createMastra({ enabled: true, model: 'openai/test-model' }, {} as never, new LibSQLStore({ id: 't', url: 'file::memory:' }));
         const agent = mastra.getAgent(COPILOT_AGENT_ID);
         const tools = Object.keys(await agent.listTools());
-        expect(tools.length).toBe(19);
+        expect(tools.length).toBe(22);
         expect(tools).toContain('searchHistory');
         expect(mastra.getServer()?.apiRoutes?.map((r) => r.path)).toEqual(['/api/v1/mastra/copilotkit']);
     });

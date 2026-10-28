@@ -33,12 +33,34 @@ export const FeatureProgressSchema = z.object({
     leadTimeMinutes: z.number().int().nullable(),
 });
 
+/** The approved spec version a feature was planned from (the stored snapshot, never the latest draft). */
+export const PinnedSpecSchema = z.object({
+    specId: z.string().uuid(),
+    specVersionId: z.string().uuid(),
+    version: z.number().int(),
+    slug: z.string(),
+    title: z.string(),
+    repoId: z.string().uuid(),
+    repoFullName: z.string(),
+    /** docs/specs/<slug>.md in that repo. */
+    path: z.string(),
+    bodySha256: z.string(),
+    approvalId: z.string().uuid(),
+    approvedAt: z.string().datetime(),
+    approvedByName: z.string(),
+    recordingId: z.string().uuid(),
+    recordingJobId: z.string().uuid(),
+    recordingJobTitle: z.string(),
+});
+
 export const FeatureResponseSchema = z.object({
     id: z.string().uuid(),
     projectId: z.string().uuid(),
     title: z.string(),
     spec: z.string(),
     acceptanceCriteria: z.array(z.string()),
+    /** Null for features without a spec. */
+    pinnedSpec: PinnedSpecSchema.nullable(),
     status: z.enum(FEATURE_STATUSES),
     startedAt: z.string().datetime().nullable(),
     doneAt: z.string().datetime().nullable(),
@@ -71,6 +93,7 @@ export const FeatureCancelResponseSchema = FeatureResponseSchema.extend({
 export type CreateFeatureDto = z.infer<typeof CreateFeatureSchema>;
 export type ReplaceFeatureDto = z.infer<typeof ReplaceFeatureSchema>;
 export type ListFeaturesQuery = z.infer<typeof ListFeaturesQuerySchema>;
+export type PinnedSpecDto = z.infer<typeof PinnedSpecSchema>;
 export type FeatureProgressDto = z.infer<typeof FeatureProgressSchema>;
 export type FeatureResponseDto = z.infer<typeof FeatureResponseSchema>;
 export type FeatureDetailResponseDto = z.infer<typeof FeatureDetailResponseSchema>;

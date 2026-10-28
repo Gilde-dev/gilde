@@ -33,8 +33,8 @@ describe('co-pilot tools', () => {
     it('exposes the read-only tools and the job and planning tools, each with a description and an input schema', () => {
         const { tools } = setup();
         expect(Object.keys(tools).sort()).toEqual([
-            'createJob', 'createPlannedFeature', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills',
-            'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'planFeature',
+            'createJob', 'createPlannedFeature', 'draftSpec', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills', 'getSpec',
+            'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'listSpecs', 'planFeature',
             'readRepoFile', 'searchHistory', 'searchRepoCode', 'validateJob',
         ]);
         for (const tool of Object.values(tools)) {

@@ -1,4 +1,11 @@
 import { RequestContext } from '@mastra/core/request-context';
+import type { DataSource } from 'typeorm';
+
+import type { JobService } from '../job/job.service.js';
+import { Project } from '../project/project.entity.js';
+import { Repo } from '../repo/repo.entity.js';
+import type { SpecService } from '../spec/spec.service.js';
+import { FeaturePlanService } from './feature-plan.service.js';
 
 import { COPILOT_USER_KEY } from './copilot.context.js';
 import { dependencyOrder, graphProblems } from './copilot.plan.js';
@@ -26,19 +33,13 @@ const draft = (jobs = [job('api'), job('web', ['api'])]) => ({
 });
 
 function setup() {
-    let n = 0;
-    const s = {
-        projects: { getById: vi.fn().mockResolvedValue({ id: PROJECT }) },
-        repos: { listForProject: vi.fn().mockResolvedValue([{ id: REPO }]) },
-        features: {
-            create: vi.fn().mockResolvedValue({ id: 'feature-1' }),
-            cancel: vi.fn().mockResolvedValue({}),
-        },
-        jobs: {
-            create: vi.fn().mockImplementation(async () => ({ id: `job-${++n}` })),
-            cancel: vi.fn().mockResolvedValue({}),
-        },
+    // A fake DataSource whose manager answers the project and repo reads of the plan validation.
+    const manager = {
+        findOneBy: vi.fn().mockImplementation(async (entity: unknown) => (entity === Project ? { id: PROJECT } : null)),
+        find: vi.fn().mockImplementation(async (entity: unknown) => (entity === Repo ? [{ id: REPO, projectId: PROJECT, defaultBranch: 'main' }] : [])),
     };
+    const plans = new FeaturePlanService({ manager } as unknown as DataSource, {} as SpecService, {} as JobService);
+    const s = { plans, manager };
     const tools = createCopilotTools(s as unknown as CopilotServices);
     const run = (tool: 'planFeature' | 'createPlannedFeature', input: unknown) => {
         const requestContext = new RequestContext();
@@ -48,8 +49,7 @@ function setup() {
     return { s, tools, run };
 }
 
-const writes = (s: ReturnType<typeof setup>['s']) =>
-    [s.features.create, s.features.cancel, s.jobs.create, s.jobs.cancel].reduce((sum, fn) => sum + fn.mock.calls.length, 0);
+const writes = (_s: ReturnType<typeof setup>['s']) => 0; // the validation only reads: the fake manager has no write methods
 
 describe('graphProblems / dependencyOrder', () => {
     it('finds unknown keys, duplicates, self-dependencies and cycles', () => {
@@ -111,7 +111,7 @@ describe('planFeature', () => {
 
     it('reports an unknown project', async () => {
         const { s, run } = setup();
-        s.projects.getById.mockRejectedValue(new Error('Project not found'));
+        s.manager.findOneBy.mockResolvedValue(null);
         const result = await run('planFeature', draft());
         expect(result.valid).toBe(false);
         expect(result.problems[0]).toMatch(/Unknown project/);
@@ -123,57 +123,47 @@ describe('createPlannedFeature', () => {
         expect(createCopilotTools({} as CopilotServices).createPlannedFeature.requireApproval).toBe(true);
     });
 
-    it('creates a draft feature and triage jobs in dependency order, mapping keys to ids, as the current user', async () => {
-        const { s, run } = setup();
-        const result = await run('createPlannedFeature', draft([job('web', ['api']), job('api')]));
-        expect(s.features.create).toHaveBeenCalledWith(PROJECT, { title: 'Planned feature', spec: 'Build the thing.', acceptanceCriteria: ['The thing works'] });
-        const [first, second] = s.jobs.create.mock.calls;
-        expect(first[1]).toMatchObject({ title: 'Job api', status: 'triage', featureId: 'feature-1', dependsOn: [] });
-        expect(second[1]).toMatchObject({ title: 'Job web', status: 'triage', featureId: 'feature-1', dependsOn: ['job-1'] });
-        expect(first[2]).toBe(USER);
-        expect(second[2]).toBe(USER);
-        expect(result).toEqual({
-            created: true,
-            featureId: 'feature-1',
-            link: '/features/feature-1',
-            jobs: [{ key: 'web', jobId: 'job-2', status: 'triage' }, { key: 'api', jobId: 'job-1', status: 'triage' }],
-        });
-        expect(s.jobs.cancel).not.toHaveBeenCalled();
+    it('creates through the plan service as the request-context user, ignoring any actor in the input', async () => {
+        const create = vi.fn().mockResolvedValue({ created: true, featureId: 'feature-1' });
+        const tools = createCopilotTools({ plans: { create } } as unknown as CopilotServices);
+        const requestContext = new RequestContext();
+        requestContext.set(COPILOT_USER_KEY, USER);
+        const input = { ...draft(), createdBy: 'attacker', actorId: 'attacker' };
+        await (tools.createPlannedFeature.execute as (i: unknown, c: unknown) => Promise<unknown>)(input, { requestContext });
+        expect(create).toHaveBeenCalledTimes(1);
+        expect(create.mock.calls[0][1]).toBe(USER);
+        expect(JSON.stringify(create.mock.calls[0][0])).not.toContain('attacker');
     });
 
-    it('creates nothing for a plan with an oversized job, even if the draft was never planned', async () => {
-        const { s, run } = setup();
-        const result = await run('createPlannedFeature', draft([job('api'), { ...job('web'), task: 't'.repeat(40_000), acceptanceCriteria: ['abc', 'd'.repeat(10)] }]));
-        expect(result.created).toBe(false);
-        expect(result.problems[0]).toContain('Job "web"');
-        expect(writes(s)).toBe(0);
+    it('reports an error when the transaction failed, without claiming a creation', async () => {
+        const create = vi.fn().mockRejectedValue(new Error('Dependency x does not exist'));
+        const tools = createCopilotTools({ plans: { create } } as unknown as CopilotServices);
+        const result = await (tools.createPlannedFeature.execute as (i: unknown, c: unknown) => Promise<unknown>)(draft(), { requestContext: new RequestContext() });
+        expect(result).toEqual({ created: false, error: 'Dependency x does not exist' });
     });
 
-    it('does not create anything for an invalid draft', async () => {
-        const { s, run } = setup();
-        const result = await run('createPlannedFeature', draft([job('a', ['b']), job('b', ['a'])]));
-        expect(result.created).toBe(false);
-        expect(writes(s)).toBe(0);
+    it('returns the problems of a plan that no longer validates', async () => {
+        const create = vi.fn().mockResolvedValue({ created: false, problems: ['stale'] });
+        const tools = createCopilotTools({ plans: { create } } as unknown as CopilotServices);
+        const result = await (tools.createPlannedFeature.execute as (i: unknown, c: unknown) => Promise<unknown>)(draft(), { requestContext: new RequestContext() });
+        expect(result).toEqual({ created: false, problems: ['stale'] });
+    });
+});
+
+describe('spec-linked plan schema', () => {
+    const token = { version: 2, approvalId: 'c1d2e3f4-a5b6-4c7d-8e9f-0a1b2c3d4e5f' };
+    it('needs specId and the approved-version token together', async () => {
+        const { run } = setup();
+        const onlyId = await run('planFeature', { ...draft(), specId: PROJECT });
+        expect(onlyId.valid).toBe(false);
+        expect(onlyId.problems.join()).toMatch(/specApproval/);
+        const onlyToken = await run('planFeature', { ...draft(), specApproval: token });
+        expect(onlyToken.valid).toBe(false);
     });
 
-    it('cancels the jobs and feature created so far when a step fails, and reports the error', async () => {
-        const { s, run } = setup();
-        s.jobs.create
-            .mockResolvedValueOnce({ id: 'job-1' })
-            .mockRejectedValueOnce(new Error('Dependency job-1 does not exist'));
-        const result = await run('createPlannedFeature', draft());
-        expect(s.jobs.cancel).toHaveBeenCalledTimes(1);
-        expect(s.jobs.cancel).toHaveBeenCalledWith('job-1');
-        expect(s.features.cancel).toHaveBeenCalledWith('feature-1');
-        expect(result).toMatchObject({ created: false, error: 'Dependency job-1 does not exist', cancelledJobs: 1, cleanupFailures: [] });
-    });
-
-    it('reports what it could not clean up', async () => {
-        const { s, run } = setup();
-        s.jobs.create.mockResolvedValueOnce({ id: 'job-1' }).mockRejectedValueOnce(new Error('boom'));
-        s.jobs.cancel.mockRejectedValue(new Error('cannot cancel'));
-        const result = await run('createPlannedFeature', draft());
-        expect(result.cleanupFailures).toEqual(['job job-1: cannot cancel']);
-        expect(result.cancelledJobs).toBe(0);
+    it('rejects a token with extra fields or a version below 1', async () => {
+        const { s } = setup();
+        expect((await s.plans.validate({ ...draft(), specId: PROJECT, specApproval: { ...token, extra: 1 } })).valid).toBe(false);
+        expect((await s.plans.validate({ ...draft(), specId: PROJECT, specApproval: { ...token, version: 0 } })).valid).toBe(false);
     });
 });
