@@ -20,7 +20,7 @@ export function recording(over: Partial<SpecRecording> = {}): SpecRecording {
 export function spec(over: Partial<Spec> = {}): Spec {
   return {
     id: 's1', projectId: 'p', repoId: 'r1', slug: 'dark-mode', title: 'Dark mode', status: 'draft', currentVersion: 2, approvedVersion: null,
-    createdById: null, updatedById: null, approvedById: null, approvedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...over,
+    createdById: null, updatedById: null, approvedById: null, approvedAt: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', source: null, ...over,
   };
 }
 

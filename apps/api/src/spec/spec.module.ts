@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { IntakeItem } from '../intake/intake-item.entity.js';
 import { Job } from '../job/job.entity.js';
 import { JobModule } from '../job/job.module.js';
 import { ProjectModule } from '../project/project.module.js';
@@ -18,7 +19,7 @@ import { SpecVersion } from './spec-version.entity.js';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Spec, SpecVersion, SpecApproval, SpecRecording, Job]),
+        TypeOrmModule.forFeature([Spec, SpecVersion, SpecApproval, SpecRecording, Job, IntakeItem]),
         PassportModule.register({}),
         JobModule,
         ProjectModule,

@@ -388,6 +388,13 @@ export interface SpecVersion {
   recording: SpecRecording | null;
 }
 
+/** The external issue a spec was drafted from; null for specs written by hand. */
+export interface SpecSource {
+  kind: 'github_issue';
+  url: string;
+  number: number;
+}
+
 export interface Spec {
   id: string;
   projectId: string;
@@ -403,6 +410,7 @@ export interface Spec {
   approvedAt: string | null;
   createdAt: string;
   updatedAt: string;
+  source: SpecSource | null;
 }
 
 export interface SpecDetail extends Spec {

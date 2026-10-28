@@ -1,13 +1,13 @@
 import { Injectable } from '@nestjs/common';
 
-import type { SpecApprovalEvidenceDto, SpecResponseDto } from './spec.dto.js';
+import type { SpecApprovalEvidenceDto, SpecResponseDto, SpecSourceDto } from './spec.dto.js';
 import { Spec } from './spec.entity.js';
 import { SpecApproval } from './spec-approval.entity.js';
 
 @Injectable()
 export class SpecMapper {
 
-    toDTO(e: Spec): SpecResponseDto {
+    toDTO(e: Spec, source: SpecSourceDto | null = null): SpecResponseDto {
         return {
             id: e.id,
             projectId: e.projectId,
@@ -23,6 +23,7 @@ export class SpecMapper {
             approvedAt: e.approvedAt?.toISOString() ?? null,
             createdAt: e.createdAt.toISOString(),
             updatedAt: e.updatedAt.toISOString(),
+            source,
         };
     }
 

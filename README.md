@@ -556,6 +556,41 @@ and `.../retry` (verified human; retry sets `new` and clears the error).
 when it was cut), a sha256 of title + body, the author's login, the labels, the status, a link to the spec and the last error. Comments,
 assignees and other issue data are not read or stored. Gilde never writes to GitHub for intake.
 
+### Verfijner (refine agent)
+
+The Verfijner is an opt-in, unattended third Mastra agent (`id: verfijner`, next to `gilde` and `verkenner`, same storage). It reads an
+intake item together with the repo and drafts a spec through the spec domain. A human still approves the spec and plans from it;
+nothing is approved, planned or queued automatically. Design notes: [ADR 0013](docs/adr/0013-verfijner-bounded-unattended-spec-drafter.md).
+
+**Setup.**
+
+```sh
+pnpm --filter @gilde/api user:create --email verfijner@example.com --name Verfijner --bot
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `REFINE_ENABLED` | Must be literally `true`. |
+| `REFINE_USER_EMAIL` | The existing bot user the agent acts as. A human account, or an unknown email, leaves the Verfijner off. |
+| `REFINE_MODEL` | `openai/<model>`; falls back to `COPILOT_MODEL`. Needs `OPENAI_API_KEY`. |
+| `REFINE_DAILY_LIMIT` | Refine runs per project per UTC day (default 10). Anything but a positive integer leaves the Verfijner off. |
+
+Off or misconfigured, the API still starts (the reason is in the log, without secrets) and intake items stay `new`.
+
+**What it does.** Every minute a worker takes the oldest `new` item of each project whose title/body differ from the last refined one,
+one item at a time per project, sets it `refining` and runs the agent once, bound by the server to exactly that item. The agent reads
+the repo code, the project's specs and the factory history, then saves the spec with `saveRefinedSpec`: a new spec (slug
+`issue-<number>-<title>`) or a new draft version of the item's spec after an edit (an approved version stays approved). The body must
+pass the spec parser and contain the issue URL; parser errors go back to the agent to fix within the same run. When the issue is too
+vague it writes concrete questions under "Open questions", which block approval until a human resolves them. The item becomes
+`drafted`; a run that saves nothing is tried once more, then the item is `failed` with a short error (retry it with
+`POST /api/v1/intake/:id/retry`).
+
+**Limits.** Daily limit per project (counted per attempt in `intake_refine_runs`); no run while the project's or the global budget
+is hard, or cannot be read; at most 2 attempts per item and body version. Issue text is untrusted data in delimited blocks; the agent
+has no tool for approving, planning, queueing, commenting or writing anywhere else, and the Mastra HTTP routes refuse it.
+Specs made from an issue show it as `source: { kind, url, number }` in `GET /api/v1/specs/:id` and the spec list.
+
 ## GitHub webhooks (local)
 
 GitHub delivers webhooks to a [smee.io](https://smee.io) channel; the `webhooks` compose service forwards them to the API on your machine. Only webhook deliveries are forwarded, so the API itself stays private.

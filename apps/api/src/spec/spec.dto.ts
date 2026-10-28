@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { INTAKE_SOURCES } from '../intake/intake-item.entity.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import { SPEC_STATUSES } from './spec.entity.js';
 
@@ -97,6 +98,13 @@ export const SpecVersionResponseSchema = z.object({
     recording: SpecRecordingSchema.nullable(),
 });
 
+/** The external issue a spec was drafted from (an intake item); null for specs written by hand. */
+export const SpecSourceSchema = z.object({
+    kind: z.enum(INTAKE_SOURCES),
+    url: z.string(),
+    number: z.number().int(),
+});
+
 export const SpecResponseSchema = z.object({
     id: z.string().uuid(),
     projectId: z.string().uuid(),
@@ -112,6 +120,7 @@ export const SpecResponseSchema = z.object({
     approvedAt: z.string().datetime().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
+    source: SpecSourceSchema.nullable(),
 });
 
 export const SpecDetailResponseSchema = SpecResponseSchema.extend({
@@ -124,6 +133,7 @@ export const SpecDetailResponseSchema = SpecResponseSchema.extend({
     versions: z.array(SpecVersionResponseSchema),
 });
 
+export type SpecSourceDto = z.infer<typeof SpecSourceSchema>;
 export type SpecResponseDto = z.infer<typeof SpecResponseSchema>;
 export type SpecDetailResponseDto = z.infer<typeof SpecDetailResponseSchema>;
 export type SpecVersionResponseDto = z.infer<typeof SpecVersionResponseSchema>;
