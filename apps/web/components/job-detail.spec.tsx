@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api, type Job, type JobDetail, type Repo, type Revision } from '@/lib/api';
 import { agentTotals, noAgentUsage } from './agent-usage.fixture';
-import { JobDetailView, buildTimeline } from './job-detail';
+import { JobDetailView, RunContextSummary, buildTimeline } from './job-detail';
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'j1' }) }));
 
@@ -24,7 +24,7 @@ const detail: JobDetail = {
   ],
   runs: [{
     id: 'run1', jobId: 'j1', projectId: 'p', repoId: 'r', attempt: 1, executorId: 'e1', executor: { id: 'e1', name: 'ada-main', ownerId: 'u', ownerName: 'Ada' }, status: 'ci_passed', sessionId: 's',
-    sessionUrl: 'https://claude.ai/code/s', instructionsVersion: null, error: null, ciConclusion: 'success',
+    sessionUrl: 'https://claude.ai/code/s', instructionsVersion: null, context: null, contextError: null, error: null, ciConclusion: 'success',
     result: { outcome: 'done', summary: 'All good' }, retro: '- stuff',
     firedAt: '2026-01-01T00:10:00.000Z', finishedAt: '2026-01-01T00:12:05.000Z',
     createdAt: '2026-01-01T00:09:00.000Z', updatedAt: '2026-01-01T00:12:05.000Z',
@@ -208,5 +208,37 @@ describe('buildTimeline', () => {
     expect(screen.getByRole('region', { name: 'Attempt 3 usage (Claude Code)' })).toHaveTextContent('estimated cost unavailable');
     expect(screen.getByText('Attempt 4 usage (Claude Code): no Claude Code telemetry received yet.')).toBeInTheDocument();
     expect(screen.getAllByRole('link', { name: 'Session' })).toHaveLength(4);
+  });
+});
+
+describe('RunContextSummary', () => {
+  const context = {
+    gildeboekVersion: 'v1.2.0',
+    skills: [
+      { name: 'alpha', hash: 'a'.repeat(64), managedBy: 'gildeboek@v1.2.0' },
+      { name: 'mine', hash: 'b'.repeat(64), managedBy: null },
+    ],
+    agentsMdHash: 'c'.repeat(64),
+    capturedAt: '2026-01-01T00:09:00.000Z',
+  };
+
+  it('shows version, skill count, names with short hashes and the AGENTS.md hash', () => {
+    render(<RunContextSummary context={context} error={null} />);
+    expect(screen.getByText(/gildeboek v1\.2\.0 · 2 skills/)).toBeInTheDocument();
+    expect(screen.getByText('cccccccc')).toBeInTheDocument();
+    expect(screen.getByText(/1 managed, 1 repo-owned/)).toBeInTheDocument();
+    expect(screen.getByText('aaaaaaaa')).toBeInTheDocument();
+    expect(screen.getByText('repo-owned')).toBeInTheDocument();
+    expect(screen.getByText('managed (gildeboek@v1.2.0)')).toBeInTheDocument();
+  });
+
+  it('says not recorded for old runs', () => {
+    render(<RunContextSummary context={null} error={null} />);
+    expect(screen.getByText('Context: not recorded')).toBeInTheDocument();
+  });
+
+  it('shows why a capture failed', () => {
+    render(<RunContextSummary context={null} error="GitHub GET /repos/o/r/commits/main failed: 500" />);
+    expect(screen.getByText(/not recorded \(GitHub GET.*500\)/)).toBeInTheDocument();
   });
 });

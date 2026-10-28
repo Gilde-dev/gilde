@@ -13,6 +13,7 @@ import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
 import { User } from '../user/user.entity.js';
+import { SkillModule } from '../skill/skill.module.js';
 import { RunModule } from '../run/run.module.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { JobRun } from '../run/run.entity.js';
@@ -37,6 +38,7 @@ import { DispatcherService } from './dispatcher.service.js';
         HistoryModule,
         RepoModule,
         RunModule,
+        SkillModule,
         NotificationModule,
         BudgetModule
     ],

@@ -30,6 +30,7 @@ import { JobRevision } from '../revision/revision.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
+import { RunContextService } from '../skill/run-context.service.js';
 import { RunService } from '../run/run.service.js';
 
 @Injectable()
@@ -54,6 +55,7 @@ export class DispatcherService {
         private readonly budgetAlerts: BudgetAlertService,
         private readonly executors: ExecutorService,
         @Optional() private readonly capture?: NotificationCaptureService,
+        @Optional() private readonly runContext?: RunContextService,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -365,6 +367,7 @@ export class DispatcherService {
                 return 'oversized';
             }
             runId = await this.startRun(job, project.id, repo.id, reserved, executor.id);
+            await this.recordContext(runId, repo);
             const token = await this.executors.revealToken(executor.id).catch(() => {
                 throw new ExecutionError(`Executor "${executor.name}" token could not be read`, 'config');
             });
@@ -404,6 +407,16 @@ export class DispatcherService {
         // Outside the try: a bookkeeping failure must not park a job that did fire.
         await this.runService.markFired(runId, session);
         return 'fired';
+    }
+
+    /** Never blocks or fails a fire: the capture returns an error value, and a failed write is only logged. */
+    private async recordContext(runId: string, repo: Repo): Promise<void> {
+        if (!this.runContext) return;
+        try {
+            await this.runService.recordContext(runId, await this.runContext.capture(repo));
+        } catch (e) {
+            this.logger.warn(`Run context for ${repo.fullName} not stored: ${errorMessage(e)}`);
+        }
     }
 
     /**

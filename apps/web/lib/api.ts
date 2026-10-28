@@ -490,6 +490,14 @@ export interface RunExecutor {
   ownerName: string;
 }
 
+/** What the agent had when its run was fired, read from the repo's default branch. */
+export interface RunContext {
+  gildeboekVersion: string | null;
+  skills: { name: string; hash: string; managedBy: string | null }[];
+  agentsMdHash: string | null;
+  capturedAt: string;
+}
+
 export interface Run {
   id: string;
   jobId: string;
@@ -502,6 +510,9 @@ export interface Run {
   sessionId: string | null;
   sessionUrl: string | null;
   instructionsVersion: string | null;
+  /** Null for runs from before it was recorded, or when capturing failed (see contextError). */
+  context: RunContext | null;
+  contextError: string | null;
   error: string | null;
   ciConclusion: string | null;
   result: RunResult | null;

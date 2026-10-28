@@ -57,6 +57,11 @@ export class GitHubRestAdapter implements GitHubPort {
         return body.workflow_runs.map((r) => ({ name: r.name ?? '', status: r.status ?? '', conclusion: r.conclusion ?? null }));
     }
 
+    async getBranchHeadSha(fullName: string, branch: string): Promise<string> {
+        const commit = await this.get<{ sha: string }>(`/repos/${fullName}/commits/${encodeURIComponent(branch)}`);
+        return commit.sha;
+    }
+
     async getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null> {
         const file = await this.get<ContentJson | ContentJson[]>(
             `/repos/${fullName}/contents/${path.split('/').map(encodeURIComponent).join('/')}?ref=${encodeURIComponent(ref)}`,

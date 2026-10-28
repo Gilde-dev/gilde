@@ -45,6 +45,7 @@ beforeEach(async () => {
         getPull: async (_f, n) => github.pulls.get(n)!,
         listRecentPulls: async () => github.recent,
         listWorkflowRuns: async () => github.workflows,
+        getBranchHeadSha: async () => 'sha',
         getFileContent: async () => null,
         listDirectory: async () => null,
     };
