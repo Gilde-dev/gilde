@@ -15,6 +15,7 @@ import { JobModule } from '../job/job.module.js';
 import { JobService } from '../job/job.service.js';
 import { LessonModule } from '../lesson/lesson.module.js';
 import { LessonService } from '../lesson/lesson.service.js';
+import { LessonPatternService } from '../lesson/lesson-pattern.service.js';
 import { MetricsModule } from '../metrics/metrics.module.js';
 import { MetricsService } from '../metrics/metrics.service.js';
 import { ProjectModule } from '../project/project.module.js';
@@ -134,6 +135,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 dispatcher: DispatcherService,
                 metrics: MetricsService,
                 lessons: LessonService,
+                lessonPatterns: LessonPatternService,
                 skills: SkillService,
                 projects: ProjectService,
                 repos: RepoService,
@@ -149,10 +151,10 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 specs: SpecService,
                 plans: FeaturePlanService,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history, specs, plans };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans };
                 return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService],
         },
         {
             provide: SCOUT_THREADS,

@@ -15,6 +15,7 @@ function setup() {
         dispatcher: { status: vi.fn().mockReturnValue({ at: null, result: null }) },
         metrics: { get: vi.fn().mockResolvedValue({ days: 30 }) },
         lessons: { list: vi.fn().mockResolvedValue([]) },
+        lessonPatterns: { list: vi.fn().mockResolvedValue({ method: 'text', threshold: 0.6, patterns: [] }) },
         skills: { forRepo: vi.fn().mockResolvedValue({ repoId: UUID, skills: [], counts: {} }) },
         projects: { list: vi.fn().mockResolvedValue([{ id: UUID }]) },
         repos: { listForProject: vi.fn().mockResolvedValue([{ id: OTHER }]) },
@@ -34,7 +35,7 @@ describe('co-pilot tools', () => {
         const { tools } = setup();
         expect(Object.keys(tools).sort()).toEqual([
             'createJob', 'createPlannedFeature', 'draftSpec', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills', 'getSpec',
-            'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'listSpecs', 'planFeature',
+            'listFeatures', 'listJobs', 'listLessonPatterns', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'listSpecs', 'planFeature',
             'readRepoFile', 'searchHistory', 'searchRepoCode', 'validateJob',
         ]);
         for (const tool of Object.values(tools)) {
@@ -141,6 +142,18 @@ describe('co-pilot tools', () => {
         const { s, run } = setup();
         await run('listLessons', { status: 'candidate' });
         expect(s.lessons.list).toHaveBeenCalledWith({ status: 'candidate' });
+    });
+
+    it('listLessonPatterns is read-only, calls the pattern service and leaves out source excerpts', async () => {
+        const { s, tools, run } = setup();
+        s.lessonPatterns.list.mockResolvedValue({
+            method: 'text', threshold: 0.6,
+            patterns: [{ id: 'p', size: 2, members: [{ lessonId: UUID, text: 't', status: 'candidate', sources: [{ excerpt: 'x' }] }] }],
+        });
+        const out = await run('listLessonPatterns', { projectId: UUID, minSize: 2 }) as { patterns: { members: object[] }[] };
+        expect(s.lessonPatterns.list).toHaveBeenCalledWith(UUID, { minSize: 2 });
+        expect(out.patterns[0].members[0]).toEqual({ lessonId: UUID, text: 't', status: 'candidate' });
+        expect(tools.listLessonPatterns.description).toMatch(/read-only/i);
     });
 
     it('searchHistory is read-only, calls the history service and takes no user identity', async () => {
