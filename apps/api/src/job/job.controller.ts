@@ -80,6 +80,12 @@ export class JobController {
         return this.jobService.cancel(id);
     }
 
+    @Post('jobs/:id/recreate')
+    @HttpCode(200)
+    recreate(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<JobResponseDto> {
+        return this.jobService.recreate(id, user);
+    }
+
     @Post('jobs/:id/retry')
     @HttpCode(200)
     retry(@Param('id', ParseUUIDPipe) id: string): Promise<JobResponseDto> {

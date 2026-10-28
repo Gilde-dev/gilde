@@ -7,6 +7,7 @@ import { JOB_STATUSES, type JobStatus } from './job-state.js';
 @Index(['repoId', 'status'])
 @Index(['projectId', 'status'])
 @Index(['featureId'])
+@Index('IDX_jobs_recreated_from_id', ['recreatedFromId'], { unique: true })
 export class Job {
 
     @PrimaryGeneratedColumn('uuid')
@@ -99,6 +100,24 @@ export class Job {
         nullable: true
     })
     approvalReason: string | null;
+
+    /**
+     * True while the job is merged and the result of its latest run reports `blocked`: the PR was merged on GitHub but no
+     * work was done. Kept in sync by JobEventsService whenever a result is written or the job is merged.
+     */
+    @Column({
+        name: 'merged_blocked',
+        default: false
+    })
+    mergedBlocked: boolean;
+
+    /** Set on a job made by "Recreate job": the merged-without-work job it replaces. Unique, so a job has one replacement. */
+    @Column({
+        name: 'recreated_from_id',
+        type: 'uuid',
+        nullable: true
+    })
+    recreatedFromId: string | null;
 
     /** The user who created the job; null for system-created jobs and when the user was deleted. */
     @Column({

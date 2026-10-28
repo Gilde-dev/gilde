@@ -7,6 +7,7 @@ import { EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
 import { Feature } from '../feature/feature.entity.js';
 import { FEATURE_CLOSED } from '../feature/feature-state.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
+import { isUniqueViolation } from '../common/db-errors.js';
 import { LESSON_JOB_HOOK, type LessonJobHook } from '../lesson/lesson-hook.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { RepoService } from '../repo/repo.service.js';
@@ -22,6 +23,13 @@ import { JOB_STATUSES, TERMINAL, nextStatus, type JobEvent, type JobStatus } fro
 import { taskContentProblem } from './task-size.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { User } from '../user/user.entity.js';
+
+export interface StatusSnapshot {
+    counts: Record<JobStatus, number>;
+    parkedIds: string[];
+    /** Merged jobs whose latest run reported blocked: exact count and the oldest ids (bounded). */
+    mergedWithoutWork: { count: number; ids: string[] };
+}
 
 @Injectable()
 export class JobService {
@@ -244,13 +252,18 @@ export class JobService {
         const links = await (manager?.getRepository(JobDependency) ?? this.dependencyRepository).find({ where: { jobId: In(entities.map((e) => e.id)) } });
         const depIds = [...new Set(links.map((l) => l.dependsOnJobId))];
         const deps = depIds.length
-            ? await jobRepository.find({ where: { id: In(depIds) }, select: { id: true, title: true, status: true } })
+            ? await jobRepository.find({ where: { id: In(depIds) }, select: { id: true, title: true, status: true, mergedBlocked: true } })
             : [];
         const depById = new Map(deps.map((d) => [d.id, d]));
         const revisions = await m.getRepository(JobRevision).find({
             where: { jobId: In(entities.map((e) => e.id)), status: In(['proposed', 'accepted']) },
             select: { jobId: true, status: true, revision: true },
         });
+        const replacements = await jobRepository.find({
+            where: { recreatedFromId: In(entities.map((e) => e.id)) },
+            select: { id: true, recreatedFromId: true },
+        });
+        const replacedBy = new Map(replacements.map((r) => [r.recreatedFromId, r.id]));
         const creatorIds = [...new Set(entities.map((e) => e.createdById).filter((i): i is string => !!i))];
         const creators = creatorIds.length
             ? await m.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true } })
@@ -265,9 +278,9 @@ export class JobService {
             const ids = links.filter((l) => l.jobId === e.id).map((l) => l.dependsOnJobId);
             const blockedBy: BlockingJobDto[] = ids
                 .map((id) => depById.get(id))
-                .filter((d): d is Job => !!d && d.status !== 'merged')
-                .map((d) => ({ id: d.id, title: d.title, status: d.status }));
-            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null });
+                .filter((d): d is Job => !!d && (d.status !== 'merged' || d.mergedBlocked))
+                .map((d) => ({ id: d.id, title: d.title, status: d.status, mergedBlocked: d.status === 'merged' && d.mergedBlocked }));
+            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, replacedById: replacedBy.get(e.id) ?? null, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null });
         });
     }
 
@@ -290,7 +303,7 @@ export class JobService {
      * Exact job counts per status for a whole project, and up to `parkedLimit` parked job ids (oldest first; the parked count is exact).
      * Aggregated in the database, so it is not limited like the public list.
      */
-    async statusSnapshot(projectId: string, parkedLimit = 20): Promise<{ counts: Record<JobStatus, number>; parkedIds: string[] }> {
+    async statusSnapshot(projectId: string, parkedLimit = 20): Promise<StatusSnapshot> {
         const rows = await this.jobRepository.createQueryBuilder('job')
             .select('job.status', 'status')
             .addSelect('COUNT(*)', 'count')
@@ -300,7 +313,17 @@ export class JobService {
         const counts = Object.fromEntries(JOB_STATUSES.map((s) => [s, 0])) as Record<JobStatus, number>;
         for (const r of rows) counts[r.status] = Number(r.count);
         const parked = await this.jobRepository.find({ where: { projectId, status: 'parked' }, select: { id: true }, order: { createdAt: 'ASC', id: 'ASC' }, take: parkedLimit });
-        return { counts, parkedIds: parked.map((j) => j.id) };
+        // Merged without work: merged on GitHub, latest run blocked. The merged count above stays the factual GitHub state.
+        const withoutWork = { projectId, status: 'merged' as const, mergedBlocked: true };
+        const [mergedWithoutWorkCount, mergedWithoutWork] = await Promise.all([
+            this.jobRepository.countBy(withoutWork),
+            this.jobRepository.find({ where: withoutWork, select: { id: true }, order: { createdAt: 'ASC', id: 'ASC' }, take: parkedLimit }),
+        ]);
+        return {
+            counts,
+            parkedIds: parked.map((j) => j.id),
+            mergedWithoutWork: { count: mergedWithoutWorkCount, ids: mergedWithoutWork.map((j) => j.id) },
+        };
     }
 
     async getById(id: string): Promise<JobResponseDto> {
@@ -332,6 +355,56 @@ export class JobService {
 
     retry(id: string): Promise<JobResponseDto> {
         return this.apply(id, 'manual_retry', 'Requeued manually.');
+    }
+
+    /**
+     * Recovery for a merged-without-work job: creates a fresh job in triage with the same content, feature and own
+     * prerequisites, and points every dependency edge that targeted the original at the replacement. Creation and
+     * rewiring commit together. `recreated_from_id` is unique, so concurrent or repeated requests end up with one
+     * replacement: the loser gets the existing one. Nothing is enqueued, and the original and its history stay as they are.
+     */
+    async recreate(id: string, actor: { id: string } | null = null): Promise<JobResponseDto> {
+        const source = await this.getOrFail(id);
+        const existing = await this.jobRepository.findOneBy({ recreatedFromId: id });
+        if (existing) return this.getById(existing.id);
+        if (source.status !== 'merged' || !source.mergedBlocked) {
+            throw new ConflictException('Only a job that was merged without work (blocked) can be recreated');
+        }
+        let created: Job;
+        try {
+            created = await this.jobRepository.manager.transaction(async (m) => {
+                // Re-read inside the transaction: the source may have changed since the check above.
+                const fresh = await m.findOneBy(Job, { id });
+                if (!fresh || fresh.status !== 'merged' || !fresh.mergedBlocked) {
+                    throw new ConflictException('The job changed in the meantime, try again');
+                }
+                const replacement = await m.save(m.create(Job, {
+                    projectId: fresh.projectId,
+                    repoId: fresh.repoId,
+                    featureId: fresh.featureId,
+                    title: fresh.title,
+                    task: fresh.task,
+                    acceptanceCriteria: [...fresh.acceptanceCriteria],
+                    status: 'triage',
+                    queuedAt: null,
+                    createdById: actor?.id ?? null,
+                    recreatedFromId: fresh.id,
+                }));
+                const own = await m.find(JobDependency, { where: { jobId: fresh.id } });
+                if (own.length) await m.insert(JobDependency, own.map((e) => ({ jobId: replacement.id, dependsOnJobId: e.dependsOnJobId })));
+                // Direct rewiring, not setDependencies: dependents may be in any status, and none of them is reset or started.
+                await m.update(JobDependency, { dependsOnJobId: fresh.id }, { dependsOnJobId: replacement.id });
+                return replacement;
+            });
+        } catch (e) {
+            // A concurrent request may have committed first (the unique index rejects the second insert): answer with its replacement.
+            const winner = await this.jobRepository.findOneBy({ recreatedFromId: id });
+            if (winner) return this.getById(winner.id);
+            if (isUniqueViolation(e)) throw new ConflictException('The job changed in the meantime, try again');
+            throw e;
+        }
+        await this.capture?.featureReadiness(created.featureId);
+        return this.getById(created.id);
     }
 
     private async apply(id: string, event: JobEvent, reason?: string): Promise<JobResponseDto> {

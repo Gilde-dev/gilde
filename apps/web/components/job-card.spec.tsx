@@ -215,3 +215,31 @@ describe('JobCard Suggested badge', () => {
     expect(screen.queryByText('Suggested')).toBeNull();
   });
 });
+
+describe('JobCard merged without work', () => {
+  const merged = { ...base, status: 'merged', mergedBlocked: true, prNumber: 7, prUrl: 'https://github.com/o/r/pull/7' } as Job;
+
+  it('shows the exact label, keeps the PR link and offers Recreate job without fetching anything', () => {
+    const getJob = vi.spyOn(api, 'getJob');
+    render(<JobCard job={merged} onOpen={() => {}} />);
+    expect(screen.getByText('Merged without work (blocked)')).toBeInTheDocument();
+    expect(screen.queryByText('Merged')).toBeNull();
+    expect(screen.getByRole('link', { name: '#7' })).toHaveAttribute('href', 'https://github.com/o/r/pull/7');
+    expect(screen.getByRole('button', { name: 'Recreate job' })).toBeInTheDocument();
+    expect(getJob).not.toHaveBeenCalled();
+  });
+
+  it('leaves other merged jobs as they were', () => {
+    render(<JobCard job={{ ...merged, mergedBlocked: false }} onOpen={() => {}} />);
+    expect(screen.getByText('Merged')).toBeInTheDocument();
+    expect(screen.queryByText(/without work/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Recreate job' })).toBeNull();
+  });
+
+  it('does not open the card from the Recreate job button', () => {
+    const onOpen = vi.fn();
+    render(<JobCard job={merged} onOpen={onOpen} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate job' }));
+    expect(onOpen).not.toHaveBeenCalled();
+  });
+});

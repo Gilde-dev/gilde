@@ -42,7 +42,28 @@ export const FEATURE_STATUS_BADGE: Record<FeatureStatus, StatusEntry> = {
   cancelled: { label: 'Cancelled', variant: 'neutral', icon: Ban },
 };
 
-export function StatusBadge({ status, kind = 'job', className }: { status: string; kind?: 'job' | 'feature'; className?: string }) {
+/** A merged job whose latest run reported blocked: GitHub merged it, but no work was done. */
+export const MERGED_WITHOUT_WORK_BADGE: StatusEntry = { label: 'Merged without work (blocked)', variant: 'warning', icon: GitMerge };
+
+export function StatusBadge({
+  status,
+  kind = 'job',
+  mergedBlocked = false,
+  className,
+}: {
+  status: string;
+  kind?: 'job' | 'feature';
+  /** Pass the job's `mergedBlocked`; only meaningful for a merged job. */
+  mergedBlocked?: boolean;
+  className?: string;
+}) {
+  if (kind === 'job' && status === 'merged' && mergedBlocked) {
+    return (
+      <Badge variant={MERGED_WITHOUT_WORK_BADGE.variant} icon={MERGED_WITHOUT_WORK_BADGE.icon} className={className}>
+        {MERGED_WITHOUT_WORK_BADGE.label}
+      </Badge>
+    );
+  }
   const map: Record<string, StatusEntry> = kind === 'job' ? JOB_STATUS_BADGE : FEATURE_STATUS_BADGE;
   const entry = map[status] ?? { label: status.replace(/_/g, ' '), variant: 'neutral' as const, icon: CircleDashed };
   return (

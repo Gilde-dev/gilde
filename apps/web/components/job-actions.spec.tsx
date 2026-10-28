@@ -90,3 +90,55 @@ describe('JobActions', () => {
     expect(triage).toHaveBeenCalledWith('j1');
   });
 });
+
+describe('JobActions recreate', () => {
+  const blocked = { id: 'j1', projectId: 'p1', status: 'merged', mergedBlocked: true, replacedById: null } as Job;
+
+  it('offers Recreate job only for merged-without-work jobs without a replacement', () => {
+    const { rerender } = render(<JobActions job={blocked} onChanged={() => {}} />);
+    expect(screen.getByRole('button', { name: 'Recreate job' })).toBeInTheDocument();
+    rerender(<JobActions job={{ ...blocked, mergedBlocked: false }} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Recreate job' })).toBeNull();
+    rerender(<JobActions job={{ ...blocked, status: 'parked' }} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Recreate job' })).toBeNull();
+    rerender(<JobActions job={{ ...blocked, replacedById: 'j2' }} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Recreate job' })).toBeNull();
+    expect(screen.getByRole('link', { name: 'View replacement job' })).toHaveAttribute('href', '/jobs/j2?project=p1');
+  });
+
+  it('explains the effect and makes no request when cancelled', () => {
+    const recreate = vi.spyOn(api, 'recreateJob').mockResolvedValue({} as Job);
+    render(<JobActions job={blocked} onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate job' }));
+    expect(screen.getByText(/new job in triage/)).toHaveTextContent(/depend on this one will wait for the new job/);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(recreate).not.toHaveBeenCalled();
+  });
+
+  it('creates once (pending blocks a second click), refreshes and links to the replacement', async () => {
+    let resolve!: (j: Job) => void;
+    const recreate = vi.spyOn(api, 'recreateJob').mockReturnValue(new Promise<Job>((r) => (resolve = r)));
+    const onChanged = vi.fn();
+    render(<JobActions job={blocked} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate job' }));
+    const confirm = screen.getAllByRole('button', { name: 'Recreate job' }).at(-1)!;
+    fireEvent.click(confirm);
+    fireEvent.click(confirm);
+    expect(confirm).toBeDisabled();
+    expect(recreate).toHaveBeenCalledTimes(1);
+    resolve({ id: 'j9' } as Job);
+    await waitFor(() => expect(onChanged).toHaveBeenCalledTimes(1));
+    expect(recreate).toHaveBeenCalledWith('j1');
+    expect(await screen.findByRole('link', { name: 'View replacement job' })).toHaveAttribute('href', '/jobs/j9?project=p1');
+  });
+
+  it('shows the failure and keeps the dialog open', async () => {
+    vi.spyOn(api, 'recreateJob').mockRejectedValue(new ApiError('long', 409, 'The job changed in the meantime'));
+    const onChanged = vi.fn();
+    render(<JobActions job={blocked} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Recreate job' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Recreate job' }).at(-1)!);
+    expect(await screen.findByRole('alert')).toHaveTextContent('The job changed in the meantime');
+    expect(onChanged).not.toHaveBeenCalled();
+  });
+});

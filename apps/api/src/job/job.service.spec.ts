@@ -89,7 +89,7 @@ describe('job dependencies', () => {
 
         const detail = await service.getById(job.id);
         expect(detail.dependsOn.sort()).toEqual([merged.id, open.id].sort());
-        expect(detail.blockedBy).toEqual([{ id: open.id, title: open.title, status: 'pr_open' }]);
+        expect(detail.blockedBy).toEqual([{ id: open.id, title: open.title, status: 'pr_open', mergedBlocked: false }]);
         expect(detail.failedDependency).toBeUndefined();
 
         await service.setDependencies(job.id, [bad.id]);

@@ -90,8 +90,12 @@ export class JobEventsService {
         return `job ${to} with PR #${pr.number}`;
     }
 
-    /** Stores the PR body's proposals for the run. A failure is logged and never fails the event. */
+    /**
+     * Runs once the run row holds the parsed body: parks a job whose current run reports blocked, keeps the merged-blocked
+     * flag in step, tells the scout and stores the PR body's proposals. A failure is logged and never fails the event.
+     */
     async recordProposals(job: Job, run: JobRun, parsed: ParsedPrBody): Promise<void> {
+        await this.parkOnBlocked(job, run, parsed);
         await this.notifyRunOutcome(job, run, parsed);
         if (!this.proposals) return;
         try {
@@ -99,6 +103,48 @@ export class JobEventsService {
         } catch (e) {
             this.logger.error(`Run ${run.id}: recording proposals failed: ${e instanceof Error ? e.message : String(e)}`);
         }
+    }
+
+    /**
+     * Parks the job when the current run's stored result is blocked. The run is re-read (the caller's copy predates the
+     * write and a conditional write may not have landed) and must be the job's latest attempt, so an older attempt's
+     * body never parks it. The park is a conditional state transition: edits, redeliveries and concurrent calls park and
+     * notify once. Never throws; never consumes attempts or requeues.
+     */
+    private async parkOnBlocked(job: Job, run: JobRun, parsed: ParsedPrBody): Promise<void> {
+        try {
+            await this.syncMergedBlocked(job.id);
+            if (parsed.result?.outcome !== 'blocked') return;
+            if (parsed.runId && parsed.runId !== run.id) return;
+            const [stored, latest, current] = await Promise.all([
+                this.runs.findOneBy({ id: run.id }),
+                this.latestRun(job.id),
+                this.jobs.findOneBy({ id: job.id }),
+            ]);
+            if (!stored || !current || latest?.id !== stored.id) return;
+            if (stored.result?.outcome !== 'blocked' || JSON.stringify(stored.result) !== JSON.stringify(parsed.result)) return;
+            const reason = `Blocked: ${stored.result.summary}. Close the PR, fix the cause, then retry.`;
+            const to = await this.transition(current, 'park', { lastReason: reason });
+            if (to !== 'parked') return;
+            this.logger.log(`Job ${job.id} parked: run ${stored.id} reported blocked`);
+            await this.lessons?.onJobEnded(job.id, to, reason);
+            await this.capture?.jobParked({ ...current, status: to, lastReason: reason }, reason, 'blocked');
+        } catch (e) {
+            this.logger.error(`Run ${run.id}: parking on a blocked result failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+    }
+
+    /**
+     * Sets `mergedBlocked` from the stored latest run of a merged job (false for any other job). Returns the new value.
+     * It reads the stored result, never the parsed body, so a lost write or an older attempt cannot set it.
+     */
+    async syncMergedBlocked(jobId: string): Promise<boolean> {
+        const job = await this.jobs.findOneBy({ id: jobId });
+        if (!job) return false;
+        const latest = job.status === 'merged' ? await this.latestRun(jobId) : null;
+        const blocked = latest?.result?.outcome === 'blocked';
+        if (job.mergedBlocked !== blocked) await this.jobs.update({ id: jobId }, { mergedBlocked: blocked });
+        return blocked;
     }
 
     /**
@@ -144,6 +190,7 @@ export class JobEventsService {
             }
         }
         await this.lessons?.onJobEnded(job.id, to);
+        if (merged) await this.syncMergedBlocked(job.id);
         if (merged) await this.manifests?.refreshQuietly(job.repoId);
         if (merged) await this.capture?.featureReadiness(job.featureId);
         if (merged) await this.scout?.publish(job.projectId, { type: 'job_merged', jobId: job.id, repoId: job.repoId });

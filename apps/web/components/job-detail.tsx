@@ -423,7 +423,7 @@ export function JobDetailView() {
         </Link>
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-display-sm">{j.title}</h1>
-          <StatusBadge status={j.status} />
+          <StatusBadge status={j.status} mergedBlocked={j.mergedBlocked} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <code className="font-mono text-sm">{repoName}</code>
