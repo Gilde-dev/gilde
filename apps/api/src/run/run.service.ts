@@ -4,6 +4,7 @@ import { Repository } from 'typeorm';
 
 import { isUniqueViolation } from '../common/db-errors.js';
 import type { CreateRunDto, RunResponseDto } from './run.dto.js';
+import type { RunContext } from './run-context.js';
 import { JobRun } from './run.entity.js';
 import { RunMapper } from './run.mapper.js';
 
@@ -30,6 +31,11 @@ export class RunService {
     async markFired(id: string, session: { sessionId: string; sessionUrl: string; instructionsVersion?: string | null }): Promise<void> {
         const { instructionsVersion = null, ...rest } = session;
         await this.runRepository.update({ id }, { status: 'fired', ...rest, instructionsVersion, firedAt: new Date() });
+    }
+
+    /** Records what the agent had; the capture itself never throws, and a failed write must not stop the fire. */
+    async recordContext(id: string, capture: { context: RunContext | null; contextError: string | null }): Promise<void> {
+        await this.runRepository.update({ id }, { context: capture.context, contextError: capture.contextError });
     }
 
     async markFailed(id: string, error: string): Promise<void> {

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { gildeResultSchema } from '../webhook/pr-body.js';
+import { RunContextSchema } from './run-context.js';
 import { RUN_STATUSES } from './run-status.js';
 
 export const CreateRunSchema = z.object({
@@ -26,6 +27,8 @@ export const RunResponseSchema = z.object({
     sessionId: z.string().nullable(),
     sessionUrl: z.string().nullable(),
     instructionsVersion: z.string().nullable(),
+    context: RunContextSchema.nullable(),
+    contextError: z.string().nullable(),
     error: z.string().nullable(),
     ciConclusion: z.string().nullable(),
     result: gildeResultSchema.nullable(),
