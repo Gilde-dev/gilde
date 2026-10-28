@@ -36,7 +36,7 @@ Deployment is done from the separate `Gilde-dev/gilde-infra` repo (compose file,
 
 Environment variables per image:
 
-- **api** (listens on `PORT`, default 4100; healthcheck `GET /api/health`): `DATABASE_URL` (`postgres://`, migrations run on startup), `JWT_SECRET` (at least 32 chars), `WEB_ORIGIN`, `GITHUB_TOKEN` or the GitHub App variables (see "GitHub App"), `GITHUB_WEBHOOK_SECRET`, `OPENAI_API_KEY` and `COPILOT_MODEL` (co-pilot). Preset in the image: `GILDE_WORKSPACE_DIR=/data/workspace` (mount a volume there; it is writable by the runtime user) and `AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md`. Optional: `JWT_EXPIRES_IN`, `GILDE_CI_WORKFLOWS`, `GILDE_GATE_WORKFLOWS`, `COPILOT_MAX_BODY`. The API trusts exactly one proxy hop (`trust proxy 1`), so run it behind one reverse proxy only.
+- **api** (listens on `PORT`, default 4100; healthcheck `GET /api/health`): `DATABASE_URL` (`postgres://`, migrations run on startup), `JWT_SECRET` (at least 32 chars), `WEB_ORIGIN`, `GITHUB_TOKEN` or the GitHub App variables (see "GitHub App"), `GITHUB_WEBHOOK_SECRET` and/or `GITHUB_APP_WEBHOOK_SECRET`, `OPENAI_API_KEY` and `COPILOT_MODEL` (co-pilot). Preset in the image: `GILDE_WORKSPACE_DIR=/data/workspace` (mount a volume there; it is writable by the runtime user) and `AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md`. Optional: `JWT_EXPIRES_IN`, `GILDE_CI_WORKFLOWS`, `GILDE_GATE_WORKFLOWS`, `COPILOT_MAX_BODY`. The API trusts exactly one proxy hop (`trust proxy 1`), so run it behind one reverse proxy only.
 - **web** (listens on 3000, `HOSTNAME=0.0.0.0`): `GILDE_API_URL` (for example `http://api:4100/api`), read at runtime on the server, never baked into the build. The session cookie is `Secure` because `NODE_ENV=production`.
 - **channels** (no ports): `GILDE_API_URL`, `GILDE_PUBLIC_URL`, `GILDE_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`.
 
@@ -502,6 +502,24 @@ instead of a personal access token ([ADR 0012](docs/adr/0012-github-app-for-gild
 With the app active, a registered repo the app is not installed on fails with "the Gilde GitHub App is not installed on <owner>/<repo>";
 there is no fallback to the PAT. Once everything works, `GITHUB_TOKEN` can be removed. Installation tokens live one hour and are held in
 memory only; the key never appears in logs, errors or the database.
+
+### App webhook and installation events
+
+With the app, GitHub sends all events to the one webhook configured in the app, instead of a webhook per repo.
+
+- **Webhook URL**: `https://<your-api>/api/webhooks/github` (the existing route), content type `application/json`.
+- **Secret**: a random string, set on the API as `GITHUB_APP_WEBHOOK_SECRET`. A delivery is accepted when its signature matches
+  `GITHUB_APP_WEBHOOK_SECRET` or `GITHUB_WEBHOOK_SECRET` (whichever are set), so per-repo webhooks and the app webhook work side by
+  side during the switch. With neither set, every delivery is rejected.
+- **Subscribe to**: *Pull request*, *Pull request review*, *Pull request review comment*, *Issue comment*, *Workflow run*. The
+  *installation* and *installation_repositories* events are sent to every app automatically; Gilde records per repo whether the app is
+  installed and shows "GitHub App installed" / "not installed" in the project's repo settings, with a warning when a registered repo
+  loses its installation while the app is active. It never registers or removes Gilde repos by itself.
+- **Duplicates**: a delivery is applied once per `x-github-delivery` id (table `webhook_deliveries`), so the same delivery arriving
+  through both a repo webhook and the app webhook is handled once.
+
+Cut-over order: (1) set the app webhook URL and `GITHUB_APP_WEBHOOK_SECRET`, (2) check in the app's *Advanced → Recent deliveries*
+that they arrive with `200` and show up in the API log, (3) remove the per-repo webhooks, (4) remove `GITHUB_WEBHOOK_SECRET`.
 
 ## GitHub webhooks (local)
 

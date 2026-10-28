@@ -251,6 +251,10 @@ export interface Repo {
   manifestSha: string | null;
   manifestSyncedAt: string | null;
   manifestError: string | null;
+  /** Whether the Gilde GitHub App is installed on the repo; null until an installation event was seen. */
+  githubAppInstalled: boolean | null;
+  /** Set when app mode is active and the app lost its installation on this repo. */
+  githubAppWarning: string | null;
   paused: boolean;
   pausedReason: string | null;
   createdAt: string;

@@ -38,4 +38,4 @@ what that person can see, and ties the factory to one account. `GITHUB_TOKEN` wa
 - Tokens are short-lived and scoped to installed repos; no personal account in the loop once the app works.
 - A human must create and install the app and set the secrets (README "GitHub App"); Pulumi and removing old webhooks happen outside this repo.
 - A repo outside the installation fails closed with a clear error rather than falling back to the PAT.
-- Webhooks from the app and installation events are handled in a later job.
+- Webhooks from the app are verified with `GITHUB_APP_WEBHOOK_SECRET` or `GITHUB_WEBHOOK_SECRET` and handled like per-repo deliveries; installation events are recorded per repo for display only (README "GitHub App").

@@ -27,7 +27,7 @@ describe('WebhookController', () => {
 
     it('delegates other events to the service', async () => {
         expect(await controller.github(req, sig, 'push', 'd2', { a: 1 })).toEqual({ result: 'ignored: event push' });
-        expect(handle).toHaveBeenCalledWith('push', { a: 1 });
+        expect(handle).toHaveBeenCalledWith('push', { a: 1 }, 'd2');
     });
 
     it('logs delivery id, event.action and result', async () => {
@@ -35,6 +35,21 @@ describe('WebhookController', () => {
         await controller.github(req, sig, 'pull_request', 'd9', { action: 'edited' });
         expect(log).toHaveBeenCalledWith('Delivery d9 pull_request.edited: ignored: event push');
         log.mockRestore();
+    });
+
+    it('accepts the app webhook secret too, and rejects when neither is set', async () => {
+        const appSecret = 'app-secret';
+        const appSig = `sha256=${createHmac('sha256', appSecret).update(body).digest('hex')}`;
+        process.env.GITHUB_APP_WEBHOOK_SECRET = appSecret;
+        try {
+            expect(await controller.github(req, appSig, 'ping', 'a1')).toEqual({ result: 'pong' });
+            expect(await controller.github(req, sig, 'ping', 'a2')).toEqual({ result: 'pong' });
+            delete process.env.GITHUB_APP_WEBHOOK_SECRET;
+            delete process.env.GITHUB_WEBHOOK_SECRET;
+            await expect(controller.github(req, sig, 'ping', 'a3')).rejects.toBeInstanceOf(UnauthorizedException);
+        } finally {
+            delete process.env.GITHUB_APP_WEBHOOK_SECRET;
+        }
     });
 
     it('rejects a missing signature', async () => {

@@ -18,6 +18,9 @@ import { NotificationCaptureService } from '../notification/notification-capture
 import { NotificationMapper } from '../notification/notification.mapper.js';
 import { Notification } from '../notification/notification.entity.js';
 import { NotificationService } from '../notification/notification.service.js';
+import { GithubInstallation } from '../repo/github-installation.entity.js';
+import { GithubInstallationService } from '../repo/github-installation.service.js';
+import { WebhookDelivery } from './webhook-delivery.entity.js';
 import { WebhookService } from './webhook.service.js';
 
 const SHA1 = 'a1b2c3d4e5f60718293a4b5c6d7e8f9012345678';
@@ -32,10 +35,11 @@ let service: WebhookService;
 let feedbackService: FeedbackService;
 let repo: Repo;
 let notifications: Repository<Notification>;
+let installations: GithubInstallationService;
 
 beforeEach(async () => {
     ds = await new DataSource({
-        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun, Feedback, Feature, Notification], synchronize: true,
+        type: 'better-sqlite3', database: ':memory:', entities: [User, Project, Repo, Job, JobRun, Feedback, Feature, Notification, GithubInstallation, WebhookDelivery], synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
     repos = ds.getRepository(Repo);
@@ -52,7 +56,8 @@ beforeEach(async () => {
         new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature),
     );
     const events = new JobEventsService(jobs, runs, projects, undefined, undefined, undefined, capture);
-    service = new WebhookService(repoService, feedbackService, jobs, runs, projects, events);
+    installations = new GithubInstallationService(ds.getRepository(GithubInstallation), { mode: 'app' } as never);
+    service = new WebhookService(repoService, feedbackService, jobs, runs, projects, events, ds.getRepository(WebhookDelivery), installations);
 });
 
 afterEach(() => ds.destroy());
@@ -674,5 +679,87 @@ describe('notification events', () => {
         expect(await events.sendBack(job, 'nope')).toBe('parked');
         const rows = await notifications.find();
         expect(rows.map((n) => n.occurrenceKey)).toEqual([`job.parked:${job.id}:a3:${SHA1}:sent_back`]);
+    });
+});
+
+describe('app deliveries', () => {
+    const installation = { id: 4242, node_id: 'MDIz' };
+    const withApp = <T extends object>(p: T) => ({ ...p, installation, sender: { login: 'gilde-app[bot]' } });
+
+    it('handles pull request, workflow run, review and comment events carrying an installation object', async () => {
+        const job = await seedJob();
+        const run = await seedRun(job);
+        expect(await service.handle('pull_request', withApp(prPayload('opened', { body: body(job, run) })))).toBe('job pr_open with PR #12');
+        expect(await service.handle('workflow_run', withApp(runPayload()))).toContain('awaiting_review');
+        const review = withApp({
+            action: 'submitted', repository: { full_name: 'gilde-dev/gilde' }, pull_request: prPayload('x').pull_request,
+            review: { id: 5, state: 'changes_requested', body: 'Rename.', author_association: 'OWNER', user: { login: 'alice' } },
+        });
+        expect(await service.handle('pull_request_review', review)).toBe('job queued with PR #12');
+        const comment = withApp({
+            action: 'created', repository: { full_name: 'gilde-dev/gilde' }, pull_request: prPayload('x').pull_request,
+            comment: { id: 6, body: 'nit', author_association: 'OWNER', user: { login: 'alice' }, path: 'a.ts', line: 3 },
+        });
+        expect(await service.handle('pull_request_review_comment', comment)).toBe('stored review comment for PR #12');
+        const issueComment = withApp({
+            action: 'created', repository: { full_name: 'gilde-dev/gilde' }, issue: { number: 12, pull_request: {} },
+            comment: { id: 7, body: 'thanks', author_association: 'OWNER', user: { login: 'alice' } },
+        });
+        expect(await service.handle('issue_comment', issueComment)).toBe('stored comment for PR #12');
+    });
+
+    it('ignores app deliveries for repos that are not registered', async () => {
+        expect(await service.handle('pull_request', withApp(prPayload('opened', {}, 'other/repo')))).toBe('ignored: unknown repo other/repo');
+    });
+
+    describe('installation events', () => {
+        const status = async (name: string) => (await installations.statusFor([name])).get(name);
+
+        it('records installed and removed per repo from installation and installation_repositories', async () => {
+            expect(await status('gilde-dev/gilde')).toEqual({ installed: null, warning: null });
+            await service.handle('installation', withApp({ action: 'created', repositories: [{ full_name: 'Gilde-dev/gilde' }, { full_name: 'gilde-dev/other' }] }));
+            expect((await status('gilde-dev/gilde'))?.installed).toBe(true);
+            await service.handle('installation_repositories', withApp({ action: 'removed', repositories_removed: [{ full_name: 'Gilde-dev/gilde' }], repositories_added: [] }));
+            expect(await status('gilde-dev/gilde')).toMatchObject({ installed: false, warning: expect.stringContaining('no longer installed') });
+            await service.handle('installation_repositories', withApp({ action: 'added', repositories_added: [{ full_name: 'gilde-dev/gilde' }] }));
+            expect(await status('gilde-dev/gilde')).toEqual({ installed: true, warning: null });
+            await service.handle('installation', withApp({ action: 'deleted', repositories: [{ full_name: 'gilde-dev/gilde' }] }));
+            expect((await status('gilde-dev/gilde'))?.installed).toBe(false);
+        });
+
+        it('only warns in app mode', async () => {
+            const patMode = new GithubInstallationService(ds.getRepository(GithubInstallation), { mode: 'pat' } as never);
+            await installations.record(['gilde-dev/gilde'], false);
+            expect((await patMode.statusFor(['gilde-dev/gilde'])).get('gilde-dev/gilde')).toEqual({ installed: false, warning: null });
+        });
+
+        it('never registers or removes Gilde repos', async () => {
+            await service.handle('installation', withApp({ action: 'created', repositories: [{ full_name: 'new-org/new-repo' }] }));
+            await service.handle('installation_repositories', withApp({ action: 'removed', repositories_removed: [{ full_name: 'gilde-dev/gilde' }] }));
+            expect((await repos.find()).map((r) => r.fullName)).toEqual(['gilde-dev/gilde']);
+        });
+    });
+
+    describe('duplicate deliveries', () => {
+        it('applies the same delivery id once, however many times it arrives', async () => {
+            const job = await seedJob();
+            const run = await seedRun(job);
+            const payload = prPayload('opened', { body: body(job, run) });
+            expect(await service.handle('pull_request', payload, 'del-1')).toBe('job pr_open with PR #12');
+            expect(await service.handle('pull_request', payload, 'del-1')).toBe('ignored: duplicate delivery del-1');
+            expect(await ds.getRepository(WebhookDelivery).count()).toBe(1);
+        });
+
+        it('applies different delivery ids separately and releases the id when handling throws', async () => {
+            const spy = vi.spyOn(feedbackService, 'record').mockRejectedValueOnce(new Error('db down'));
+            const payload = {
+                action: 'created', repository: { full_name: 'gilde-dev/gilde' }, pull_request: prPayload('x').pull_request,
+                comment: { id: 9, body: 'nit', author_association: 'OWNER', user: { login: 'a' } },
+            };
+            await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            await expect(service.handle('pull_request_review_comment', payload, 'del-2')).rejects.toThrow('db down');
+            spy.mockRestore();
+            expect(await service.handle('pull_request_review_comment', payload, 'del-2')).toBe('stored review comment for PR #12');
+        });
     });
 });
