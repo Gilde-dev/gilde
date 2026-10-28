@@ -1,6 +1,6 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { IsNull, LessThanOrEqual, Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
@@ -9,12 +9,15 @@ import { UserService } from '../user/user.service.js';
 
 import type { CreateExecutorDto, ExecutorResponseDto, ReplaceExecutorDto, ReplaceExecutorTokenDto } from './executor.dto.js';
 import { Executor } from './executor.entity.js';
+import { parseExhaustedBackoffMinutes } from './executor-exhaustion.js';
 import { ExecutorMapper } from './executor.mapper.js';
 import { ExecutorSecretService } from './executor-secret.service.js';
 
 /** Executors are personal: every method takes the acting user, and another user's executor is a 404. Writes need a verified human. */
 @Injectable()
 export class ExecutorService {
+    private readonly backoffMinutes = parseExhaustedBackoffMinutes();
+
     constructor(
         @InjectRepository(Executor) private readonly executors: Repository<Executor>,
         private readonly mapper: ExecutorMapper,
@@ -76,6 +79,15 @@ export class ExecutorService {
         await this.executors.update({ id, ownerId: owner }, this.tokenColumns(dto.token));
     }
 
+    /** Clears `exhaustedUntil` of the user's own executor, so it is usable again at once. */
+    async resetExhaustion(user: AuthUser | null, id: string): Promise<ExecutorResponseDto> {
+        const owner = await this.verifiedOwner(user);
+        const entity = await this.getOwned(owner, id);
+        await this.executors.update({ id, ownerId: owner }, { exhaustedUntil: null });
+        entity.exhaustedUntil = null;
+        return this.mapper.toDTO(entity);
+    }
+
     async remove(user: AuthUser | null, id: string): Promise<void> {
         const owner = await this.verifiedOwner(user);
         const result = await this.executors.delete({ id, ownerId: owner });
@@ -102,6 +114,20 @@ export class ExecutorService {
      */
     listForDispatch(ownerId: string): Promise<Executor[]> {
         return this.executors.find({ where: { ownerId }, order: { name: 'ASC' } });
+    }
+
+    /**
+     * Internal, for the dispatcher only: marks the executor exhausted until `resetAt`, else now + the configured backoff.
+     * Returns the new reset time only when this call started the exhaustion (the executor was usable), so a caller
+     * notifies once per exhaustion; null when it was already exhausted or is gone.
+     */
+    async markExhausted(id: string, resetAt: Date | null, now = new Date()): Promise<Date | null> {
+        const until = resetAt ?? new Date(now.getTime() + this.backoffMinutes * 60_000);
+        const set = { exhaustedUntil: until };
+        const fresh = await this.executors.update({ id, exhaustedUntil: IsNull() }, set);
+        if (fresh.affected) return until;
+        const expired = await this.executors.update({ id, exhaustedUntil: LessThanOrEqual(now) }, set);
+        return expired.affected ? until : null;
     }
 
     private tokenColumns(token: string) {

@@ -61,10 +61,10 @@ describe('loadConfig notifications', () => {
     expect(loadConfig({ ...slackEnv, NOTIFICATIONS_ENABLED: 'false', NOTIFICATION_SLACK_CHANNEL_ID: 'C0123ABCDEF' }).notifications).toBeUndefined();
   });
 
-  it('enables all seven kinds for one channel with bounded defaults and needs no LLM variables', () => {
+  it('enables all eight kinds for one channel with bounded defaults and needs no LLM variables', () => {
     const { notifications } = loadConfig(enabled);
     expect(notifications).toMatchObject({
-      kinds: ['job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close', 'budget.soft', 'budget.hard'],
+      kinds: ['job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close', 'budget.soft', 'budget.hard', 'executor.exhausted'],
       slack: { botToken: 'xoxb-secret-1', channelId: 'C0123ABCDEF' },
       publicUrl: 'https://gilde.example.com',
       pollIntervalMs: 15_000,

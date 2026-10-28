@@ -15,6 +15,8 @@ import {
 import { prepareJobPrompt, promptTooLargeError } from './job-prompt.js';
 
 const FIRE_TIMEOUT_MS = 30_000;
+/** A Retry-After further away than this is ignored in favour of the configured backoff. */
+const MAX_RESET_MS = 7 * 24 * 60 * 60 * 1000;
 
 const FireResponseSchema = z.object({
     type: z.literal('routine_fire'),
@@ -24,8 +26,20 @@ const FireResponseSchema = z.object({
 
 function httpErrorKind(status: number): ExecutionErrorKind {
     if ([400, 401, 403, 404].includes(status)) return 'config';
-    if (status === 429 || status >= 500) return 'transient';
+    if (status >= 500) return 'transient';
     return 'invalid_response';
+}
+
+/**
+ * The reset time from a Retry-After header (delay in seconds or an HTTP date), or null when absent, invalid, in the past or
+ * unreasonably far away.
+ */
+export function parseRetryAfter(value: string | null, now = new Date()): Date | null {
+    const raw = value?.trim();
+    if (!raw) return null;
+    const at = /^\d+$/.test(raw) ? new Date(now.getTime() + Number(raw) * 1000) : new Date(raw);
+    const ms = at.getTime() - now.getTime();
+    return Number.isNaN(ms) || ms <= 0 || ms > MAX_RESET_MS ? null : at;
 }
 
 @Injectable()
@@ -67,6 +81,13 @@ export class RoutineExecutionAdapter implements ExecutionPort {
             throw new ExecutionError(`Routine fire request failed for ${via}: ${name}`, 'transient');
         }
 
+        if (res.status === 429) {
+            throw new ExecutionError(
+                `Routine fire for ${via} hit a usage limit (HTTP 429)`,
+                'executor_exhausted',
+                parseRetryAfter(res.headers.get('retry-after')),
+            );
+        }
         if (!res.ok) {
             throw new ExecutionError(
                 `Routine fire for ${via} failed with HTTP ${res.status}`,

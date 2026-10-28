@@ -14,6 +14,7 @@ const HEADINGS: Record<NotificationKind, string> = {
   'feature.ready_to_close': ':white_check_mark: Feature ready to close',
   'budget.soft': ':warning: Budget warning',
   'budget.hard': ':no_entry: Budget limit reached',
+  'executor.exhausted': ':hourglass_flowing_sand: Executor exhausted',
 };
 
 /** Escapes Slack control characters and defuses @channel/@here/@everyone and user-group mentions. */
@@ -101,6 +102,10 @@ function formatBudget(n: GildeNotification, publicUrl: string): string {
 /** Deterministic mrkdwn text for one notification; no LLM involved. */
 export function formatSlack(n: GildeNotification, { publicUrl }: OutboundContext): string {
   if (isBudget(n)) return formatBudget(n, publicUrl);
+  if (n.kind === 'executor.exhausted') {
+    // No job, repo or PR: the reason names the executor, its owner and the reset time.
+    return [`*${HEADINGS[n.kind]}*`, escapeSlack(truncate(n.reason, MAX_REASON)) || '_no details_', `Manage: ${link(`${publicUrl}/settings/executors`, 'Open executors in Gilde')}`].join('\n');
+  }
   const url = deepLink(n, publicUrl);
   const title = truncate(n.title, MAX_TITLE);
   const lines = [`*${HEADINGS[n.kind]}*`, url ? `*${link(url, title)}*` : `*${escapeSlack(title)}*`];

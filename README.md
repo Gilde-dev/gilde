@@ -66,6 +66,17 @@ characters only. Without the key the API starts and listing works, but creating 
 that is not base64 of exactly 32 bytes stops the API at startup. Back the key up: changing or losing it makes every stored token
 undecryptable (rotation is not supported yet; `key_version` is reserved), and owners must set their tokens again.
 
+**Usage limits.** A fire answered with HTTP 429 means the executor's account hit a usage limit. What the routine fire endpoint
+returns for this could **not** be verified from the agent environment (no captured response or documentation), so every 429
+is treated as a usage limit, with an optional `Retry-After` (seconds or an HTTP date, ignored when invalid, in the past or more
+than 7 days away). The run ends as `fire_failed` with error kind `executor_exhausted`, the executor's `exhausted_until` is set to
+the reset time (else now + `EXECUTOR_EXHAUSTED_BACKOFF_MINUTES`, default 60, an integer of 1..10080; an invalid value stops the
+API at startup), and the job goes back to `queued` without using an attempt. Other 5xx and network errors stay transient. Until
+the time passes the dispatcher skips the executor, uses another executor of the same owner or waits with the reason
+`executor exhausted until <time>`; afterwards the executor is usable again without action. One `executor.exhausted` notification
+is recorded per exhaustion (executor name, owner, reset time, no token). The owner can clear it early on `/settings/executors`
+(`POST /api/v1/executors/:id/reset-exhaustion`, own executor, verified human). The Verkenner does not receive it.
+
 **Creating the routine.** In Claude Code, create a routine (the routine instructions are in "Agent instructions" below), add an API
 trigger and copy two things: the fire URL, `https://api.anthropic.com/v1/claude_code/routines/<id>/fire`, and the token shown once
 when you generate it. Only that URL shape is accepted.
@@ -759,6 +770,7 @@ Gilde stores platform-neutral factory events for exactly one consumer process (`
 | `job.approval_needed` | a failing gate on the job's current head set `needsApproval` on a job that is not finished | `job.approval_needed:<job>:a<attempts>:<head sha>` |
 | `revision.waiting` | `ProposalService.record` saved a proposed revision | `revision.waiting:<source run>:<target job>:<digest of title, task, criteria, dependsOn and reason>` |
 | `budget.soft` / `budget.hard` | `BudgetAlertService` (scheduled every minute, and the dispatcher at a hard stop) found a soft or hard period | `budget.<kind>:<global or project id>:<day or week>:<UTC period start>`; no job, PR or repo data |
+| `executor.exhausted` | the dispatcher marked an executor exhausted after a usage-limit fire | `executor.exhausted:<executor id>:<reset time ISO>`; no job, PR or repo data |
 | `feature.ready_to_close` | a check after a job merge, a job cancel, a job's feature change, a feature start or a feature reopen found `buildProgress(...).readyToClose` | `feature.ready_to_close:<feature>:<digest of the sorted ids of the counted, non-cancelled jobs>` |
 
 - Replays (webhook redelivery, reconciler passes) hit the unique key and are ignored. A new attempt or a new head sha is a new occurrence. Clearing and re-setting the same gate on the same head, or reopening a feature with the same ready job set, does not notify again; a different ready job set does.

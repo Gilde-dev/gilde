@@ -283,6 +283,16 @@ export function ExecutorsView() {
   const current = dialog && dialog.kind !== 'add' ? list?.find((x) => x.id === dialog.id) : undefined;
   const close = () => setDialog(null);
 
+  const resetExhaustion = async (id: string) => {
+    setActionError(null);
+    try {
+      await api.resetExecutorExhaustion(id);
+    } catch (err) {
+      setActionError(err);
+    }
+    await executors.refresh();
+  };
+
   const toggle = async (id: string) => {
     // Built from the latest loaded executor, not from a copy captured when the row rendered.
     const latest = executors.data?.find((x) => x.id === id);
@@ -375,6 +385,11 @@ export function ExecutorsView() {
               <Button size="sm" variant="outline" onClick={() => setDialog({ kind: 'token', id: x.id })} aria-label={`Replace token of ${x.name}`}>
                 Replace token
               </Button>
+              {isActiveExhaustion(x) && (
+                <Button size="sm" variant="outline" onClick={() => void resetExhaustion(x.id)} aria-label={`Clear exhaustion of ${x.name}`}>
+                  Clear exhaustion
+                </Button>
+              )}
               <Button size="sm" variant="outline" onClick={() => void toggle(x.id)} aria-label={`${x.enabled ? 'Disable' : 'Enable'} ${x.name}`}>
                 {x.enabled ? 'Disable' : 'Enable'}
               </Button>

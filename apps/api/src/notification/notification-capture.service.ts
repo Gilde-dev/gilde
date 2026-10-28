@@ -70,6 +70,21 @@ export class NotificationCaptureService {
     }
 
     /**
+     * An executor hit its usage limit. One occurrence per exhaustion (executor and reset time). Names the executor and its
+     * owner and the reset time; never the token or fire URL. The envelope has no recipient, so the owner is named in the text.
+     */
+    executorExhausted(executor: { id: string; name: string }, ownerName: string, until: Date): Promise<boolean> {
+        return this.notifications.recordQuietly({
+            occurrenceKey: `executor.exhausted:${executor.id}:${until.toISOString()}`,
+            kind: 'executor.exhausted',
+            title: `Executor ${executor.name}`,
+            repos: [],
+            reason: sanitizeReason(`${ownerName}'s executor "${executor.name}" hit its usage limit; no jobs fire on it until ${until.toISOString()}`),
+            prLinks: [],
+        });
+    }
+
+    /**
      * A revision was proposed for `target` by the run behind `prJob`'s PR. The key uses the proposal content, so
      * re-parsing the same proposal is one event and an edited proposal is a new one.
      */

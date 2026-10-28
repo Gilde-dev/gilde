@@ -287,7 +287,7 @@ export interface Job {
   createdBy: { id: string; name: string } | null;
   /** Whose executors may run the job: the non-bot creator, otherwise the human who queued it; null when unknown. */
   ownerId: string | null;
-  /** Why a queued job is not being fired: 'no executor', 'executor busy', 'executor limit reached' or 'executor exhausted'. */
+  /** Why a queued job is not being fired: 'no executor', 'executor busy', 'executor limit reached' or 'executor exhausted until <ISO time>'. */
   waitingReason: string | null;
   /** Present (true) when any dependency is rejected, parked, cancelled or merged without work. */
   failedDependency?: boolean;
@@ -993,6 +993,8 @@ export const api = {
     request<Executor>(`/v1/executors/${id(executorId)}`, 'PUT', input),
   replaceExecutorToken: (executorId: string, token: string) =>
     request<void>(`/v1/executors/${id(executorId)}/token`, 'PUT', { token }),
+  resetExecutorExhaustion: (executorId: string) =>
+    request<Executor>(`/v1/executors/${id(executorId)}/reset-exhaustion`, 'POST'),
   deleteExecutor: (executorId: string) => request<void>(`/v1/executors/${id(executorId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
   copilotStatus: () => request<CopilotStatus>('/v1/copilot/status'),
