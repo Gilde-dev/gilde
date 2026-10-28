@@ -95,7 +95,7 @@ export class ApiKeyService {
         if (!user) return null;
 
         await this.touch(key.id);
-        return { id: user.id, name: user.name, email: user.email };
+        return { id: user.id, name: user.name, email: user.email, credential: 'api_key' };
     }
 
     /** Sets last_used_at at most once per minute per key. */

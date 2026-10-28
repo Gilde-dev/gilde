@@ -139,6 +139,28 @@ An agent reports `blocked` in its `gilde-result` block when it could not do the 
 - **Verkenner.** The board state reports `mergedWithoutWork` (exact count, at most 20 ids) next to the factual status counts.
 - **Recreate job.** `POST /api/v1/jobs/:id/recreate` (also on the board, the job modal and the job page, with a confirmation) is the recovery for a merged-without-work job. It creates a new job in triage for the acting user with the same repo, title, task, acceptance criteria, feature and its own prerequisites, and points every dependency edge that targeted the original at the new job, whatever the dependents' status; the dependents are not reset or started. The original and its PR stay untouched, nothing is queued, and repeated or concurrent requests return the same replacement (`replacedById` on the original). Only merged-without-work jobs qualify (409 otherwise). Queue the new job when you are ready.
 
+## Bot accounts
+
+`users.is_bot` (default `false`) marks machine accounts: the channels bot and the Verkenner scout. Bots authenticate with API keys and can
+never pass `requireVerifiedHuman` (`common/verified-human.ts`, used through `UserService.requireVerifiedHuman`), the opt-in gate for
+human-only operations. It accepts only a persisted non-bot account that signed in with a verified JWT: API keys (even of a human),
+bots, deleted users and the `SCOUT_USER_EMAIL` account are refused (403), and the account is re-read on every call, so a stale token
+cannot outlive a bot marking. Credential provenance (`req.user.credential`: `jwt` or `api_key`) is set by the server after a successful
+authentication only, never from a token claim, header or body; it reaches Mastra tools as `copilotUser(...).credential`. With
+`AUTH_ENABLED=false` no request has provenance, so human-only routes add `JwtHumanGuard`, which always verifies a real JWT.
+
+```sh
+# a new bot account (prompts for a password)
+pnpm --filter @gilde/api user:create --email channels@example.com --name "Gilde Channels" --bot
+pnpm --filter @gilde/api apikey:create --email channels@example.com --name channels   # GILDE_API_KEY for apps/channels
+
+# the Verkenner account
+pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verkenner --bot
+
+# mark an existing account (idempotent, the password is untouched)
+pnpm --filter @gilde/api user:mark-bot --email verkenner@example.com
+```
+
 ## Verkenner (scout agent)
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory

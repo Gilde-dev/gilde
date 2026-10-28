@@ -28,4 +28,9 @@ describe('Auth disabled (e2e)', () => {
   it('lets requests through without a token', async () => {
     await request(app.getHttpServer()).get('/api/v1/projects').expect(200);
   });
+
+  it('never gives requests JWT provenance, so no human-only check can pass', async () => {
+    const res = await request(app.getHttpServer()).get('/api/v1/auth/me').expect(401);
+    expect(res.body).not.toHaveProperty('credential');
+  });
 });

@@ -17,6 +17,7 @@
     "start:debug": "nest start --debug --watch --env-file .env",
     "start:prod": "node dist/main",
     "user:create": "nest build && node --env-file-if-exists=.env dist/cli/user-create.js",
+    "user:mark-bot": "nest build && node --env-file-if-exists=.env dist/cli/user-mark-bot.js",
     "apikey:create": "nest build && node --env-file-if-exists=.env dist/cli/apikey-create.js",
     "migration:generate": "node scripts/migration.mjs generate",
     "migration:run": "node scripts/migration.mjs run",

@@ -14,5 +14,13 @@ export const UserResponseSchema = z.object({
     email: z.string(),
 });
 
+/** Persisted identity used for human-only decisions; kept apart from UserResponseDto, which clients already rely on. */
+export const UserIdentitySchema = z.object({
+    id: z.string().uuid(),
+    email: z.string(),
+    isBot: z.boolean(),
+});
+
 export type CreateUserDto = z.infer<typeof CreateUserSchema>;
 export type UserResponseDto = z.infer<typeof UserResponseSchema>;
+export type UserIdentityDto = z.infer<typeof UserIdentitySchema>;
