@@ -477,6 +477,51 @@ Jobs, features, projects, repos and lessons are updated with `PUT` on the resour
 
 State rules still apply to a full body: a job's content can only differ from the stored one in `triage` (a queued job accepts a new `featureId` with its content resent unchanged), and a feature can only be replaced while it is draft or active. Two people editing the same resource at the same time is last write wins: a complete body carries the values the client loaded, with no version check. Job dependencies keep their own `PUT /api/v1/jobs/:id/dependencies`. See [ADR 0008](docs/adr/0008-full-replacement-put-controllers-use-services-and-dtos.md).
 
+## Specs
+
+A spec is a versioned document per repo (`apps/api/src/spec/`). The repo, project and kebab-case `slug` never change, and the slug is unique per repo. Every save inserts an immutable `spec_versions` row with the body stored byte for byte (plus its SHA-256); rows are never updated, and Postgres triggers refuse updates and deletes of versions and approvals.
+
+### Template
+
+A body has exactly these six H2 headings, once each, in this order (fenced code is ignored when looking for structure):
+
+```md
+## Goal
+## Context
+## Behaviour
+## Acceptance criteria
+- AC-1: A concrete, checkable outcome.
+## Out of scope
+## Open questions
+None
+```
+
+Every item under *Acceptance criteria* is `AC-<positive integer>: text` with unique ids and no unlabelled criteria. Ids are stable across versions: an id that left the latest version is retired and cannot return, new ids must exceed the highest id ever used, and surviving ids keep their number. A body that breaks these rules is rejected (400, with `issues`). *Open questions* is resolved when empty or only `None`; otherwise the version still saves, but it cannot be approved and the API lists the reasons.
+
+### API
+
+| Route | |
+|-------|--|
+| `GET /api/v1/projects/:id/specs` | list specs of a project |
+| `POST /api/v1/projects/:id/specs` | create: `repoId`, `slug`, `title`, `body`, `expectedVersion: 0` (the repo must belong to the project) |
+| `GET /api/v1/specs/:id` | detail with version history (newest first): parsed criteria, per-version `eligibility`, `approval` evidence and `recording`, plus the caller's `mayApprove` and `mayApproveReasons` |
+| `POST /api/v1/specs/:id/versions` | save a new version: `title`, `body`, `expectedVersion`; the spec returns to `draft`, earlier approvals stay |
+| `POST /api/v1/specs/:id/approve` | approve: `expectedVersion` |
+
+The actor is always the authenticated user; bodies reject unknown keys, so an actor field is a 400. Writes need the `expectedVersion` the caller saw: a stale one is a 409. Anyone authenticated (including bots and API keys) may save drafts. Only a verified human may approve (the check in "Bot accounts"): API keys are refused (401), bots 403, and approving a version with open questions is a 422 with `reasons`.
+
+### Recording
+
+Approval commits, in one transaction, the approval audit row, the spec's `approved` state and one recording job in **triage** (never queued), created by the approving human, titled `Record spec <slug> v<n>`. Its task starts with the fetch/rebase line, names spec, version, approver and time, and carries the exact body between hash-named markers as data. Only `docs/specs/<slug>.md` and `docs/specs/README.md` may change. Approving the same version again changes nothing. Any failure rolls the whole approval back. Writes to one spec are serialised (a row lock on Postgres), and the audit rows are unique per version.
+
+A newer approval looks at the newest recording that was not superseded:
+
+- an unstarted **triage** job is reused in place for the new version, keeping its prerequisite;
+- an unstarted **queued** job is cancelled through the job state machine and replaced by a new triage job (a dispatcher that claims it first wins; the job then counts as in flight);
+- anything in flight, failed, or pinned by a feature is never touched: the new triage job depends on it, so recordings are written in order. A failed, rejected, parked or cancelled prerequisite stays an explicit blocker that a human resolves; nothing is bypassed or queued automatically.
+
+The version's `recording` shows `state` (`triage`, `queued`, `in_flight`, `recorded`, `failed`, `superseded`), the job status and PR link, `dependsOnJobId`, and `supersededByRecordingId` once replaced. Old audit rows are never rewritten.
+
 ## Budgets
 
 Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** recorded spend, **warn** through the notification outbox and **stop new automatic dispatch** at the hard limit (see "Enforcement" and "Budget notifications" below). Human use of Gilde is never blocked.
