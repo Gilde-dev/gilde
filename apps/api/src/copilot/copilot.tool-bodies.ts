@@ -46,6 +46,9 @@ export const compactJob = (j: JobResponseDto) => ({
     prUrl: j.prUrl,
     attempts: j.attempts,
     lastReason: j.lastReason,
+    /** Why a queued job is not being fired: no executor, executor busy, executor limit reached or executor exhausted. */
+    waitingReason: j.waitingReason,
+    ownerId: j.ownerId,
     blockedBy: j.blockedBy,
     mergedBlocked: j.mergedBlocked,
     failedDependency: j.failedDependency,

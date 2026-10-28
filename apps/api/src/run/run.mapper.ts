@@ -13,6 +13,7 @@ export class RunMapper {
             projectId: e.projectId,
             repoId: e.repoId,
             attempt: e.attempt,
+            executorId: e.executorId,
             status: e.status,
             sessionId: e.sessionId,
             sessionUrl: e.sessionUrl,

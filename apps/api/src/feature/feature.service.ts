@@ -85,7 +85,7 @@ export class FeatureService {
     }
 
     /** draft → active, and queues all its triage jobs in the same transaction. */
-    async start(id: string): Promise<FeatureStartResponseDto> {
+    async start(id: string, actor: { id: string } | null = null): Promise<FeatureStartResponseDto> {
         const feature = await this.getOrFail(id);
         const to = this.transitionTarget(feature, 'start');
         let enqueued: string[] = [];
@@ -94,7 +94,7 @@ export class FeatureService {
             if (!result.affected) throw new ConflictException('Feature changed in the meantime, try again');
             const triage = await m.find(Job, { where: { featureId: id, status: 'triage' }, select: { id: true } });
             enqueued = triage.map((j) => j.id);
-            if (enqueued.length) await this.jobService.enqueueManyIn(m, enqueued);
+            if (enqueued.length) await this.jobService.enqueueManyIn(m, enqueued, actor);
         });
         await this.capture?.featureReadiness(id);
         const warnings = enqueued.length ? (await this.jobService.loadEnqueued(enqueued)).flatMap((j) => j.warnings) : [];

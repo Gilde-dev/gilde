@@ -50,14 +50,14 @@ export class JobController {
 
     @Post('jobs/enqueue')
     @HttpCode(200)
-    enqueueMany(@Body(new ZodValidationPipe(BulkEnqueueSchema)) dto: BulkEnqueueDto): Promise<EnqueueResponseDto[]> {
-        return this.jobService.enqueueMany(dto.ids);
+    enqueueMany(@Body(new ZodValidationPipe(BulkEnqueueSchema)) dto: BulkEnqueueDto, @CurrentUser() user: AuthUser | null): Promise<EnqueueResponseDto[]> {
+        return this.jobService.enqueueMany(dto.ids, user);
     }
 
     @Post('jobs/:id/enqueue')
     @HttpCode(200)
-    enqueue(@Param('id', ParseUUIDPipe) id: string): Promise<EnqueueResponseDto> {
-        return this.jobService.enqueue(id);
+    enqueue(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<EnqueueResponseDto> {
+        return this.jobService.enqueue(id, user);
     }
 
     @Post('jobs/:id/triage')
@@ -88,8 +88,8 @@ export class JobController {
 
     @Post('jobs/:id/retry')
     @HttpCode(200)
-    retry(@Param('id', ParseUUIDPipe) id: string): Promise<JobResponseDto> {
-        return this.jobService.retry(id);
+    retry(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<JobResponseDto> {
+        return this.jobService.retry(id, user);
     }
 
 }

@@ -56,7 +56,7 @@ describe('update clients send complete PUT bodies', () => {
     budgetSoftPct: 80, createdAt: 'c', updatedAt: 'u',
   } as Project;
   const repo = {
-    id: 'r1', projectId: 'p1', fullName: 'o/api', defaultBranch: 'main', routineFireUrl: null, routineTokenEnv: 'TOKEN', maxConcurrentJobs: 2,
+    id: 'r1', projectId: 'p1', fullName: 'o/api', defaultBranch: 'main', maxConcurrentJobs: 2,
     stacks: [], testCommands: [], paused: true,
   } as unknown as Repo;
   const job = { id: 'j1', projectId: 'p1', repoId: 'r1', featureId: 'f1', title: 'T', task: 'Task', acceptanceCriteria: [], status: 'triage' } as unknown as Job;
@@ -72,10 +72,10 @@ describe('update clients send complete PUT bodies', () => {
     });
   });
 
-  it('repo: the four settings, nullable keys present', async () => {
+  it('repo: the two settings, no routine fields', async () => {
     const r = await sent(() => api.replaceRepo('r1', repoReplacement(repo, { maxConcurrentJobs: 4 })));
     expect(r).toMatchObject({ url: '/api/gilde/v1/repos/r1', method: 'PUT' });
-    expect(r.body).toEqual({ defaultBranch: 'main', routineFireUrl: null, routineTokenEnv: 'TOKEN', maxConcurrentJobs: 4 });
+    expect(r.body).toEqual({ defaultBranch: 'main', maxConcurrentJobs: 4 });
   });
 
   it('job: content and feature link; an edit can unlink with null', async () => {

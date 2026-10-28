@@ -6,7 +6,7 @@ import { ExecutionError, type ExecutionErrorKind } from './execution.error.js';
 import {
     JobPayloadSchema,
     type ExecutionPort,
-    type ExecutionRepo,
+    type ExecutionTarget,
     type ExecutionResult,
     type JobPayload,
     type PreparedPrompt,
@@ -37,16 +37,11 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         return prepareJobPrompt(JobPayloadSchema.parse(payload), this.instructions.get(), context);
     }
 
-    async fire(repo: ExecutionRepo, input: JobPayload | PreparedPrompt, context?: PromptContext): Promise<ExecutionResult> {
-        if (!repo.routineFireUrl || !repo.routineTokenEnv) {
-            throw new ExecutionError(`Repo ${repo.fullName} has no routine configured`, 'config');
-        }
-        const token = process.env[repo.routineTokenEnv];
-        if (!token) {
-            throw new ExecutionError(
-                `Environment variable ${repo.routineTokenEnv} is not set for repo ${repo.fullName}`,
-                'config',
-            );
+    async fire(target: ExecutionTarget, input: JobPayload | PreparedPrompt, context?: PromptContext): Promise<ExecutionResult> {
+        const { fullName, executorName, fireUrl, token } = target;
+        const via = `${fullName} on executor "${executorName}"`;
+        if (!fireUrl || !token) {
+            throw new ExecutionError(`Executor "${executorName}" has no fire URL or token`, 'config');
         }
 
         const prompt = 'prepared' in input ? input : this.prepare(input, context);
@@ -55,7 +50,7 @@ export class RoutineExecutionAdapter implements ExecutionPort {
 
         let res: Response;
         try {
-            res = await fetch(repo.routineFireUrl, {
+            res = await fetch(fireUrl, {
                 method: 'POST',
                 headers: {
                     Authorization: `Bearer ${token}`,
@@ -69,12 +64,12 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         } catch (err) {
             // Only the error name is reported; messages could echo request details.
             const name = err instanceof Error ? err.name : 'Error';
-            throw new ExecutionError(`Routine fire request failed for ${repo.fullName}: ${name}`, 'transient');
+            throw new ExecutionError(`Routine fire request failed for ${via}: ${name}`, 'transient');
         }
 
         if (!res.ok) {
             throw new ExecutionError(
-                `Routine fire for ${repo.fullName} failed with HTTP ${res.status}`,
+                `Routine fire for ${via} failed with HTTP ${res.status}`,
                 httpErrorKind(res.status),
             );
         }
@@ -83,11 +78,11 @@ export class RoutineExecutionAdapter implements ExecutionPort {
         try {
             body = await res.json();
         } catch {
-            throw new ExecutionError(`Routine fire for ${repo.fullName} returned invalid JSON`, 'invalid_response');
+            throw new ExecutionError(`Routine fire for ${via} returned invalid JSON`, 'invalid_response');
         }
         const result = FireResponseSchema.safeParse(body);
         if (!result.success) {
-            throw new ExecutionError(`Routine fire for ${repo.fullName} returned an unexpected response`, 'invalid_response');
+            throw new ExecutionError(`Routine fire for ${via} returned an unexpected response`, 'invalid_response');
         }
         return {
             sessionId: result.data.claude_code_session_id,

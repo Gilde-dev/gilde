@@ -5,7 +5,7 @@ import { DispatchStrip } from './dispatch-strip';
 
 const base: RepoDispatchReport = {
   repoId: 'r', fullName: 'gilde-dev/gilde', queued: 2, fired: 0, reason: 'none', detail: null, resetsAt: null,
-  waitingOnDependencies: 0, waitingOnRevisions: 0,
+  waitingOnDependencies: 0, waitingOnRevisions: 0, waitingOnExecutor: 0,
 };
 
 describe('DispatchStrip', () => {
@@ -58,6 +58,13 @@ describe('DispatchStrip', () => {
       expect(screen.getByRole('listitem').textContent).toContain('could not be checked');
       expect(screen.getByRole('listitem').textContent).not.toContain('$0');
     });
+  });
+
+  it('shows jobs waiting for an executor even when nothing else holds the repo back', () => {
+    render(<DispatchStrip repos={[{ ...base, waitingOnExecutor: 2 }]} />);
+    const li = screen.getByRole('listitem');
+    expect(li.textContent).toContain('gilde-dev/gilde');
+    expect(li.textContent).toContain('2 jobs waiting for an executor of their owner');
   });
 
   it('explains a paused repo and waiting jobs', () => {

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run } from '@/lib/api';
+import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run, type RunExecutor } from '@/lib/api';
 import { AgentUsageSummary } from './agent-usage';
 import { errorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
@@ -99,6 +99,11 @@ function Overview({ job, dependents, projectId }: { job: JobDetail; dependents: 
           </ul>
         </Section>
       )}
+      {job.status === 'queued' && job.waitingReason && (
+        <Section title="Waiting">
+          <p className="text-sm">{job.waitingReason}</p>
+        </Section>
+      )}
       {job.lastReason && (
         <Section title="Last reason">
           <p className="whitespace-pre-wrap text-sm">{job.lastReason}</p>
@@ -141,7 +146,7 @@ function Overview({ job, dependents, projectId }: { job: JobDetail; dependents: 
   );
 }
 
-function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTotals }; prUrl: string | null; prNumber: number | null }) {
+function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTotals; executor?: RunExecutor | null }; prUrl: string | null; prNumber: number | null }) {
   const dur = duration(run);
   return (
     <Card>
@@ -170,6 +175,7 @@ function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTota
             </>
           )}
           {dur && ` · took ${dur}`}
+          {run.executor && ` · on ${run.executor.name} (${run.executor.ownerName})`}
           {prUrl && (
             <>
               {' · '}

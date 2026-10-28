@@ -94,6 +94,10 @@ export const JobResponseSchema = z.object({
     /** The merged-without-work job this one was recreated from, if any. */
     recreatedFromId: z.string().uuid().nullable(),
     createdBy: JobCreatorSchema.nullable(),
+    /** Whose executors may run the job: the non-bot creator, otherwise the human who queued it; null when unknown. */
+    ownerId: z.string().uuid().nullable(),
+    /** Why a queued job is not being fired: 'no executor', 'executor busy', 'executor limit reached' or 'executor exhausted'; null otherwise. */
+    waitingReason: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
 });

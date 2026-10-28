@@ -131,6 +131,22 @@ export class Job {
     @JoinColumn({ name: 'created_by' })
     createdBy?: User | null;
 
+    /** The human who last queued the job through the state machine; the owner when the creator is a bot or unknown. */
+    @Column({
+        name: 'queued_by_id',
+        type: 'uuid',
+        nullable: true
+    })
+    queuedById: string | null;
+
+    /** Why the dispatcher could not fire this queued job on an executor of its owner yet; null otherwise. */
+    @Column({
+        name: 'waiting_reason',
+        type: 'text',
+        nullable: true
+    })
+    waitingReason: string | null;
+
     @CreateDateColumn({
         name: 'created_at'
     })

@@ -1,5 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 
+import type { AuthUser } from '../auth/auth.dto.js';
+import { CurrentUser } from '../auth/current-user.decorator.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import {
@@ -53,8 +55,8 @@ export class FeatureController {
 
     @Post('features/:id/start')
     @HttpCode(200)
-    start(@Param('id', ParseUUIDPipe) id: string): Promise<FeatureStartResponseDto> {
-        return this.featureService.start(id);
+    start(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<FeatureStartResponseDto> {
+        return this.featureService.start(id, user);
     }
 
     @Post('features/:id/done')

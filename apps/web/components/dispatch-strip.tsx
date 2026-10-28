@@ -29,7 +29,6 @@ export function explainRepo(r: RepoDispatchReport): string | null {
   const reasons: Record<Exclude<DispatchReason, 'none'>, () => string> = {
     repo_paused: () => `Repo paused${r.detail ? `: ${r.detail}` : ''}`,
     project_paused: () => 'Project paused',
-    no_routine: () => 'No routine configured',
     no_manifest: () => `No .gilde.json cached${r.detail ? `: ${r.detail}` : ''}`,
     no_slots: () => `No free slots (${r.detail ?? ''} running)`,
     daily_limit: () =>
@@ -40,12 +39,13 @@ export function explainRepo(r: RepoDispatchReport): string | null {
   if (r.reason !== 'none') parts.push(reasons[r.reason]());
   if (r.waitingOnDependencies > 0) parts.push(plural(r.waitingOnDependencies, 'waiting on dependencies'));
   if (r.waitingOnRevisions > 0) parts.push(plural(r.waitingOnRevisions, 'waiting for a proposal decision'));
-  return r.reason === 'none' ? null : parts.join(' · ');
+  if (r.waitingOnExecutor > 0) parts.push(plural(r.waitingOnExecutor, 'waiting for an executor of their owner'));
+  return parts.length === 0 || (r.reason === 'none' && r.waitingOnExecutor === 0) ? null : parts.join(' · ');
 }
 
 export function DispatchStrip({ repos }: { repos: RepoDispatchReport[] }) {
   const held = repos
-    .filter((r) => r.queued > 0 && r.reason !== 'none')
+    .filter((r) => r.queued > 0 && (r.reason !== 'none' || r.waitingOnExecutor > 0))
     .map((r) => ({ r, text: explainRepo(r) }))
     .filter((x): x is { r: RepoDispatchReport; text: string } => x.text !== null);
   if (held.length === 0) return null;

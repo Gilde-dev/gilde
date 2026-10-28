@@ -10,6 +10,20 @@ const base = {
   createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
 } as Job;
 
+describe('JobCard waiting for an executor', () => {
+  it.each(['no executor', 'executor busy', 'executor limit reached', 'executor exhausted'])('shows the reason "%s" on a queued job', (reason) => {
+    render(<JobCard job={{ ...base, waitingReason: reason }} onOpen={() => {}} />);
+    expect(screen.getByText(`Waiting: ${reason}`)).toBeInTheDocument();
+  });
+
+  it('shows nothing without a reason or once the job is no longer queued', () => {
+    const { rerender } = render(<JobCard job={base} onOpen={() => {}} />);
+    expect(screen.queryByText(/^Waiting:/)).toBeNull();
+    rerender(<JobCard job={{ ...base, status: 'dispatched', waitingReason: 'executor busy' }} onOpen={() => {}} />);
+    expect(screen.queryByText(/^Waiting:/)).toBeNull();
+  });
+});
+
 describe('JobCard dependencies', () => {
   it('shows a waiting badge with the blocking titles', () => {
     const blockedBy = [{ id: 'a', title: 'Blocker', status: 'pr_open' as const }];

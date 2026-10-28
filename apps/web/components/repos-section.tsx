@@ -62,7 +62,6 @@ export function ReposSection({ projectId }: { projectId: string }) {
                 <th className="px-3 py-2">Repo</th>
                 <th className="px-3 py-2">Branch</th>
                 <th className="px-3 py-2">Concurrency</th>
-                <th className="px-3 py-2">Routine</th>
                 <th className="px-3 py-2">Manifest and workspace</th>
                 <th className="px-3 py-2">Actions</th>
               </tr>
@@ -80,7 +79,6 @@ export function ReposSection({ projectId }: { projectId: string }) {
                   </td>
                   <td className="px-3 py-2 font-mono text-xs">{r.defaultBranch}</td>
                   <td className="px-3 py-2">{r.maxConcurrentJobs}</td>
-                  <td className="px-3 py-2">{r.routineFireUrl && r.routineTokenEnv ? 'yes' : 'no'}</td>
                   <td className="space-y-2 px-3 py-2">
                     <RepoManifest repo={r} onChanged={repos.refresh} />
                     <WorkspaceStatus repoId={r.id} />

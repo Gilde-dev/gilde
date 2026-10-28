@@ -12,7 +12,7 @@ const base: Job = {
   queuedAt: '2026-01-01T00:05:00.000Z', prNumber: 5, prUrl: 'https://github.com/o/r/pull/5', branch: 'claude/gilde-j1',
   lastReason: null, needsApproval: false, approvalReason: null, dependsOn: ['d1'],
   blockedBy: [{ id: 'd1', title: 'Dep job', status: 'pr_open' }], pendingRevisions: 1, revision: 0,
-  createdBy: { id: 'u', name: 'Ada' }, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z',
+  createdBy: { id: 'u', name: 'Ada' }, ownerId: 'u', waitingReason: null, mergedBlocked: false, replacedById: null, recreatedFromId: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z',
 };
 
 const detail: JobDetail = {
@@ -23,7 +23,7 @@ const detail: JobDetail = {
     { id: 'fb2', jobId: 'j1', projectId: 'p', repoId: 'r', prNumber: 5, kind: 'review_comment', githubId: '10', author: 'bob', authorAssociation: 'OWNER', state: null, reviewId: '9', path: 'src/a.ts', line: 12, body: 'Rename this', url: 'https://x/2', createdAt: '2026-01-02T00:00:01.000Z' },
   ],
   runs: [{
-    id: 'run1', jobId: 'j1', projectId: 'p', repoId: 'r', attempt: 1, status: 'ci_passed', sessionId: 's',
+    id: 'run1', jobId: 'j1', projectId: 'p', repoId: 'r', attempt: 1, executorId: 'e1', executor: { id: 'e1', name: 'ada-main', ownerId: 'u', ownerName: 'Ada' }, status: 'ci_passed', sessionId: 's',
     sessionUrl: 'https://claude.ai/code/s', instructionsVersion: null, error: null, ciConclusion: 'success',
     result: { outcome: 'done', summary: 'All good' }, retro: '- stuff',
     firedAt: '2026-01-01T00:10:00.000Z', finishedAt: '2026-01-01T00:12:05.000Z',
@@ -79,6 +79,27 @@ describe('JobDetailView', () => {
     fireEvent.click(screen.getByRole('tab', { name: /Feedback/ }));
     expect(screen.getByText('Rename this')).toBeInTheDocument();
     expect(screen.getByText('src/a.ts:12')).toBeInTheDocument();
+  });
+
+  it('shows the executor name and owner on a run, never a token', async () => {
+    render(<JobDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Runs/ }));
+    expect(screen.getByText(/on ada-main \(Ada\)/)).toBeInTheDocument();
+  });
+
+  it('omits the executor for runs from before personal executors', async () => {
+    vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, runs: [{ ...detail.runs[0], executorId: null, executor: null }] });
+    render(<JobDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Runs/ }));
+    expect(screen.getByText('All good')).toBeInTheDocument();
+    expect(screen.queryByText(/ on .* \(/)).toBeNull();
+  });
+
+  it('shows why a queued job is waiting', async () => {
+    vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, status: 'queued', waitingReason: 'executor busy' });
+    render(<JobDetailView />);
+    expect(await screen.findByText('executor busy')).toBeInTheDocument();
+    expect(screen.getByText('Waiting')).toBeInTheDocument();
   });
 
   it('accepts a proposed revision and refreshes', async () => {
