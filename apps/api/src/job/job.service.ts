@@ -14,7 +14,8 @@ import { RepoService } from '../repo/repo.service.js';
 import { RunService } from '../run/run.service.js';
 import { emptyAgentTotals } from '../usage/agent-usage.service.js';
 import { AgentUsageService } from '../usage/agent-usage.service.js';
-import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, UpdateJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
+import { DEFAULT_JOB_LIST_LIMIT } from './job.dto.js';
+import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, ReplaceJobDto, JobDetailResponseDto, JobResponseDto, ListJobsQuery } from './job.dto.js';
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
@@ -91,22 +92,31 @@ export class JobService {
         return rows.map((r) => r.id);
     }
 
-    /** Edits title, task and criteria while the job is in triage; the feature link also while it is queued. */
-    async update(id: string, dto: UpdateJobDto): Promise<JobResponseDto> {
+    /**
+     * Replaces title, task, criteria and feature link. Content may only differ from the stored job while it is in triage; the
+     * feature link may also change while it is queued. Resending an unchanged value is always allowed (and never revalidated)
+     * in those states, so a full body does not trip over fields the caller did not edit.
+     */
+    async update(id: string, dto: ReplaceJobDto): Promise<JobResponseDto> {
         const job = await this.getOrFail(id);
         const { featureId, ...content } = dto;
-        if (Object.keys(content).length > 0 && job.status !== 'triage') {
+        const contentChanged = content.title !== job.title
+            || content.task !== job.task
+            || !sameList(content.acceptanceCriteria, job.acceptanceCriteria);
+        // undefined (absent) leaves the link alone; null clears it; a different id is validated.
+        const featureChanged = featureId !== undefined && featureId !== job.featureId;
+        if (contentChanged && job.status !== 'triage') {
             throw new ConflictException(`Cannot edit a job that is ${job.status}`);
         }
-        if (featureId !== undefined && job.status !== 'triage' && job.status !== 'queued') {
+        if (job.status !== 'triage' && job.status !== 'queued') {
             throw new ConflictException(`Cannot change the feature of a job that is ${job.status}`);
         }
-        // Only a change to the task or criteria is checked, so legacy oversized jobs keep their metadata edits.
-        if (content.task !== undefined || content.acceptanceCriteria !== undefined) {
-            this.assertTaskContent(content.task ?? job.task, content.acceptanceCriteria ?? job.acceptanceCriteria);
+        // Only a changed task or criteria is size-checked, so legacy oversized jobs keep their metadata edits.
+        if (content.task !== job.task || !sameList(content.acceptanceCriteria, job.acceptanceCriteria)) {
+            this.assertTaskContent(content.task, content.acceptanceCriteria);
         }
-        const changes: Partial<Job> = { ...content };
-        if (featureId !== undefined) {
+        const changes: Partial<Job> = contentChanged ? { ...content } : {};
+        if (featureChanged) {
             if (featureId === null) {
                 changes.featureId = null;
             } else {
@@ -117,9 +127,10 @@ export class JobService {
                 changes.featureId = feature.id;
             }
         }
+        if (Object.keys(changes).length === 0) return this.getById(id);
         const result = await this.jobRepository.update({ id, status: job.status }, changes);
         if (!result.affected) throw new ConflictException('Job changed in the meantime, try again');
-        if (featureId !== undefined && featureId !== job.featureId) {
+        if (featureChanged) {
             // Leaving a feature can make the rest of it ready; joining one can't, but the check is cheap and exact.
             await this.capture?.featureReadiness(job.featureId);
             await this.capture?.featureReadiness(changes.featureId);
@@ -284,7 +295,7 @@ export class JobService {
             if (!creatorId) return []; // "me" without a logged-in user matches nothing
             where.createdById = creatorId;
         }
-        const entities = await this.jobRepository.find({ where, order: { createdAt: 'DESC' }, take: q.limit });
+        const entities = await this.jobRepository.find({ where, order: { createdAt: 'DESC' }, take: q.limit ?? DEFAULT_JOB_LIST_LIMIT });
         return this.toDTOs(entities);
     }
 
@@ -438,4 +449,8 @@ function findCycle(graph: Map<string, string[]>, start: string): string[] | null
         return null;
     };
     return visit(start);
+}
+
+function sameList(a: readonly string[], b: readonly string[]): boolean {
+    return a.length === b.length && a.every((v, i) => v === b[i]);
 }

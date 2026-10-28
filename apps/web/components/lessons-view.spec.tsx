@@ -87,7 +87,7 @@ describe('LessonsView', () => {
   it('collects, saves edits and changes status', async () => {
     const list = vi.spyOn(api, 'listLessons').mockResolvedValue([lesson({})]);
     const collect = vi.spyOn(api, 'collectLessons').mockResolvedValue({ created: 2 });
-    const update = vi.spyOn(api, 'updateLesson').mockResolvedValue(lesson({}));
+    const update = vi.spyOn(api, 'replaceLesson').mockResolvedValue(lesson({}));
     const status = vi.spyOn(api, 'setLessonStatus').mockResolvedValue(lesson({}));
     render(<LessonsView />);
     await screen.findByLabelText('Lesson text');
@@ -99,11 +99,11 @@ describe('LessonsView', () => {
     const text = screen.getByLabelText('Lesson text');
     fireEvent.change(text, { target: { value: 'Edited' } });
     fireEvent.blur(text);
-    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { text: 'Edited' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { text: 'Edited', targetKind: null, targetRepoId: null, note: null }));
     fireEvent.change(screen.getByLabelText('Target kind'), { target: { value: 'agents_md' } });
-    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { targetKind: 'agents_md' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { text: 'Lesson one', targetKind: 'agents_md', targetRepoId: null, note: null }));
     fireEvent.change(screen.getByLabelText('Target repo'), { target: { value: 'r1' } });
-    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { targetRepoId: 'r1' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('l1', { text: 'Lesson one', targetKind: null, targetRepoId: 'r1', note: null }));
 
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     await waitFor(() => expect(status).toHaveBeenCalledWith('l1', 'approve'));

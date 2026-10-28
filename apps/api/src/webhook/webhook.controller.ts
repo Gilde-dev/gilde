@@ -3,6 +3,7 @@ import type { RawBodyRequest } from '@nestjs/common';
 import type { Request } from 'express';
 
 import { Public } from '../common/public.decorator.js';
+import type { WebhookResponseDto } from './webhook.dto.js';
 import { WebhookService } from './webhook.service.js';
 import { verifySignature } from './webhook-signature.js';
 
@@ -22,7 +23,7 @@ export class WebhookController {
         @Headers('x-github-event') event: string | undefined,
         @Headers('x-github-delivery') delivery: string | undefined,
         @Body() payload?: unknown,
-    ): Promise<{ result: string }> {
+    ): Promise<WebhookResponseDto> {
         if (!verifySignature(process.env.GITHUB_WEBHOOK_SECRET, req.rawBody, signature)) {
             this.logger.warn(`Rejected delivery ${delivery ?? '(no id)'}: bad or missing signature`);
             throw new UnauthorizedException('Invalid signature');

@@ -3,7 +3,7 @@ import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { Repo } from '../repo/repo.entity.js';
-import { CreateProjectSchema, UpdateProjectSchema } from './project.dto.js';
+import { CreateProjectSchema, ReplaceProjectSchema, type ReplaceProjectDto } from './project.dto.js';
 import { Project } from './project.entity.js';
 import { ProjectMapper } from './project.mapper.js';
 import { ProjectService } from './project.service.js';
@@ -28,29 +28,51 @@ beforeEach(async () => {
 });
 afterEach(() => ds.destroy());
 
+/** A complete replacement body: the stored project's updatable fields with `over` applied. */
+async function full(over: Partial<ReplaceProjectDto> = {}): Promise<ReplaceProjectDto> {
+    const p = await service.getById(p1.id);
+    return {
+        name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
+        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested,
+        skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
+        dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct, ...over,
+    };
+}
+
+const FULL_BODY = {
+    name: 'N', description: null, dailyRunLimit: 10, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+    skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 80,
+};
+
 describe('ProjectService skills library', () => {
     it('defaults to none', async () => {
         expect(await service.getById(p1.id)).toMatchObject({ skillsLibrary: 'none', skillsLibraryRepoId: null });
     });
 
     it('accepts a repo of the same project', async () => {
-        const dto = await service.update(p1.id, { skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id });
+        const dto = await service.update(p1.id, await full({ skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id }));
         expect(dto).toMatchObject({ skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id });
     });
 
     it('rejects a repo of another project with 400', async () => {
-        await expect(service.update(p1.id, { skillsLibrary: 'repo', skillsLibraryRepoId: foreignRepo.id })).rejects.toThrow(
+        await expect(service.update(p1.id, await full({ skillsLibrary: 'repo', skillsLibraryRepoId: foreignRepo.id }))).rejects.toThrow(
             BadRequestException,
         );
     });
 
+    it('does not recheck an unchanged repo library when another section is saved', async () => {
+        await service.update(p1.id, await full({ skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id }));
+        await ds.getRepository(Repo).update({ id: ownRepo.id }, { projectId: p2.id });
+        expect(await service.update(p1.id, await full({ name: 'Renamed' }))).toMatchObject({ name: 'Renamed', skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id });
+    });
+
     it('rejects repo without a repo id with 400', async () => {
-        await expect(service.update(p1.id, { skillsLibrary: 'repo' })).rejects.toThrow(BadRequestException);
+        await expect(service.update(p1.id, await full({ skillsLibrary: 'repo', skillsLibraryRepoId: null }))).rejects.toThrow(BadRequestException);
     });
 
     it('clears the repo id when switching to another kind', async () => {
-        await service.update(p1.id, { skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id });
-        expect(await service.update(p1.id, { skillsLibrary: 'folder' })).toMatchObject({ skillsLibrary: 'folder', skillsLibraryRepoId: null });
+        await service.update(p1.id, await full({ skillsLibrary: 'repo', skillsLibraryRepoId: ownRepo.id }));
+        expect(await service.update(p1.id, await full({ skillsLibrary: 'folder' }))).toMatchObject({ skillsLibrary: 'folder', skillsLibraryRepoId: null });
     });
 
     it('cannot create a project with a repo library', async () => {
@@ -61,7 +83,10 @@ describe('ProjectService skills library', () => {
 
     it('has no way to set the library folder through the API', () => {
         const body = { skillsLibrary: 'folder', skillsLibraryPath: '/etc', SKILLS_LIBRARY_PATH: '/etc' };
-        expect(UpdateProjectSchema.parse(body)).toEqual({ skillsLibrary: 'folder' });
+        const parsed = ReplaceProjectSchema.parse({ ...(FULL_BODY as object), ...body });
+        expect(parsed).toMatchObject({ skillsLibrary: 'folder' });
+        expect(parsed).not.toHaveProperty('skillsLibraryPath');
+        expect(parsed).not.toHaveProperty('SKILLS_LIBRARY_PATH');
         expect(CreateProjectSchema.parse({ slug: 'ab', name: 'x', ...body })).not.toHaveProperty('skillsLibraryPath');
     });
 });
@@ -71,11 +96,11 @@ describe('Project budget settings', () => {
         expect(await service.getById(p1.id)).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 80 });
     });
 
-    it('persists, raises, clears (null) and preserves (omitted) the limits', async () => {
-        expect(await service.update(p1.id, { dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 })).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
-        expect(await service.update(p1.id, { name: 'Renamed' })).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
-        expect(await service.update(p1.id, { dailyBudgetUsd: 20 })).toMatchObject({ dailyBudgetUsd: 20, weeklyBudgetUsd: 0 });
-        expect(await service.update(p1.id, { dailyBudgetUsd: null, weeklyBudgetUsd: null })).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 50 });
+    it('persists, raises, clears (null) and keeps resent limits', async () => {
+        expect(await service.update(p1.id, await full({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 }))).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
+        expect(await service.update(p1.id, await full({ name: 'Renamed' }))).toMatchObject({ dailyBudgetUsd: 12.5, weeklyBudgetUsd: 0, budgetSoftPct: 50 });
+        expect(await service.update(p1.id, await full({ dailyBudgetUsd: 20 }))).toMatchObject({ dailyBudgetUsd: 20, weeklyBudgetUsd: 0 });
+        expect(await service.update(p1.id, await full({ dailyBudgetUsd: null, weeklyBudgetUsd: null }))).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 50 });
         expect((await service.list()).find((p) => p.id === p1.id)).toMatchObject({ dailyBudgetUsd: null, budgetSoftPct: 50 });
     });
 
@@ -84,13 +109,14 @@ describe('Project budget settings', () => {
     });
 
     it('validates limits and the percentage', () => {
+        const check = (over: object) => ReplaceProjectSchema.safeParse({ ...FULL_BODY, ...over }).success;
         for (const bad of [{ dailyBudgetUsd: -1 }, { weeklyBudgetUsd: Number.NaN }, { dailyBudgetUsd: Number.POSITIVE_INFINITY }, { dailyBudgetUsd: '5' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.1 }, { budgetSoftPct: null }, { budgetSoftPct: -5 }]) {
-            expect(UpdateProjectSchema.safeParse(bad).success, JSON.stringify(bad)).toBe(false);
+            expect(check(bad), JSON.stringify(bad)).toBe(false);
         }
         for (const good of [{ dailyBudgetUsd: 0 }, { weeklyBudgetUsd: null }, { budgetSoftPct: 100 }, { budgetSoftPct: 0.5 }, {}]) {
-            expect(UpdateProjectSchema.safeParse(good).success, JSON.stringify(good)).toBe(true);
+            expect(check(good), JSON.stringify(good)).toBe(true);
         }
         expect(CreateProjectSchema.safeParse({ slug: 'ok-1', name: 'n', dailyBudgetUsd: -0.01 }).success).toBe(false);
-        expect(UpdateProjectSchema.parse({})).toEqual({});
+        expect(ReplaceProjectSchema.safeParse({}).success).toBe(false);
     });
 });

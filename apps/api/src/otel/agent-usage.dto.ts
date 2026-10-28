@@ -24,6 +24,10 @@ export const AgentUsageSchema = z.object({
 export type AgentUsageDto = z.infer<typeof AgentUsageSchema>;
 
 /** OTLP ExportLogsServiceResponse / ExportMetricsServiceResponse; `{}` is full success. */
-export interface OtlpExportResponse {
-    partialSuccess?: { rejectedLogRecords?: number; errorMessage?: string };
-}
+export const OtlpExportResponseSchema = z.object({
+    partialSuccess: z.object({
+        rejectedLogRecords: z.number().optional(),
+        errorMessage: z.string().optional(),
+    }).optional(),
+});
+export type OtlpExportResponse = z.infer<typeof OtlpExportResponseSchema>;

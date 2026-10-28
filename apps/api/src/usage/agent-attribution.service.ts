@@ -3,27 +3,9 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsNull, Repository } from 'typeorm';
 
+import type { AttributionResult } from './usage.dto.js';
 import { AgentUsage } from '../otel/agent-usage.entity.js';
 import { JobRun } from '../run/run.entity.js';
-
-export interface AttributionResult {
-    /** True when another pass was running and this call did nothing. */
-    skipped: boolean;
-    /** Quiet sessions with rows that were unassigned or time_window-assigned. */
-    sessionsExamined: number;
-    /** Sessions resolved by a unique exact `job_runs.session_id` match. */
-    sessionsBySession: number;
-    /** Sessions resolved by the single run fired in [T-10m, T]. */
-    sessionsByTimeWindow: number;
-    /** Sessions with two or more exact matches or two or more window candidates. */
-    sessionsAmbiguous: number;
-    /** Sessions with no exact match and no window candidate. */
-    sessionsUnmatched: number;
-    /** Previously unassigned rows that got a run. */
-    rowsAttributed: number;
-    /** time_window rows replaced by a unique exact match. */
-    rowsUpgraded: number;
-}
 
 export const QUIET_DELAY_MS = 10 * 60_000;
 export const START_WINDOW_MS = 10 * 60_000;

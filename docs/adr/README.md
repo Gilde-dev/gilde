@@ -11,5 +11,6 @@ One file per decision; see the write-adr skill. Accepted ADRs are not edited, on
 | 0005 | [Run chat platforms in a separate channels process with an API notification outbox](0005-channels-process-and-notification-outbox.md) | Accepted | 2026-10-25 |
 | 0006 | [Sync shared skills from gildeboek into .claude/skills](0006-skills-synced-from-gildeboek.md) | Accepted | 2026-10-25 |
 | 0007 | [Let the Verkenner scout create triage jobs without approval](0007-verkenner-scout-may-create-triage-jobs.md) | Accepted | 2026-10-27 |
+| 0008 | [Full-replacement PUT for updates; controllers depend on services and return DTOs](0008-full-replacement-put-controllers-use-services-and-dtos.md) | Accepted | 2026-10-28 |
 
 The ADRs 0001–0006 were written retrospectively for decisions already in the code. Their dates are the merge dates of the pull requests that introduced the decision (taken from `git log`), and each ADR cites that evidence.

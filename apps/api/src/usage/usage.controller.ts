@@ -2,8 +2,8 @@ import { Controller, Get, Post, Query } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { AgentAttributionService, type AttributionResult } from './agent-attribution.service.js';
-import { AgentUsageQuerySchema, type AgentUsageQuery } from './usage.dto.js';
+import { AgentAttributionService } from './agent-attribution.service.js';
+import { AgentUsageQuerySchema, type AgentUsageQuery, type AttributionResult } from './usage.dto.js';
 import type { AgentUsageResponseDto } from './agent-totals.dto.js';
 import { AgentUsageService } from './agent-usage.service.js';
 import { UsageQuerySchema, type UsageQuery, type UsageResponseDto } from './usage.dto.js';

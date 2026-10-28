@@ -85,7 +85,11 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Entity column types must work on both SQLite and Postgres: `simple-json`, `simple-enum`, no `jsonb`/`timestamptz`.
 - Entity changes need a Postgres migration (`pnpm --filter @gilde/api migration:generate <Name>`, then commit it from `apps/api/src/migrations/`); Postgres never synchronizes, SQLite uses `synchronize` locally.
 - Entities follow the `typeorm-snake-case-columns` skill (`.claude/skills/`): snake_case table and column names, camelCase TypeScript fields.
-- No `.default()` in schemas that get `.partial()`; rely on entity defaults.
+- No `.default()` in request schemas; rely on entity defaults.
+- Updates use PUT with full replacement of the resource’s updatable fields; there are no PATCH routes.
+- Controllers depend only on services, never on repositories, a DataSource or an EntityManager.
+- Controllers return DTOs from `*.dto.ts` (zod-inferred types, `void` for 204), never entities or service-internal types.
+- `architecture.spec.ts` enforces this.
 - Throw Nest HTTP exceptions (`NotFoundException`, `ConflictException`), never let TypeORM errors leak.
 - Every route requires a JWT unless marked `@Public()` (from `common/`). Only mark routes public that authenticate in another way (like the webhook signature) or must be reachable without login.
 - e2e tests: create an authenticated agent with `authedAgent(app)` from `test/helpers/auth.ts`; don't log in per test (login is throttled).

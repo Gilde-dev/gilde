@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { DataSource } from "typeorm";
+import type { HealthResponseDto } from "./health.dto.js";
 
 type CheckStatus = 'up' | 'down';
 
@@ -10,7 +11,7 @@ export class HealthService {
         private readonly dataSource: DataSource
     ) { }
 
-    async getHealth() {
+    async getHealth(): Promise<HealthResponseDto> {
         const database = await this.checkDatabase();
         const status: CheckStatus = database.status;
         const health = { status, checks: { database } };

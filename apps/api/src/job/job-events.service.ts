@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
@@ -254,6 +254,13 @@ export class JobEventsService {
         const to = await this.retryOrParkJob(job, `Sent back by the reviewer: ${reason}`, 'sent_back');
         if (!to) throw new ConflictException('Job changed in the meantime, try again');
         return to;
+    }
+
+    /** `sendBack` for a job known by id only (the HTTP route); 404 for an unknown id. */
+    async sendBackById(id: string, reason: string): Promise<Job['status']> {
+        const job = await this.jobs.findOneBy({ id });
+        if (!job) throw new NotFoundException('Job not found');
+        return this.sendBack(job, reason);
     }
 
     findRun(jobId: string, runId: string | null): Promise<JobRun | null> {

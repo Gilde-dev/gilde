@@ -4,7 +4,7 @@ import { MoreThanOrEqual, Repository, type FindOptionsWhere } from 'typeorm';
 
 import { User } from '../user/user.entity.js';
 
-import type { UsageQuery, UsageRecord, UsageResponseDto, UsageTotalsDto } from './usage.dto.js';
+import { DEFAULT_USAGE_DAYS, type UsageQuery, type UsageRecord, type UsageResponseDto, type UsageTotalsDto } from './usage.dto.js';
 import { LlmUsage } from './usage.entity.js';
 import { computeCost, parsePrices } from './usage-pricing.js';
 
@@ -88,7 +88,8 @@ export class UsageService {
 
     async summary(q: UsageQuery, now: Date = new Date()): Promise<UsageResponseDto> {
         const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-        const start = new Date(today.getTime() - (q.days - 1) * DAY_MS);
+        const days = q.days ?? DEFAULT_USAGE_DAYS;
+        const start = new Date(today.getTime() - (days - 1) * DAY_MS);
         const where: FindOptionsWhere<LlmUsage> = { createdAt: MoreThanOrEqual(start) };
         if (q.userId) where.userId = q.userId;
         if (q.kind) where.kind = q.kind;
@@ -100,14 +101,14 @@ export class UsageService {
         rows.forEach((r) => add(totals, r));
 
         const byDay = new Map<string, UsageTotalsDto>();
-        for (let i = 0; i < q.days; i++) byDay.set(new Date(start.getTime() + i * DAY_MS).toISOString().slice(0, 10), emptyTotals());
+        for (let i = 0; i < days; i++) byDay.set(new Date(start.getTime() + i * DAY_MS).toISOString().slice(0, 10), emptyTotals());
         for (const r of rows) {
             const day = byDay.get(r.createdAt.toISOString().slice(0, 10));
             if (day) add(day, r);
         }
 
         return {
-            days: q.days,
+            days,
             totals,
             daily: [...byDay].map(([date, t]) => ({ date, ...t })),
             byModel: group(rows, (r) => r.model, (model) => ({ model })),

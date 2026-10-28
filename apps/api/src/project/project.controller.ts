@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
@@ -6,8 +6,8 @@ import {
     type CreateProjectDto,
     CreateProjectSchema,
     ProjectResponseDto,
-    type UpdateProjectDto,
-    UpdateProjectSchema,
+    type ReplaceProjectDto,
+    ReplaceProjectSchema,
 } from './project.dto.js';
 
 import { ProjectService } from './project.service.js';
@@ -36,10 +36,10 @@ export class ProjectController {
         return this.projectService.create(dto);
     }
 
-    @Patch(':id')
+    @Put(':id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body(new ZodValidationPipe(UpdateProjectSchema)) dto: UpdateProjectDto,
+        @Body(new ZodValidationPipe(ReplaceProjectSchema)) dto: ReplaceProjectDto,
     ): Promise<ProjectResponseDto> {
         return this.projectService.update(id, dto);
     }

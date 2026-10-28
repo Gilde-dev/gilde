@@ -8,7 +8,8 @@ import {
   type Lesson,
   type LessonStatus,
   type Repo,
-  type UpdateLessonInput,
+  lessonReplacement,
+  type ReplaceLessonInput,
 } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { useProject } from '@/lib/use-project';
@@ -136,7 +137,7 @@ export function LessonsView() {
               selectable={tab === 'candidate' || tab === 'approved'}
               selected={selected.includes(l.id)}
               onSelect={(on) => setSelected((cur) => (on ? [...cur, l.id] : cur.filter((x) => x !== l.id)))}
-              onUpdate={(input) => run(() => api.updateLesson(l.id, input))}
+              onUpdate={(input) => run(() => api.replaceLesson(l.id, lessonReplacement(l, input)))}
               onStatus={(action) => run(() => api.setLessonStatus(l.id, action))}
               onApply={() => run(() => api.applyLesson(l.id), 'Apply job created')}
               onMarkApplied={() => run(() => api.markLessonApplied(l.id))}
@@ -165,7 +166,7 @@ function LessonCard({
   selectable: boolean;
   selected: boolean;
   onSelect: (on: boolean) => void;
-  onUpdate: (input: UpdateLessonInput) => void;
+  onUpdate: (input: Partial<ReplaceLessonInput>) => void;
   onStatus: (action: 'approve' | 'reject' | 'reopen') => void;
   onApply: () => void;
   onMarkApplied: () => void;
@@ -233,7 +234,7 @@ function LessonCard({
           aria-label="Target kind"
           className={SELECT}
           value={lesson.targetKind === 'skill' ? 'repo_skill' : (lesson.targetKind ?? '')}
-          onChange={(e) => onUpdate({ targetKind: (e.target.value || null) as UpdateLessonInput['targetKind'] })}
+          onChange={(e) => onUpdate({ targetKind: (e.target.value || null) as ReplaceLessonInput['targetKind'] })}
         >
           <option value="">Target kind…</option>
           {LESSON_TARGET_KINDS.map((k) => (

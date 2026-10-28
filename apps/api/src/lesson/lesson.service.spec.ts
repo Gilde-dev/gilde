@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
-import { UpdateLessonSchema } from './lesson.dto.js';
+import { ReplaceLessonSchema } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
 import { LessonService } from './lesson.service.js';
@@ -204,8 +204,8 @@ describe('LessonService', () => {
 
         it('rejects setting or approving the legacy skill kind with 400', async () => {
             const l = await lesson();
-            expect(UpdateLessonSchema.safeParse({ targetKind: 'skill' }).success).toBe(false);
-            expect(UpdateLessonSchema.safeParse({ targetKind: 'repo_skill' }).success).toBe(true);
+            expect(ReplaceLessonSchema.safeParse({ text: 'x', targetKind: 'skill', targetRepoId: null, note: null }).success).toBe(false);
+            expect(ReplaceLessonSchema.safeParse({ text: 'x', targetKind: 'repo_skill', targetRepoId: null, note: null }).success).toBe(true);
             await ds.getRepository(Lesson).update({ id: l.id }, { targetKind: 'skill' });
             await expect(service.approve(l.id)).rejects.toBeInstanceOf(BadRequestException);
         });

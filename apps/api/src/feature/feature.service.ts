@@ -18,7 +18,7 @@ import type {
     FeatureResponseDto,
     FeatureStartResponseDto,
     ListFeaturesQuery,
-    UpdateFeatureDto,
+    ReplaceFeatureDto,
 } from './feature.dto.js';
 import { Feature } from './feature.entity.js';
 import { FeatureMapper } from './feature.mapper.js';
@@ -73,8 +73,8 @@ export class FeatureService {
         return { ...feature, jobs: await this.jobService.listByFeature(id), agentUsage: total ?? emptyAgentTotals() };
     }
 
-    /** Edits title, spec and criteria while the feature is draft or active. */
-    async update(id: string, dto: UpdateFeatureDto): Promise<FeatureResponseDto> {
+    /** Replaces title, spec and criteria while the feature is draft or active. */
+    async update(id: string, dto: ReplaceFeatureDto): Promise<FeatureResponseDto> {
         const feature = await this.getOrFail(id);
         if (feature.status !== 'draft' && feature.status !== 'active') {
             throw new ConflictException(`Cannot edit a feature that is ${feature.status}`);

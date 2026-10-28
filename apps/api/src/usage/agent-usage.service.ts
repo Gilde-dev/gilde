@@ -8,6 +8,7 @@ import { AgentUsage } from '../otel/agent-usage.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
 
+import { DEFAULT_USAGE_DAYS } from './usage.dto.js';
 import type { AgentTotalsDto, AgentUsageResponseDto, AgentUsageFilter, AgentUsageWindow } from './agent-totals.dto.js';
 
 const DAY_MS = 86_400_000;
@@ -58,7 +59,7 @@ export function agentWindow(days: number, now: Date): AgentUsageWindow {
 export class AgentUsageService {
     constructor(@InjectRepository(AgentUsage) private readonly rows: Repository<AgentUsage>) { }
 
-    async summary(days: number, projectId?: string, now = new Date()): Promise<AgentUsageResponseDto> {
+    async summary(days: number = DEFAULT_USAGE_DAYS, projectId?: string, now = new Date()): Promise<AgentUsageResponseDto> {
         const window = agentWindow(days, now);
         const f: AgentUsageFilter = { projectId, from: window.from, to: window.to };
         const [totals, daily, byModel, byRepo, byFeature, unattributed] = await Promise.all([

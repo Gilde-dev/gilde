@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { Injectable, Logger } from '@nestjs/common';
 
+import type { WorkspaceStatus } from '../repo/repo.dto.js';
 import { cleanRepoPath, isSecretPath } from './repo-path.js';
 
 export const MAX_GREP_MATCHES = 50;
@@ -19,13 +20,6 @@ export interface WorkspaceRepo {
     id: string;
     fullName: string;
     defaultBranch: string;
-}
-
-export interface WorkspaceStatus {
-    cloned: boolean;
-    headSha: string | null;
-    fetchedAt: string | null;
-    error: string | null;
 }
 
 export interface GrepLine {
