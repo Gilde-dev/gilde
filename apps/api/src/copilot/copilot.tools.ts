@@ -15,6 +15,7 @@ import {
     getJobInput,
     getMetricsInput,
     getRepoSkillsInput,
+    getSkillImpactInput,
     getSpecInput,
     jobInput,
     listFeaturesInput,
@@ -127,6 +128,16 @@ export function createCopilotTools(s: CopilotServices) {
         execute: async (input) => b.getRepoSkills(input),
     });
 
+    const getSkillImpact = createTool({
+        id: 'getSkillImpact',
+        description:
+            'Get descriptive run outcomes per skill version of a project: for each version, the finished runs that had it and the finished runs in the same repos without the skill, ' +
+            'with sample sizes, counts and rates (done, partial, blocked, merged, rejected or parked, CI failed), average revision rounds and median attributed tokens. ' +
+            'Groups below the minimum sample size say insufficient and have no rates. These are comparisons, not effects: job difficulty and other changes differ between groups, so never state that a skill caused a difference.',
+        inputSchema: getSkillImpactInput,
+        execute: async (input) => b.getSkillImpact(input),
+    });
+
     const planFeature = createTool({
         id: 'planFeature',
         description:
@@ -235,7 +246,7 @@ export function createCopilotTools(s: CopilotServices) {
         execute: async (input) => b.searchHistory(input),
     });
 
-    return { ...createCodeTools(s), searchHistory, listSpecs, getSpec, draftSpec, planFeature, createPlannedFeature, validateJob, createJob, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills };
+    return { ...createCodeTools(s), searchHistory, listSpecs, getSpec, draftSpec, planFeature, createPlannedFeature, validateJob, createJob, listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics, listLessons, getRepoSkills, getSkillImpact };
 }
 
 export type CopilotTools = ReturnType<typeof createCopilotTools>;

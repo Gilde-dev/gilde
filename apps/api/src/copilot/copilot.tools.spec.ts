@@ -15,7 +15,10 @@ function setup() {
         dispatcher: { status: vi.fn().mockReturnValue({ at: null, result: null }) },
         metrics: { get: vi.fn().mockResolvedValue({ days: 30 }) },
         lessons: { list: vi.fn().mockResolvedValue([]) },
-        skills: { forRepo: vi.fn().mockResolvedValue({ repoId: UUID, skills: [], counts: {} }) },
+        skills: {
+            forRepo: vi.fn().mockResolvedValue({ repoId: UUID, skills: [], counts: {} }),
+            impact: vi.fn().mockResolvedValue({ days: 30, minRuns: 10, skills: [] }),
+        },
         projects: { list: vi.fn().mockResolvedValue([{ id: UUID }]) },
         repos: { listForProject: vi.fn().mockResolvedValue([{ id: OTHER }]) },
         history: { search: vi.fn().mockResolvedValue({ status: 'ok', results: [], indexComplete: true, suppressed: 0 }), searchLessons: vi.fn() },
@@ -33,7 +36,7 @@ describe('co-pilot tools', () => {
     it('exposes the read-only tools and the job and planning tools, each with a description and an input schema', () => {
         const { tools } = setup();
         expect(Object.keys(tools).sort()).toEqual([
-            'createJob', 'createPlannedFeature', 'draftSpec', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills', 'getSpec',
+            'createJob', 'createPlannedFeature', 'draftSpec', 'getDispatchStatus', 'getFeature', 'getJob', 'getMetrics', 'getRepoSkills', 'getSkillImpact', 'getSpec',
             'listFeatures', 'listJobs', 'listLessons', 'listProjects', 'listProposals', 'listRepoFiles', 'listRepos', 'listSpecs', 'planFeature',
             'readRepoFile', 'searchHistory', 'searchRepoCode', 'validateJob',
         ]);
@@ -176,6 +179,14 @@ describe('co-pilot tools', () => {
         expect(await run('searchHistory', { projectId: UUID, query: 'x' })).toEqual({ status: 'unavailable', reason: 'embeddings off', results: [] });
         s.history.search.mockRejectedValue(new Error('boom'));
         await expect(run('searchHistory', { projectId: UUID, query: 'x' })).rejects.toThrow('boom');
+    });
+
+    it('getSkillImpact returns the impact summary of a project and validates days', async () => {
+        const { s, run } = setup();
+        expect(await run('getSkillImpact', { projectId: UUID, days: 7 })).toEqual({ days: 30, minRuns: 10, skills: [] });
+        expect(s.skills.impact).toHaveBeenCalledWith(UUID, 7);
+        expect(await run('getSkillImpact', { projectId: UUID, days: 181 })).toMatchObject({ error: true });
+        expect(s.skills.impact).toHaveBeenCalledTimes(1);
     });
 
     it('getRepoSkills returns the drift of a repo', async () => {

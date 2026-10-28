@@ -223,6 +223,34 @@ export interface RepoSkills {
   counts: Record<SkillStatus, number>;
 }
 
+export interface ImpactGroup {
+  n: number;
+  insufficient: boolean;
+  counts: { done: number; partial: number; blocked: number; merged: number; rejectedOrParked: number; ciFailed: number };
+  /** Null when `insufficient`. */
+  rates: { done: number; partial: number; blocked: number; merged: number; rejectedOrParked: number; ciFailed: number } | null;
+  avgRevisionRounds: number | null;
+  medianTokens: number | null;
+  tokensN: number;
+}
+
+export interface SkillVersionImpact {
+  hash: string;
+  managedBy: string | null;
+  firstSeenAt: string;
+  lastSeenAt: string;
+  with: ImpactGroup;
+  without: ImpactGroup;
+}
+
+export interface SkillImpact {
+  days: number;
+  minRuns: number;
+  skills: { name: string; versions: SkillVersionImpact[] }[];
+}
+
+export const SKILL_IMPACT_DAYS = [7, 30, 90, 180] as const;
+
 export const STACKS = ['spring-boot', 'nestjs', 'nextjs', 'node', 'other'] as const;
 export type Stack = (typeof STACKS)[number];
 
@@ -1092,6 +1120,8 @@ export const api = {
     request<Project>(`/v1/projects/${id(projectId)}`, 'PUT', input),
   getSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills`),
   refreshSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills/refresh`, 'POST'),
+  getSkillImpact: (projectId: string, days?: number) =>
+    request<SkillImpact>(`/v1/projects/${id(projectId)}/skills/impact${days ? `?days=${days}` : ''}`),
   getRepoSkills: (repoId: string) => request<RepoSkills>(`/v1/repos/${id(repoId)}/skills`),
   promoteSkill: (repoId: string, name: string, input: PromoteSkillInput) =>
     request<PromoteSkillResult>(`/v1/repos/${id(repoId)}/skills/${id(name)}/promote`, 'POST', input),

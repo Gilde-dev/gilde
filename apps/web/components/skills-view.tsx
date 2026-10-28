@@ -17,7 +17,9 @@ import { useProject } from '@/lib/use-project';
 import { PromoteSkillDialog } from './promote-skill-dialog';
 import { NoProjects } from './no-projects';
 import { Badge, type BadgeVariant } from './ui/badge';
+import { SkillImpactView } from './skill-impact-view';
 import { Button } from './ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 
 const POLL_MS = 60_000;
 const SELECT = 'h-9 rounded-md border border-input bg-card px-2 text-sm';
@@ -82,6 +84,15 @@ export function SkillsView() {
         {project && project.skillsLibrary === 'none' && (
           <p className="p-4 text-sm text-muted-foreground">No skills library is configured for this project.</p>
         )}
+        <Tabs defaultValue="library" className="px-4 pt-3">
+          <TabsList>
+            <TabsTrigger value="library">Library</TabsTrigger>
+            <TabsTrigger value="impact">Impact</TabsTrigger>
+          </TabsList>
+          <TabsContent value="impact" className="-mx-4">
+            {projectId && <SkillImpactView projectId={projectId} />}
+          </TabsContent>
+          <TabsContent value="library" className="-mx-4">
         {catalog.error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{catalog.error.message}</p>}
         {catalog.data && (
           <>
@@ -118,6 +129,8 @@ export function SkillsView() {
             </section>
           </>
         )}
+          </TabsContent>
+        </Tabs>
     </>
   );
 }
