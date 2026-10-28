@@ -116,7 +116,7 @@ describe('capabilities of the co-pilot and the scout', () => {
 
     it('gives the scout exactly this allowlist, with no spec, draft or planning tool', () => {
         expect([...SCOUT_TOOL_NAMES].sort()).toEqual([
-            'getFeature', 'getJob', 'listFeatures', 'listJobs', 'listLessons', 'listRepoFiles', 'listRepos', 'notificationInbox',
+            'getFeature', 'getJob', 'listFeatures', 'listJobs', 'listLessonPatterns', 'listLessons', 'listRepoFiles', 'listRepos', 'notificationInbox',
             'readRepoFile', 'searchHistory', 'searchRepoCode', 'suggestJob',
         ]);
         for (const forbidden of ['draftSpec', 'getSpec', 'listSpecs', 'approveSpec', 'planFeature', 'createPlannedFeature']) {

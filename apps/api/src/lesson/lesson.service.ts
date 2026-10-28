@@ -72,7 +72,7 @@ export class LessonService implements LessonJobHook {
         const lesson = await this.getOrFail(id);
         if (nextLessonStatus(lesson.status, 'apply') === null) throw new ConflictException(`Cannot apply a ${lesson.status} lesson`);
         if (lesson.targetKind !== 'repo_skill' && lesson.targetKind !== 'skill' && lesson.targetKind !== 'agents_md') {
-            throw new BadRequestException('Only repo_skill and agents_md lessons can be applied as a job; use mark-applied for the rest');
+            throw new BadRequestException('Only repo_skill and agents_md lessons can be applied as a job; library_skill lessons go through a pattern\'s propose-skill, use mark-applied for the rest');
         }
         if (!lesson.targetRepoId) throw new BadRequestException('targetRepoId is required to apply a lesson');
         const repo = await this.repos.findOneBy({ id: lesson.targetRepoId });
@@ -107,21 +107,23 @@ export class LessonService implements LessonJobHook {
         return this.getById(id);
     }
 
-    /** A job reached an end state: finish the lesson it was applying, if any. No-op for other jobs and statuses. */
+    /** A job reached an end state: finish the lessons it was applying (a skill proposal applies several), if any. No-op for other jobs and statuses. */
     async onJobEnded(jobId: string, status: JobStatus, reason?: string): Promise<void> {
-        const lesson = await this.lessons.findOneBy({ appliedJobId: jobId, status: 'applying' });
-        if (!lesson) return;
-        if (status === 'merged') {
-            lesson.status = nextLessonStatus('applying', 'job_merged')!;
-            lesson.appliedAt = new Date();
-        } else if (status === 'rejected' || status === 'parked' || status === 'cancelled') {
-            lesson.status = nextLessonStatus('applying', 'job_failed')!;
-            const why = `Apply job ${jobId} ${status}${reason ? `: ${reason}` : ''}`;
-            lesson.note = lesson.note ? `${lesson.note}\n${why}` : why;
-        } else {
-            return;
+        const applying = await this.lessons.findBy({ appliedJobId: jobId, status: 'applying' });
+        if (applying.length === 0) return;
+        const failed = status === 'rejected' || status === 'parked' || status === 'cancelled';
+        if (status !== 'merged' && !failed) return;
+        const why = `Apply job ${jobId} ${status}${reason ? `: ${reason}` : ''}`;
+        for (const lesson of applying) {
+            if (status === 'merged') {
+                lesson.status = nextLessonStatus('applying', 'job_merged')!;
+                lesson.appliedAt = new Date();
+            } else {
+                lesson.status = nextLessonStatus('applying', 'job_failed')!;
+                lesson.note = lesson.note ? `${lesson.note}\n${why}` : why;
+            }
         }
-        await this.lessons.save(lesson);
+        await this.lessons.save(applying);
     }
 
     /** Moves the sources of `lessonIds` onto `targetId` and deletes those lessons. */

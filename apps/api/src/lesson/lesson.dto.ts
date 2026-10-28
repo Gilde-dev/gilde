@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+import { STACKS } from '../repo/repo.entity.js';
+import { skillName } from '../skill/skill-library.js';
 import { LESSON_STATUSES } from './lesson-state.js';
 import { LESSON_TARGET_KINDS, SETTABLE_LESSON_TARGET_KINDS } from './lesson.entity.js';
 import { LESSON_SOURCE_KINDS } from './lesson-source.entity.js';
@@ -45,6 +47,8 @@ export const LessonResponseSchema = z.object({
     appliedJobId: z.string().nullable(),
     /** PR of the job that applies the lesson, if it has one. */
     appliedJobPrUrl: z.string().nullable(),
+    /** The library skill the lesson is becoming or became, for `library_skill` lessons. */
+    appliedSkillName: z.string().nullable(),
     appliedAt: z.string().datetime().nullable(),
     sources: z.array(LessonSourceResponseSchema),
     /** Number of distinct jobs among the sources. */
@@ -81,6 +85,7 @@ export const LessonPatternCoveredSchema = z.object({
     text: z.string(),
     status: z.enum(LESSON_STATUSES),
     appliedJobId: z.string().nullable(),
+    skillName: z.string().nullable(),
 });
 
 export const LessonPatternSchema = z.object({
@@ -108,3 +113,24 @@ export type ListLessonPatternsQuery = z.infer<typeof ListLessonPatternsQuerySche
 export type LessonPatternMemberDto = z.infer<typeof LessonPatternMemberSchema>;
 export type LessonPatternDto = z.infer<typeof LessonPatternSchema>;
 export type LessonPatternsResponseDto = z.infer<typeof LessonPatternsResponseSchema>;
+
+/** Body of the propose-skill endpoint; the name is checked like SkillPromoteService does. */
+export const ProposeSkillSchema = z.object({
+    name: skillName,
+    scope: z.enum(['global', 'stack']),
+    stacks: z.array(z.enum(STACKS)).optional(),
+    title: z.string().trim().min(3).max(200).optional(),
+}).superRefine((v, ctx) => {
+    if (v.scope === 'stack' && !v.stacks?.length) {
+        ctx.addIssue({ code: 'custom', path: ['stacks'], message: 'Choose at least one stack for a stack scope' });
+    }
+});
+
+export const ProposeSkillResponseSchema = z.object({
+    jobId: z.string().uuid(),
+    skillName: z.string(),
+    lessonIds: z.array(z.string().uuid()),
+});
+
+export type ProposeSkillDto = z.infer<typeof ProposeSkillSchema>;
+export type ProposeSkillResponseDto = z.infer<typeof ProposeSkillResponseSchema>;

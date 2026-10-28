@@ -64,7 +64,7 @@ describe('Verkenner tools', () => {
     it('exposes exactly the explicit read-only allowlist plus the native inbox', () => {
         expect(Object.keys(tools()).sort()).toEqual([...SCOUT_TOOL_NAMES].sort());
         expect(Object.keys(tools()).sort()).toEqual([
-            'getFeature', 'getJob', 'listFeatures', 'listJobs', 'listLessons', 'listRepoFiles', 'listRepos', 'notificationInbox',
+            'getFeature', 'getJob', 'listFeatures', 'listJobs', 'listLessonPatterns', 'listLessons', 'listRepoFiles', 'listRepos', 'notificationInbox',
             'readRepoFile', 'searchHistory', 'searchRepoCode', 'suggestJob',
         ]);
         expect(tools().notificationInbox.id).toBe('notification-inbox');
