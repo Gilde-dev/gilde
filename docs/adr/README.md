@@ -15,5 +15,6 @@ One file per decision; see the write-adr skill. Accepted ADRs are not edited, on
 | 0009 | [Features pin an approved spec version and are created in one transaction](0009-features-pin-an-approved-spec-version.md) | Accepted | 2026-10-28 |
 | 0010 | [Serve an MCP server for operators that can read, triage and draft, nothing more](0010-mcp-server-for-operators-triage-and-draft-only.md) | Accepted | 2026-10-28 |
 | 0011 | [Personal executors with encrypted routine tokens in the database](0011-personal-executors-with-encrypted-routine-tokens.md) | Accepted | 2026-10-28 |
+| 0012 | [GitHub App for Gilde's own GitHub access, with the PAT as fallback](0012-github-app-for-gildes-own-github-access.md) | Accepted | 2026-10-28 |
 
 The ADRs 0001–0006 were written retrospectively for decisions already in the code. Their dates are the merge dates of the pull requests that introduced the decision (taken from `git log`), and each ADR cites that evidence.

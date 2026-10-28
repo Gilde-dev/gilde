@@ -4,6 +4,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 
 import { Injectable, Logger } from '@nestjs/common';
 
+import { GitHubCredentials } from '../github/github-credentials.js';
 import type { WorkspaceStatus } from '../repo/repo.dto.js';
 import { cleanRepoPath, isSecretPath } from './repo-path.js';
 
@@ -61,11 +62,13 @@ export function gitAuthHeader(token: string): string {
 /**
  * Keeps one read-only, depth-1 clone of every registered repo under GILDE_WORKSPACE_DIR and answers
  * grep / list / read questions from it. Gilde never commits, pushes or checks out other branches in a clone.
- * The GitHub token is handed to git per command and is never stored or logged.
+ * The GitHub token (a PAT or a short-lived installation token) is handed to git per command and is never stored or logged.
  */
 @Injectable()
 export class RepoWorkspaceService {
     private readonly logger = new Logger(RepoWorkspaceService.name);
+
+    constructor(private readonly credentials: GitHubCredentials) { }
     private readonly state = new Map<string, State>();
     private readonly locks = new Map<string, Promise<unknown>>();
 
@@ -85,10 +88,13 @@ export class RepoWorkspaceService {
         return `https://github.com/${fullName}.git`;
     }
 
-    /** Runs git with an argument array (no shell). The token is only ever part of the `-c` arguments of that one command. */
-    protected git(args: string[], opts: { cwd?: string; auth?: boolean } = {}): Promise<string> {
-        const token = process.env.GITHUB_TOKEN;
-        const full = opts.auth && token ? ['-c', `http.extraHeader=${gitAuthHeader(token)}`, ...args] : args;
+    /**
+     * Runs git with an argument array (no shell). With `auth`, a token for `fullName` is fetched per command (so an installation
+     * token that expired between clone and fetch is replaced) and is only ever part of the `-c` arguments of that one command.
+     */
+    protected async git(args: string[], opts: { cwd?: string; auth?: boolean; fullName?: string } = {}): Promise<string> {
+        const token = opts.auth && opts.fullName ? await this.credentials.tokenFor(opts.fullName) : undefined;
+        const full = token ? ['-c', `http.extraHeader=${gitAuthHeader(token)}`, ...args] : args;
         return new Promise((ok, fail) => {
             execFile(
                 'git',
@@ -130,17 +136,17 @@ export class RepoWorkspaceService {
         const st = this.stateOf(repo.id);
         st.attemptedAt = Date.now();
         try {
-            if (!process.env.GITHUB_TOKEN) throw new Error('GITHUB_TOKEN is not set');
+            if (!this.credentials.isConfigured()) throw new Error('GitHub is not configured (GITHUB_TOKEN or GITHUB_APP_ID and GITHUB_APP_PRIVATE_KEY)');
             const dir = this.cloneDir(repo.fullName);
             const branch = repo.defaultBranch;
             if (!/^[\w./-]+$/.test(branch) || branch.startsWith('-')) throw new Error(`Invalid branch name: ${branch}`);
             const ref = `refs/remotes/origin/${branch}`;
             if (await exists(join(dir, '.git'))) {
-                await this.git(['fetch', '--depth', '1', 'origin', `+refs/heads/${branch}:${ref}`], { cwd: dir, auth: true });
+                await this.git(['fetch', '--depth', '1', 'origin', `+refs/heads/${branch}:${ref}`], { cwd: dir, auth: true, fullName: repo.fullName });
                 await this.git(['reset', '--hard', ref], { cwd: dir });
             } else {
                 await mkdir(dirname(dir), { recursive: true });
-                await this.git(['clone', '--depth', '1', '--no-tags', '--branch', branch, this.remoteUrl(repo.fullName), dir], { auth: true });
+                await this.git(['clone', '--depth', '1', '--no-tags', '--branch', branch, this.remoteUrl(repo.fullName), dir], { auth: true, fullName: repo.fullName });
             }
             st.headSha = (await this.git(['rev-parse', 'HEAD'], { cwd: dir })).trim();
             st.fetchedAt = new Date();

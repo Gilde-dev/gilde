@@ -37,7 +37,7 @@ export function createCodeToolBodies(s: CodeToolServices) {
     async function repoFor(id: string) {
         // getById throws NotFoundException for ids that are not registered repos.
         const repo = await s.repos.getById(id);
-        if (!s.github.isConfigured()) throw new Error('GitHub is not configured (GITHUB_TOKEN); cannot read repo code');
+        if (!s.github.isConfigured()) throw new Error('GitHub is not configured (GITHUB_TOKEN or the GitHub App); cannot read repo code');
         return repo;
     }
 

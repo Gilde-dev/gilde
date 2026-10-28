@@ -1,6 +1,7 @@
 import { DataSource, type Repository } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GitHubCredentials } from '../github/github-credentials.js';
 import { GitHubRestAdapter } from '../github/github-rest.adapter.js';
 import { User } from '../user/user.entity.js';
 import type { GitHubPort, GitHubPull, GitHubWorkflowRun } from '../github/github.port.js';
@@ -193,7 +194,7 @@ describe('ReconcilerService', () => {
         vi.stubEnv('GITHUB_TOKEN', '');
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects);
-        const unconfigured = new ReconcilerService(new GitHubRestAdapter(), events, jobs, ds.getRepository(Repo));
+        const unconfigured = new ReconcilerService(new GitHubRestAdapter(new GitHubCredentials()), events, jobs, ds.getRepository(Repo));
         const job = await prJob('pr_open');
 
         expect(() => unconfigured.onModuleInit()).not.toThrow();
@@ -234,7 +235,7 @@ describe('GitHubRestAdapter', () => {
         const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({
             number: 5, state: 'closed', merged: true, html_url: 'h', body: 'b', head: { sha: 's', ref: 'r' },
         })));
-        const result = await new GitHubRestAdapter().getPull('o/r', 5);
+        const result = await new GitHubRestAdapter(new GitHubCredentials()).getPull('o/r', 5);
         expect(result).toEqual({ number: 5, state: 'closed', merged: true, headSha: 's', headRef: 'r', htmlUrl: 'h', body: 'b' });
         const [url, init] = fetchSpy.mock.calls[0];
         expect(url).toBe('https://api.github.com/repos/o/r/pulls/5');
@@ -248,7 +249,7 @@ describe('GitHubRestAdapter', () => {
     it('never puts the token in errors', async () => {
         vi.stubEnv('GITHUB_TOKEN', 'secret-token');
         const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response('no', { status: 401 }));
-        const err = await new GitHubRestAdapter().listRecentPulls('o/r').catch((e: Error) => e);
+        const err = await new GitHubRestAdapter(new GitHubCredentials()).listRecentPulls('o/r').catch((e: Error) => e);
         expect((err as Error).message).toContain('401');
         expect((err as Error).message).not.toContain('secret-token');
         fetchSpy.mockRestore();
