@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { api, type AgentTotals, type Feedback, type JobDetail, type Revision, type Run } from '@/lib/api';
+import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run } from '@/lib/api';
 import { AgentUsageSummary } from './agent-usage';
 import { errorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
@@ -309,6 +309,21 @@ function FeedbackList({ feedback }: { feedback: Feedback[] }) {
   );
 }
 
+const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
+
+/** One line per reduction; empty when the whole context fits. */
+export function describeTrimmed(t: PromptTrimmed | null): string[] {
+  if (!t) return [];
+  const lines: string[] = [];
+  if (t.lessonsRemoved?.length) lines.push(`${count(t.lessonsRemoved.length, 'lesson')} left out`);
+  if (t.downstreamTaskCap === 'title-only') lines.push('Downstream task text left out (titles, criteria and dependencies kept)');
+  else if (t.downstreamTaskCap !== undefined) lines.push(`Downstream tasks cut to ${t.downstreamTaskCap.toLocaleString('en')} characters`);
+  if (t.downstreamOmitted) lines.push(`${count(t.downstreamOmitted, 'downstream job')} beyond the first 20 left out`);
+  if (t.downstreamRemoved?.length) lines.push(`${count(t.downstreamRemoved.length, 'downstream job')} removed to fit`);
+  if (t.featureSpecCap !== undefined) lines.push(`Feature spec cut to ${t.featureSpecCap.toLocaleString('en')} characters`);
+  return lines;
+}
+
 function PromptTab({ jobId }: { jobId: string }) {
   const fetchPrompt = useCallback(() => api.getJobPrompt(jobId), [jobId]);
   const { data, error } = usePolling(fetchPrompt, 60_000);
@@ -327,14 +342,33 @@ function PromptTab({ jobId }: { jobId: string }) {
 
   if (error) return <p role="alert" className="text-sm text-danger">{error.message}</p>;
   if (!data) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const trimmed = describeTrimmed(data.trimmed);
   return (
     <div className="space-y-2">
-      <div className="flex items-center gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <Button size="sm" variant="outline" onClick={() => void copy()}>
           {copied ? 'Copied' : 'Copy'}
         </Button>
         {data.instructionsVersion && <Badge variant="neutral">Instructions {data.instructionsVersion}</Badge>}
+        <span className="text-sm text-muted-foreground">
+          {data.length.toLocaleString('en')} of {data.limit.toLocaleString('en')} characters
+        </span>
       </div>
+      {data.length > data.limit && (
+        <p role="alert" className="rounded-md bg-danger-soft p-2 text-sm text-danger">
+          This prompt is {(data.length - data.limit).toLocaleString('en')} characters over the limit even after trimming, so the job will be parked instead of fired. Shorten the task or its acceptance criteria.
+        </p>
+      )}
+      {trimmed.length > 0 ? (
+        <div className="text-sm">
+          <p className="font-medium">Trimmed to fit the limit</p>
+          <ul className="list-disc pl-5 text-muted-foreground">
+            {trimmed.map((line) => <li key={line}>{line}</li>)}
+          </ul>
+        </div>
+      ) : (
+        <p className="text-sm text-muted-foreground">Nothing trimmed.</p>
+      )}
       <pre className="max-h-[32rem] overflow-auto whitespace-pre-wrap rounded-md border border-border bg-muted p-3 font-mono text-xs">{data.text}</pre>
     </div>
   );

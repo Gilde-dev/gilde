@@ -9,8 +9,10 @@ import {
     type ExecutionRepo,
     type ExecutionResult,
     type JobPayload,
+    type PreparedPrompt,
+    type PromptContext,
 } from './execution.port.js';
-import { buildJobPrompt, type JobPrompt } from './job-prompt.js';
+import { prepareJobPrompt, promptTooLargeError } from './job-prompt.js';
 
 const FIRE_TIMEOUT_MS = 30_000;
 
@@ -30,11 +32,12 @@ function httpErrorKind(status: number): ExecutionErrorKind {
 export class RoutineExecutionAdapter implements ExecutionPort {
     constructor(private readonly instructions: AgentInstructionsService) { }
 
-    preview(payload: JobPayload): JobPrompt {
-        return buildJobPrompt(JobPayloadSchema.parse(payload), this.instructions.get());
+    /** The one renderer behind both preview and fire. Throws a config error only when the instructions cannot be read. */
+    prepare(payload: JobPayload, context?: PromptContext): PreparedPrompt {
+        return prepareJobPrompt(JobPayloadSchema.parse(payload), this.instructions.get(), context);
     }
 
-    async fire(repo: ExecutionRepo, payload: JobPayload): Promise<ExecutionResult> {
+    async fire(repo: ExecutionRepo, input: JobPayload | PreparedPrompt, context?: PromptContext): Promise<ExecutionResult> {
         if (!repo.routineFireUrl || !repo.routineTokenEnv) {
             throw new ExecutionError(`Repo ${repo.fullName} has no routine configured`, 'config');
         }
@@ -46,7 +49,9 @@ export class RoutineExecutionAdapter implements ExecutionPort {
             );
         }
 
-        const { text, instructionsVersion } = this.preview(payload);
+        const prompt = 'prepared' in input ? input : this.prepare(input, context);
+        if (!prompt.fits) throw promptTooLargeError(prompt, prompt.payload.jobId);
+        const { text, instructionsVersion } = prompt;
 
         let res: Response;
         try {

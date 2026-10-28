@@ -1,3 +1,7 @@
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { Logger, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -14,6 +18,7 @@ import { JobDependency } from './job-dependency.entity.js';
 import { JobPromptService } from './job-prompt.service.js';
 import { Job } from './job.entity.js';
 
+const dir = mkdtempSync(join(tmpdir(), 'gilde-prompt-'));
 let ds: DataSource;
 let service: JobPromptService;
 let job: Job;
@@ -78,6 +83,37 @@ describe('JobPromptService', () => {
         const res = await service.get(job.id);
         expect(res.text).not.toContain('lessons');
         vi.restoreAllMocks();
+    });
+
+    it('returns size, limit and trimmed metadata, and the same text a fire would send', async () => {
+        const res = await service.get(job.id);
+        expect(res).toMatchObject({ length: res.text.length, limit: 60_000, trimmed: null });
+        expect(res).toEqual({ text: res.text, instructionsVersion: null, length: res.text.length, limit: 60_000, trimmed: null });
+    });
+
+    it('trims context for the preview exactly like a fire and reports what was cut', async () => {
+        await ds.getRepository(Job).update({ id: job.id }, { task: 'T'.repeat(20_000) });
+        const next = await ds.getRepository(Job).save({
+            projectId: job.projectId, repoId: job.repoId, title: 'Next', task: 'f'.repeat(3_000), status: 'queued',
+        });
+        await ds.getRepository(JobDependency).insert({ jobId: next.id, dependsOnJobId: job.id });
+        process.env.AGENT_INSTRUCTIONS_PATH = join(dir, 'instructions.md');
+        writeFileSync(process.env.AGENT_INSTRUCTIONS_PATH, 'I'.repeat(37_500));
+        const res = await service.get(job.id);
+        expect(res.length).toBeLessThanOrEqual(60_000);
+        expect(res.trimmed).toEqual({ downstreamTaskCap: 1500 });
+        expect(res.text).toContain('(truncated; read the full job with its id if needed)');
+        expect(res.text.endsWith(`"promptTrimmed":{"downstreamTaskCap":1500}}`)).toBe(true);
+        expect(res.text.startsWith('I'.repeat(37_500))).toBe(true);
+    });
+
+    it('returns an inspectable oversized preview instead of a 400', async () => {
+        await ds.getRepository(Job).update({ id: job.id }, { task: 'T'.repeat(61_000) });
+        const res = await service.get(job.id);
+        expect(res.length).toBeGreaterThan(60_000);
+        expect(res.limit).toBe(60_000);
+        expect(res.text).toContain('T'.repeat(61_000));
+        expect(await ds.getRepository(JobRun).count()).toBe(0);
     });
 
     it('404s for an unknown job', async () => {

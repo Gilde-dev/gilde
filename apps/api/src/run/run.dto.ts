@@ -5,6 +5,8 @@ import { gildeResultSchema } from '../webhook/pr-body.js';
 import { RUN_STATUSES } from './run-status.js';
 
 export const CreateRunSchema = z.object({
+    /** A run id reserved earlier, so the prompt could be sized with the id it will carry. */
+    id: z.string().uuid().optional(),
     jobId: z.string().uuid(),
     projectId: z.string().uuid(),
     repoId: z.string().uuid(),
