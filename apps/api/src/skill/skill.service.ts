@@ -6,6 +6,8 @@ import { RepoService } from '../repo/repo.service.js';
 import { desiredSkills } from './desired-skills.js';
 import { computeDrift, countStatuses, RepoSkillsReader } from './repo-skills.js';
 import type { RepoSkillsResponseDto, SkillCatalogResponseDto } from './skill.dto.js';
+import type { SkillImpactResponseDto } from './skill-impact.dto.js';
+import { SkillImpactService } from './skill-impact.service.js';
 import { SkillLibraryResolver } from './skill-library.resolver.js';
 
 @Injectable()
@@ -15,7 +17,12 @@ export class SkillService {
         private readonly repos: RepoService,
         private readonly resolver: SkillLibraryResolver,
         private readonly reader: RepoSkillsReader,
+        private readonly impactService: SkillImpactService,
     ) { }
+
+    impact(projectId: string, days?: number): Promise<SkillImpactResponseDto> {
+        return this.impactService.impact(projectId, days);
+    }
 
     async catalog(projectId: string): Promise<SkillCatalogResponseDto> {
         const project = await this.projects.getById(projectId);

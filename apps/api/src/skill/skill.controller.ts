@@ -1,10 +1,11 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import { PromoteSkillSchema, type PromoteSkillDto, type PromoteSkillResponseDto, type RepoSkillsResponseDto, type SkillCatalogResponseDto } from './skill.dto.js';
+import { SkillImpactQuerySchema, type SkillImpactQuery, type SkillImpactResponseDto } from './skill-impact.dto.js';
 import { SkillPromoteService } from './skill-promote.service.js';
 import { SkillService } from './skill.service.js';
 
@@ -18,6 +19,14 @@ export class SkillController {
     @Get('projects/:projectId/skills')
     catalog(@Param('projectId', ParseUUIDPipe) projectId: string): Promise<SkillCatalogResponseDto> {
         return this.skills.catalog(projectId);
+    }
+
+    @Get('projects/:projectId/skills/impact')
+    impact(
+        @Param('projectId', ParseUUIDPipe) projectId: string,
+        @Query(new ZodValidationPipe(SkillImpactQuerySchema)) q: SkillImpactQuery,
+    ): Promise<SkillImpactResponseDto> {
+        return this.skills.impact(projectId, q.days);
     }
 
     @Post('projects/:projectId/skills/refresh')

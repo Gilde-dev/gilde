@@ -46,6 +46,17 @@ beforeEach(() => {
 });
 
 describe('SkillsView', () => {
+  it('has an Impact tab that shows the descriptive impact view', async () => {
+    vi.spyOn(api, 'getSkillImpact').mockResolvedValue({ days: 30, minRuns: 10, skills: [] });
+    render(<SkillsView />);
+    await screen.findByLabelText('Library skill alpha');
+    expect(api.getSkillImpact).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('tab', { name: 'Impact' }));
+    expect(await screen.findByText(/descriptive comparisons of finished runs/)).toBeInTheDocument();
+    expect(await screen.findByText('No skill data yet')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Library skill alpha')).not.toBeInTheDocument();
+  });
+
   it('shows the catalog, per repo skills with status badges and the sync note', async () => {
     render(<SkillsView />);
     const lib = await screen.findByLabelText('Library skill alpha');

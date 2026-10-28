@@ -647,6 +647,12 @@ pnpm --filter @gilde/api lesson:reject-retro-candidates [--dry-run]
 docker compose exec api node dist/cli/lesson-reject-retro-candidates.js [--dry-run]
 ```
 
+## Skill impact
+
+`GET /api/v1/projects/:id/skills/impact?days=` (default 30, max 180) and the **Impact** tab on `/skills` compare how runs went per skill version. Every run records the skills (name and content hash) the agent had; for each version seen, Gilde shows the finished runs with that exact version next to the finished runs in the same repos without the skill: sample size, counts and rates of done, partial, blocked, merged, rejected or parked and CI failed, average revision rounds (accepted proposals) and median attributed Claude Code tokens. A run is finished when its job reached merged, rejected, parked or cancelled, or a later attempt superseded it. Versions of one skill are listed in the order they were first seen.
+
+These are descriptive comparisons only: no significance tests and no effect claims. Job difficulty and other changes differ between the groups. A group with fewer than `SKILL_IMPACT_MIN_RUNS` finished runs (default 10, a positive integer; an invalid value stops the API at startup) is marked `insufficient` and has no rates. The co-pilot and the MCP server expose the same summary read-only as `getSkillImpact`.
+
 ## Updating resources (PUT)
 
 Jobs, features, projects, repos and lessons are updated with `PUT` on the resource, which replaces its updatable fields as a whole. There are no `PATCH` routes, and a body that omits a key is answered with 400 and a zod issue for that key. A nullable field is a required key too: send `null` to clear it. Fields that are not listed (ids, `slug`, `fullName`, `paused`, status, manifest fields) cannot be changed this way and are ignored when sent.

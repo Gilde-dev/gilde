@@ -128,6 +128,10 @@ export const listLessonPatternsInput = z.object({
     minSize: z.number().int().min(2).max(100).default(2).describe('Smallest number of lessons in a pattern'),
 });
 export const getRepoSkillsInput = z.object({ repoId: id('repo') });
+export const getSkillImpactInput = z.object({
+    projectId: id('project'),
+    days: z.number().int().min(1).max(180).optional().describe('Window in days (default 30, max 180)'),
+});
 export const listSpecsInput = z.object({ projectId: id('project') });
 export const getSpecInput = z.object({ specId: id('spec') });
 
@@ -296,6 +300,7 @@ export function createReadToolBodies(s: CopilotServices) {
         };
     };
     const getRepoSkills = async ({ repoId }: z.infer<typeof getRepoSkillsInput>) => s.skills.forRepo(repoId);
+    const getSkillImpact = async ({ projectId, days }: z.infer<typeof getSkillImpactInput>) => s.skills.impact(projectId, days);
     const listSpecs = async ({ projectId }: z.infer<typeof listSpecsInput>) => s.specs.list(projectId);
     const getSpec = async ({ specId }: z.infer<typeof getSpecInput>) => compactSpec(await s.specs.getDetail(specId, null));
     const planFeature = async (input: z.infer<typeof planInput>) => s.plans.validate(input);
@@ -311,6 +316,6 @@ export function createReadToolBodies(s: CopilotServices) {
     return {
         ...createCodeToolBodies(s),
         listProjects, listRepos, listJobs, getJob, listFeatures, getFeature, listProposals, getDispatchStatus, getMetrics,
-        listLessons, listLessonPatterns, getRepoSkills, listSpecs, getSpec, planFeature, validateJob, searchHistory,
+        listLessons, listLessonPatterns, getRepoSkills, getSkillImpact, listSpecs, getSpec, planFeature, validateJob, searchHistory,
     };
 }

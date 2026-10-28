@@ -42,8 +42,9 @@ function setup() {
     };
     const projects = { list: vi.fn().mockResolvedValue([{ id: PROJECT }]) };
     const repos = { getById: vi.fn().mockResolvedValue({ id: REPO, projectId: PROJECT, fullName: 'o/r' }), listForProject: vi.fn() };
+    const skills = { impact: vi.fn().mockResolvedValue({ days: 30, minRuns: 10, skills: [] }) };
     const noop = {} as never;
-    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, noop, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
+    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, skills as never, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
     const connect = async (user: AuthUser | undefined) => {
         const server = service.buildServer(user);
         const [a, b] = InMemoryTransport.createLinkedPair();
@@ -53,7 +54,7 @@ function setup() {
         return client;
     };
     const as = (id: string, credential: AuthUser['credential'] = 'api_key'): AuthUser => ({ id, name: 'N', email: `${id}@example.com`, credential });
-    return { service, identities, jobs, specs, plans, quota, projects, repos, connect, as } satisfies Record<string, unknown> & { identities: Stubs['identities'] };
+    return { service, identities, skills, jobs, specs, plans, quota, projects, repos, connect, as } satisfies Record<string, unknown> & { identities: Stubs['identities'] };
 }
 
 const text = (r: unknown) => ((r as { content: { text: string }[] }).content[0].text);
@@ -65,7 +66,21 @@ describe('MCP tool registry', () => {
         const client = await connect(as(ME));
         const { tools } = await client.listTools();
         expect(tools.map((t) => t.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(23);
+        expect(tools).toHaveLength(24);
+        expect(tools.map((t) => t.name)).toContain('getSkillImpact');
+    });
+
+    it('getSkillImpact is read-only, takes a project and a bounded window, and returns the summary', async () => {
+        const { connect, as, skills } = setup();
+        const client = await connect(as(ME));
+        const tool = (await client.listTools()).tools.find((t) => t.name === 'getSkillImpact')!;
+        expect(tool.annotations).toMatchObject({ readOnlyHint: true, idempotentHint: true });
+        expect(tool.description).toMatch(/not effects/);
+        const ok = await client.callTool({ name: 'getSkillImpact', arguments: { projectId: PROJECT, days: 7 } });
+        expect(isError(ok)).toBe(false);
+        expect(JSON.parse(text(ok))).toEqual({ days: 30, minRuns: 10, skills: [] });
+        expect(skills.impact).toHaveBeenCalledWith(PROJECT, 7);
+        expect(isError(await client.callTool({ name: 'getSkillImpact', arguments: { projectId: PROJECT, days: 181 } }))).toBe(true);
     });
 
     it('never exposes queueing, dispatching, cancelling, retrying, merging, approval, settings, identity or notification tools', async () => {
