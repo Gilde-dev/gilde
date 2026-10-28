@@ -45,6 +45,7 @@ import type { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 import { UsageService } from '../usage/usage.service.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
+import { CopilotThreadsService } from './copilot-threads.service.js';
 import { createMastra, MASTRA_PREFIX, type ScoutSetup } from './copilot.mastra.js';
 import { COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
@@ -192,10 +193,11 @@ export class ScoutLifecycle implements OnModuleDestroy {
             },
             inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService, BudgetService],
         },
+        CopilotThreadsService,
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

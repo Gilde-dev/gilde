@@ -50,6 +50,7 @@ describe('AppShell', () => {
     expect(nav.getByRole('link', { name: 'Features' })).toHaveAttribute('aria-current', 'page');
     expect(nav.getByRole('link', { name: 'Board' })).not.toHaveAttribute('aria-current');
     await waitFor(() => expect(nav.getByRole('link', { name: 'Board' })).toHaveAttribute('href', '/?project=p2'));
+    expect(nav.getByRole('link', { name: 'Chat' })).toHaveAttribute('href', '/chat?project=p2');
     expect(await nav.findByLabelText('2 pending')).toBeInTheDocument();
     expect(api.listRevisions).toHaveBeenCalledWith('proposed', 'p2');
     const settings = within(screen.getAllByRole('navigation', { name: 'Settings' })[0]);

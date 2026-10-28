@@ -327,3 +327,70 @@ describe('Verkenner (e2e), configured but unusable', () => {
     }
   });
 });
+
+describe('Co-pilot (e2e), conversations list', () => {
+  let app: INestApplication;
+  let dir: string;
+  let alice: Awaited<ReturnType<typeof createTestUser>>;
+  let bob: Awaited<ReturnType<typeof createTestUser>>;
+  let aliceAuth: { Authorization: string };
+  let bobAuth: { Authorization: string };
+  const http = () => request(app.getHttpServer());
+
+  beforeAll(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'gilde-e2e-threads-'));
+    const config = { enabled: true as const, model: 'openai/test-model' };
+    const mastra = createMastra(config, {} as never, new LibSQLStore({ id: 'e2e-threads', url: `file:${join(dir, 'm.db')}` }));
+    app = await createApp({ config, mastra });
+    alice = await createTestUser(app);
+    bob = await createTestUser(app);
+    aliceAuth = { Authorization: `Bearer ${tokenFor(app, alice)}` };
+    bobAuth = { Authorization: `Bearer ${tokenFor(app, bob)}` };
+    const store = (await mastra.getStorage()!.getStore('memory'))!;
+    const save = (id: string, resourceId: string, title: string, at: string) =>
+      store.saveThread({ thread: { id, resourceId, title, createdAt: new Date(at), updatedAt: new Date(at), metadata: {} } });
+    await save('a-old', alice.id, 'First', '2026-01-01T00:00:00Z');
+    await save('a-new', alice.id, '', '2026-02-01T00:00:00Z');
+    await save('b-1', bob.id, 'Bobs', '2026-03-01T00:00:00Z');
+    await save('verkenner:p', alice.id, 'Scout', '2026-04-01T00:00:00Z');
+    await store.saveMessages({
+      messages: [{ id: 'm1', threadId: 'a-new', resourceId: alice.id, role: 'user', createdAt: new Date('2026-02-01T00:00:01Z'), content: { format: 2, parts: [{ type: 'text', text: 'How many jobs are queued?' }] } }],
+    } as never);
+  });
+  afterAll(async () => {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('requires a token', async () => {
+    await http().get('/api/v1/copilot/threads').expect(401);
+    await http().get('/api/v1/copilot/threads/a-old/messages').expect(401);
+  });
+
+  it('lists only the caller\'s threads, newest first, with titles', async () => {
+    const res = await http().get('/api/v1/copilot/threads').set(aliceAuth).expect(200);
+    expect(res.body.map((t: { id: string; title: string }) => [t.id, t.title])).toEqual([['a-new', 'How many jobs are queued?'], ['a-old', 'First']]);
+    expect(Object.keys(res.body[0]).sort()).toEqual(['createdAt', 'id', 'title', 'updatedAt']);
+    const bobs = await http().get('/api/v1/copilot/threads').set(bobAuth).expect(200);
+    expect(bobs.body.map((t: { id: string }) => t.id)).toEqual(['b-1']);
+  });
+
+  it('reads the messages of an own thread', async () => {
+    const res = await http().get('/api/v1/copilot/threads/a-new/messages').set(aliceAuth).expect(200);
+    expect(res.body.messages).toEqual([{ id: 'm1', role: 'user', content: 'How many jobs are queued?' }]);
+  });
+
+  it('404 for another user\'s thread, the scout\'s thread and an unknown id', async () => {
+    await http().get('/api/v1/copilot/threads/a-new/messages').set(bobAuth).expect(404);
+    await http().get('/api/v1/copilot/threads/verkenner:p/messages').set(aliceAuth).expect(404);
+    await http().get('/api/v1/copilot/threads/nope/messages').set(aliceAuth).expect(404);
+  });
+
+  it('applies the same rules to API keys', async () => {
+    const created = await http().post('/api/v1/api-keys').set(bobAuth).send({ name: 'bot' }).expect(201);
+    const keyAuth = { Authorization: `Bearer ${created.body.key}` };
+    const list = await http().get('/api/v1/copilot/threads').set(keyAuth).expect(200);
+    expect(list.body.map((t: { id: string }) => t.id)).toEqual(['b-1']);
+    await http().get('/api/v1/copilot/threads/a-new/messages').set(keyAuth).expect(404);
+  });
+});
