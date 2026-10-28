@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ExecutionError } from '../execution/execution.error.js';
 import { User } from '../user/user.entity.js';
+import { Executor } from '../executor/executor.entity.js';
 import { Feature } from '../feature/feature.entity.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import { prepareJobPrompt } from '../execution/job-prompt.js';
@@ -37,6 +38,11 @@ let searchLessons: ReturnType<typeof vi.fn>;
 let notifications: Repository<Notification>;
 let budget: { status: ReturnType<typeof vi.fn> };
 let budgetAlerts: { capture: ReturnType<typeof vi.fn> };
+let executors: Repository<Executor>;
+let users: Repository<User>;
+/** The human who owns the seeded jobs, and their default executor, which serves every seeded repo with room to spare. */
+let owner: User;
+let defaultExecutor: Executor;
 
 beforeEach(async () => {
     instructionsText = null;
@@ -44,13 +50,17 @@ beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
-        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Notification],
+        entities: [User, Executor, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Notification],
         synchronize: true,
     }).initialize();
     projects = ds.getRepository(Project);
     repos = ds.getRepository(Repo);
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
+    executors = ds.getRepository(Executor);
+    users = ds.getRepository(User);
+    owner = await seedUser('owner');
+    defaultExecutor = await seedExecutor(owner, { name: 'default', maxConcurrent: 100 });
     budget = { status: vi.fn().mockResolvedValue({ hardBlocked: false, blockers: [], recovery: 'none', recoversAt: null }) };
     budgetAlerts = { capture: vi.fn().mockResolvedValue(0) };
     searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
@@ -59,7 +69,12 @@ beforeEach(async () => {
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, capture);
+    executorService = {
+        listForDispatch: (ownerId: string) => executors.find({ where: { ownerId }, order: { name: 'ASC' } }),
+        revealToken: vi.fn().mockResolvedValue('secret-token'),
+    };
+    revealToken = executorService.revealToken as ReturnType<typeof vi.fn>;
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never, capture);
 });
 
 afterEach(() => ds.destroy());
@@ -77,28 +92,42 @@ function fakeExecution(): ExecutionPort {
     };
 }
 
+let revealToken: ReturnType<typeof vi.fn>;
+let executorService: { listForDispatch: (ownerId: string) => Promise<Executor[]>; revealToken: ReturnType<typeof vi.fn> };
+
 let seq = 0;
+async function seedUser(name: string, over: Partial<User> = {}) {
+    seq++;
+    return users.save(users.create({ email: `${name}${seq}@example.com`, name, password: 'x', ...over }));
+}
+async function seedExecutor(ownerUser: User, over: Partial<Executor> = {}) {
+    seq++;
+    return executors.save(executors.create({
+        ownerId: ownerUser.id, name: `ex${seq}`, fireUrl: `https://fire/${seq}`, repoIds: [], tokenLast4: 'oken',
+        maxConcurrent: 1, dailyRunLimit: null, enabled: true, exhaustedUntil: null, ...over,
+    }));
+}
 async function seedProject(over: Partial<Project> = {}) {
     seq++;
     return projects.save(projects.create({ slug: `p${seq}`, name: `P${seq}`, ...over }));
 }
 async function seedRepo(project: Project, over: Partial<Repo> = {}) {
     seq++;
-    return repos.save(repos.create({
+    const repo = await repos.save(repos.create({
         projectId: project.id,
         fullName: `o/r${seq}`,
         stacks: ['node'],
         testCommands: ['pnpm test'],
-        routineFireUrl: 'https://fire',
-        routineTokenEnv: 'TOKEN',
         ...over,
     }));
+    await executors.update({ id: defaultExecutor.id }, { repoIds: [...(await executors.findOneByOrFail({ id: defaultExecutor.id })).repoIds, repo.id] });
+    return repo;
 }
 let t = 0;
 async function seedJob(repo: Repo, status: JobStatus = 'queued', over: Partial<Job> = {}) {
     return jobs.save(jobs.create({
         projectId: repo.projectId, repoId: repo.id, title: 'T', task: 'do', acceptanceCriteria: ['a'],
-        status, queuedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, t++)), ...over,
+        status, queuedAt: new Date(Date.UTC(2026, 0, 1, 0, 0, t++)), createdById: owner.id, ...over,
     }));
 }
 const reload = (id: string) => jobs.findOneByOrFail({ id });
@@ -185,13 +214,13 @@ describe('DispatcherService', () => {
 
         expect(fire).toHaveBeenCalledOnce();
         const [execRepo, payload] = fire.mock.calls[0] as [unknown, Record<string, unknown>];
-        expect(execRepo).toMatchObject({ fullName: repo.fullName, routineFireUrl: 'https://fire' });
+        expect(execRepo).toEqual({ fullName: repo.fullName, executorName: 'default', fireUrl: defaultExecutor.fireUrl, token: 'secret-token' });
         const run = await runs.findOneByOrFail({ jobId: job.id });
         expect(payload).toEqual({
             gilde: 1, jobId: job.id, runId: run.id, attempt: 1, repo: repo.fullName, baseBranch: 'main',
             title: 'T', task: 'do', acceptanceCriteria: ['a'], testCommands: ['pnpm test'], stacks: ['node'],
         });
-        expect(run).toMatchObject({ status: 'fired', sessionId: 's1', sessionUrl: 'https://x/s1', attempt: 1 });
+        expect(run).toMatchObject({ status: 'fired', sessionId: 's1', sessionUrl: 'https://x/s1', attempt: 1, executorId: defaultExecutor.id });
         expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
     });
 
@@ -237,7 +266,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never);
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);
@@ -282,8 +311,6 @@ describe('DispatcherService', () => {
     it.each([
         ['project paused', async () => { const p = await seedProject({ paused: true }); return seedRepo(p); }],
         ['repo paused', async () => seedRepo(await seedProject(), { paused: true })],
-        ['no routine url', async () => seedRepo(await seedProject(), { routineFireUrl: null })],
-        ['no routine token env', async () => seedRepo(await seedProject(), { routineTokenEnv: null })],
     ])('fires nothing when %s', async (_name, setup) => {
         const job = await seedJob(await setup());
         expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
@@ -342,12 +369,14 @@ describe('DispatcherService', () => {
             });
         });
 
-        it('records nothing for a config error, which requeues without parking', async () => {
+        it('records one parked notification for a config error, naming the executor', async () => {
             const repo = await seedRepo(await seedProject());
             await seedJob(repo);
-            fire.mockRejectedValue(new ExecutionError('token missing', 'config'));
+            fire.mockRejectedValue(new ExecutionError('Routine fire for o/r on executor "default" failed with HTTP 401', 'config'));
             await dispatcher.dispatch();
-            expect(await notifications.count()).toBe(0);
+            const rows = await notifications.find();
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ kind: 'job.parked', reason: expect.stringContaining('executor "default"') });
         });
 
         it('records nothing when another writer moved the job first', async () => {
@@ -411,48 +440,48 @@ describe('DispatcherService', () => {
     });
 
     describe('configuration errors', () => {
-        it('pauses the repo, requeues the job and leaves attempts unchanged on a 401', async () => {
+        it('parks the job naming the executor, keeps the attempt, disables nothing and pauses nothing on a 401', async () => {
             const repo = await seedRepo(await seedProject());
             const job = await seedJob(repo);
-            const message = 'Routine fire for o/r failed with HTTP 401';
+            const message = 'Routine fire for o/r on executor "default" failed with HTTP 401';
             fire.mockRejectedValue(new ExecutionError(message, 'config'));
             const warn = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined);
 
             expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
 
-            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0, lastReason: message });
-            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: true, pausedReason: message });
-            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: message });
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1, lastReason: message });
+            expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false });
+            expect(await executors.findOneByOrFail({ id: defaultExecutor.id })).toMatchObject({ enabled: true, exhaustedUntil: null });
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', error: message, executorId: defaultExecutor.id });
             expect(warn).toHaveBeenCalledOnce();
-            expect(warn.mock.calls[0]![0]).toContain(repo.fullName);
-            expect(warn.mock.calls[0]![0]).toContain(message);
+            expect(warn.mock.calls[0]![0]).toContain('default');
+            expect(JSON.stringify([message, warn.mock.calls])).not.toContain('secret-token');
         });
 
-        it('does not fire other queued jobs of the paused repo', async () => {
+        it('does not fire further jobs on the executor in the same pass, then tries again in the next', async () => {
             const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
             const first = await seedJob(repo);
             const second = await seedJob(repo);
-            fire.mockRejectedValueOnce(new ExecutionError('HTTP 401', 'config'));
+            fire.mockRejectedValueOnce(new ExecutionError('HTTP 401 on executor "default"', 'config'));
 
             await dispatcher.dispatch();
-            await dispatcher.dispatch();
-
             expect(fire).toHaveBeenCalledOnce();
-            expect((await reload(first.id)).status).toBe('queued');
+            expect((await reload(first.id)).status).toBe('parked');
             expect((await reload(second.id)).status).toBe('queued');
-        });
-
-        it('fires the queued job after the repo is resumed, clearing pausedReason', async () => {
-            const repo = await seedRepo(await seedProject());
-            const job = await seedJob(repo);
-            fire.mockRejectedValueOnce(new ExecutionError('HTTP 401', 'config'));
-            await dispatcher.dispatch();
-
-            const resumed = await repoService.resume(repo.id);
-            expect(resumed).toMatchObject({ paused: false });
 
             expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
-            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+            expect((await reload(second.id)).status).toBe('dispatched');
+        });
+
+        it('parks with the executor name when the token cannot be decrypted, without exposing anything', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            revealToken.mockRejectedValue(new Error('Unsupported state or unable to authenticate data'));
+
+            await dispatcher.dispatch();
+
+            expect(fire).not.toHaveBeenCalled();
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', lastReason: 'Executor "default" token could not be read' });
         });
 
         it('does not pause the repo on transient errors', async () => {
@@ -463,6 +492,216 @@ describe('DispatcherService', () => {
             await dispatcher.dispatch();
 
             expect(await repos.findOneByOrFail({ id: repo.id })).toMatchObject({ paused: false });
+        });
+    });
+
+    describe('executors', () => {
+        const waiting = async (id: string) => (await reload(id)).waitingReason;
+        const only = async () => (await dispatcher.dispatch());
+
+        async function repoWithOwnerExecutor(over: Partial<Executor> = {}, who: User = owner) {
+            const repo = await seedRepo(await seedProject());
+            await executors.delete({ id: defaultExecutor.id });
+            const executor = await seedExecutor(who, { repoIds: [repo.id], ...over });
+            return { repo, executor };
+        }
+
+        it('fires on the owner\'s executor and records executor_id on the run', async () => {
+            const { repo, executor } = await repoWithOwnerExecutor({ name: 'mine' });
+            const job = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 0 });
+            expect(fire.mock.calls[0]![0]).toMatchObject({ executorName: 'mine', fireUrl: executor.fireUrl });
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ executorId: executor.id });
+            expect(revealToken).toHaveBeenCalledWith(executor.id);
+        });
+
+        it('waits with "no executor" when the owner has none, and reports it', async () => {
+            const repo = await seedRepo(await seedProject());
+            await executors.delete({ id: defaultExecutor.id });
+            const job = await seedJob(repo);
+            const result = await only();
+            expect(result).toMatchObject({ fired: 0, failed: 0, waitingOnExecutor: 1 });
+            expect(result.repos[0]).toMatchObject({ reason: 'none', waitingOnExecutor: 1, queued: 1 });
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0, waitingReason: 'no executor' });
+            expect(await runs.count()).toBe(0);
+            expect(fire).not.toHaveBeenCalled();
+        });
+
+        it('never falls back to another user\'s executor, the repo-level routine or a bot\'s', async () => {
+            const other = await seedUser('other');
+            const { repo } = await repoWithOwnerExecutor({}, other);
+            await repos.update({ id: repo.id }, { routineFireUrl: 'https://old-routine', routineTokenEnv: 'ROUTINE_TOKEN_OLD' });
+            const job = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+            expect(fire).not.toHaveBeenCalled();
+            expect(await waiting(job.id)).toBe('no executor');
+        });
+
+        it.each([
+            ['disabled', { enabled: false }],
+            ['without a token', { tokenLast4: null }],
+            ['not listing the repo', { repoIds: [] }],
+        ] as [string, Partial<Executor>][])('does not use an executor %s', async (_name, over) => {
+            const { repo } = await repoWithOwnerExecutor(over);
+            if ('repoIds' in over) await executors.update({ ownerId: owner.id }, { repoIds: [] });
+            const job = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+            expect(await waiting(job.id)).toBe('no executor');
+        });
+
+        it('waits with "executor exhausted" until the reset time passes, then fires without manual action', async () => {
+            const { repo, executor } = await repoWithOwnerExecutor({ exhaustedUntil: new Date(Date.now() + 3_600_000) });
+            const job = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+            expect(await waiting(job.id)).toBe('executor exhausted');
+
+            await executors.update({ id: executor.id }, { exhaustedUntil: new Date(Date.now() - 1000) });
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 0 });
+            expect(await waiting(job.id)).toBeNull();
+        });
+
+        it('waits with "executor busy" at max_concurrent and fires when the run is no longer in flight', async () => {
+            const { repo, executor } = await repoWithOwnerExecutor({ maxConcurrent: 1 });
+            await repos.update({ id: repo.id }, { maxConcurrentJobs: 5 });
+            const running = await seedJob(repo, 'dispatched');
+            await runs.save(runs.create({ jobId: running.id, projectId: repo.projectId, repoId: repo.id, attempt: 1, status: 'fired', executorId: executor.id }));
+            const job = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+            expect(await waiting(job.id)).toBe('executor busy');
+
+            await jobs.update({ id: running.id }, { status: 'pr_open' });
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 0 });
+        });
+
+        it('stops at max_concurrent within one pass and lets the next job wait', async () => {
+            const { repo } = await repoWithOwnerExecutor({ maxConcurrent: 1 });
+            await repos.update({ id: repo.id }, { maxConcurrentJobs: 5 });
+            const first = await seedJob(repo);
+            const second = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 1 });
+            expect((await reload(first.id)).status).toBe('dispatched');
+            expect(await reload(second.id)).toMatchObject({ status: 'queued', waitingReason: 'executor busy' });
+        });
+
+        it('waits with "executor limit reached" at the executor\'s daily limit, counting only today\'s runs of that executor', async () => {
+            const { repo, executor } = await repoWithOwnerExecutor({ dailyRunLimit: 1, maxConcurrent: 5 });
+            const elsewhere = await seedExecutor(await seedUser('other'), { repoIds: [repo.id] });
+            await repos.update({ id: repo.id }, { maxConcurrentJobs: 5 });
+            const earlier = await seedJob(repo, 'merged');
+            const yesterday = await runs.save(runs.create({ jobId: earlier.id, projectId: repo.projectId, repoId: repo.id, attempt: 1, status: 'pr_opened', executorId: executor.id }));
+            await runs.update({ id: yesterday.id }, { createdAt: new Date(Date.now() - 2 * 86_400_000) });
+            const other = await seedJob(repo, 'merged');
+            await runs.save(runs.create({ jobId: other.id, projectId: repo.projectId, repoId: repo.id, attempt: 1, status: 'pr_opened', executorId: elsewhere.id }));
+
+            const first = await seedJob(repo);
+            const second = await seedJob(repo);
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 1 });
+            expect((await reload(first.id)).status).toBe('dispatched');
+            expect(await reload(second.id)).toMatchObject({ status: 'queued', waitingReason: 'executor limit reached' });
+        });
+
+        it('prefers the least busy executor, ties by name', async () => {
+            const repo = await seedRepo(await seedProject({ dailyRunLimit: 50 }), { maxConcurrentJobs: 10 });
+            await executors.delete({ id: defaultExecutor.id });
+            const b = await seedExecutor(owner, { name: 'b', repoIds: [repo.id], maxConcurrent: 5 });
+            const a = await seedExecutor(owner, { name: 'a', repoIds: [repo.id], maxConcurrent: 5 });
+            const busyJob = await seedJob(repo, 'dispatched');
+            await runs.save(runs.create({ jobId: busyJob.id, projectId: repo.projectId, repoId: repo.id, attempt: 1, status: 'fired', executorId: a.id }));
+            const first = await seedJob(repo);
+            const second = await seedJob(repo);
+            const third = await seedJob(repo);
+            await only();
+            const used = async (id: string) => (await runs.findOneByOrFail({ jobId: id })).executorId;
+            expect(await used(first.id)).toBe(b.id); // a has one in flight
+            expect(await used(second.id)).toBe(a.id); // tie at one each: by name
+            expect(await used(third.id)).toBe(b.id);
+        });
+
+        it('skips an unusable executor and picks another of the same owner', async () => {
+            const repo = await seedRepo(await seedProject());
+            await executors.delete({ id: defaultExecutor.id });
+            await seedExecutor(owner, { name: 'a-off', repoIds: [repo.id], enabled: false });
+            const good = await seedExecutor(owner, { name: 'z-on', repoIds: [repo.id] });
+            const job = await seedJob(repo);
+            await only();
+            expect((await runs.findOneByOrFail({ jobId: job.id })).executorId).toBe(good.id);
+        });
+
+        it('lets jobs of other owners fire past a waiting one, and the waiting job takes no repo slot', async () => {
+            const other = await seedUser('other');
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
+            const theirs = await seedExecutor(other, { repoIds: [repo.id] });
+            await executors.delete({ id: defaultExecutor.id });
+            const mine = await seedJob(repo, 'queued', { createdById: owner.id });
+            const hers = await seedJob(repo, 'queued', { createdById: other.id });
+            expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 1 });
+            expect((await reload(mine.id)).status).toBe('queued');
+            expect((await reload(hers.id)).status).toBe('dispatched');
+            expect((await runs.findOneByOrFail({ jobId: hers.id })).executorId).toBe(theirs.id);
+        });
+
+        describe('job owner', () => {
+            it('a bot-created job runs on the executor of the human who queued it', async () => {
+                const bot = await seedUser('bot', { isBot: true });
+                const human = await seedUser('human');
+                const repo = await seedRepo(await seedProject());
+                await executors.delete({ id: defaultExecutor.id });
+                const humans = await seedExecutor(human, { repoIds: [repo.id] });
+                await seedExecutor(bot, { repoIds: [repo.id] });
+                const job = await seedJob(repo, 'queued', { createdById: bot.id, queuedById: human.id });
+                await only();
+                expect((await runs.findOneByOrFail({ jobId: job.id })).executorId).toBe(humans.id);
+            });
+
+            it('a bot-created job that nobody queued has no owner and waits', async () => {
+                const bot = await seedUser('bot', { isBot: true });
+                const repo = await seedRepo(await seedProject());
+                const job = await seedJob(repo, 'queued', { createdById: bot.id, queuedById: null });
+                expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+                expect(await waiting(job.id)).toBe('no executor');
+            });
+
+            it('a human creator owns the job even when someone else queued it', async () => {
+                const other = await seedUser('other');
+                const repo = await seedRepo(await seedProject());
+                const job = await seedJob(repo, 'queued', { createdById: owner.id, queuedById: other.id });
+                await only();
+                expect((await runs.findOneByOrFail({ jobId: job.id })).executorId).toBe(defaultExecutor.id);
+            });
+
+            it('a system-created job without a creator is owned by the human who queued it', async () => {
+                const repo = await seedRepo(await seedProject());
+                const job = await seedJob(repo, 'queued', { createdById: null, queuedById: owner.id });
+                await only();
+                expect((await runs.findOneByOrFail({ jobId: job.id })).executorId).toBe(defaultExecutor.id);
+            });
+        });
+
+        it('a retry picks an executor of the same owner again', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 3 }));
+            const job = await seedJob(repo);
+            fire.mockRejectedValueOnce(new ExecutionError('later', 'transient'));
+            await only();
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 1 });
+            await only();
+            const attemptTwo = await runs.findOneByOrFail({ jobId: job.id, attempt: 2 });
+            expect(attemptTwo.executorId).toBe(defaultExecutor.id);
+        });
+
+        it('a revision round (requeued with a PR) fires on the owner\'s executor and keeps the continuation', async () => {
+            const { repo, executor } = await repoWithOwnerExecutor();
+            const job = await seedJob(repo, 'queued', { prNumber: 4, branch: 'claude/x', lastReason: 'CI failed', attempts: 1 });
+            await only();
+            expect((fire.mock.calls[0]![1] as Record<string, unknown>)).toMatchObject({ continueOn: { prNumber: 4 } });
+            expect((await runs.findOneByOrFail({ jobId: job.id })).executorId).toBe(executor.id);
+        });
+
+        it('keeps the other rules: a paused repo, the project daily limit and dependencies still hold before any executor is used', async () => {
+            const repo = await seedRepo(await seedProject({ dailyRunLimit: 0 }));
+            await seedJob(repo);
+            const result = await only();
+            expect(result.repos[0]).toMatchObject({ reason: 'daily_limit', waitingOnExecutor: 0 });
+            expect(fire).not.toHaveBeenCalled();
         });
     });
 });
@@ -479,11 +718,6 @@ describe('DispatcherService report', () => {
     it('reports a paused project', async () => {
         await seedJob(await seedRepo(await seedProject({ paused: true })));
         expect(await only()).toMatchObject({ reason: 'project_paused' });
-    });
-
-    it('reports a missing routine', async () => {
-        await seedJob(await seedRepo(await seedProject(), { routineFireUrl: null, routineTokenEnv: null }));
-        expect(await only()).toMatchObject({ reason: 'no_routine' });
     });
 
     it('reports no free slots with active/max', async () => {
@@ -637,14 +871,14 @@ describe('DispatcherService report', () => {
             expect(searchLessons).not.toHaveBeenCalled();
         });
 
-        it('keeps a config error behaviour: attempt given back and repo paused, lessons or not', async () => {
+        it('keeps a config error behaviour: parked on the executor, repo not paused, lessons or not', async () => {
             searchLessons.mockResolvedValue({ status: 'ok', lessons: [] });
             fire.mockRejectedValue(new ExecutionError('bad token', 'config'));
             const repo = await seedRepo(await seedProject());
             const job = await seedJob(repo);
             expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
-            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
-            expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(true);
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1 });
+            expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(false);
         });
 
         it('adds lessons when continuing a PR and keeps continuation context', async () => {
@@ -876,7 +1110,7 @@ describe('DispatcherService report', () => {
         it('two concurrent dispatchers park the job once and fire nothing', async () => {
             const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
             const big = await seedJob(repo, 'queued', { task: huge });
-            const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
+            const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never);
             await Promise.all([dispatcher.dispatch(), other.dispatch()]);
             expect(await reload(big.id)).toMatchObject({ status: 'parked', attempts: 0 });
             expect(fire).not.toHaveBeenCalled();

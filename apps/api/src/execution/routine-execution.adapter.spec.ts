@@ -7,7 +7,7 @@ import { PROMPT_LIMIT } from './job-prompt.js';
 import { RoutineExecutionAdapter } from './routine-execution.adapter.js';
 
 const TOKEN = 'secret-token-value';
-const repo = { fullName: 'gilde-dev/gilde', routineFireUrl: 'https://example.test/fire', routineTokenEnv: 'TEST_ROUTINE_TOKEN' };
+const repo = { fullName: 'gilde-dev/gilde', executorName: 'pascal-main', fireUrl: 'https://example.test/fire', token: TOKEN };
 const payload: JobPayload = {
     gilde: 1,
     jobId: 'job-1',
@@ -31,12 +31,10 @@ describe('RoutineExecutionAdapter', () => {
     const fetchMock = vi.fn();
 
     beforeEach(() => {
-        process.env.TEST_ROUTINE_TOKEN = TOKEN;
         instructions = { text: null, version: null };
         vi.stubGlobal('fetch', fetchMock);
     });
     afterEach(() => {
-        delete process.env.TEST_ROUTINE_TOKEN;
         fetchMock.mockReset();
         vi.unstubAllGlobals();
     });
@@ -58,7 +56,7 @@ describe('RoutineExecutionAdapter', () => {
         });
 
         const [url, init] = fetchMock.mock.calls[0];
-        expect(url).toBe(repo.routineFireUrl);
+        expect(url).toBe(repo.fireUrl);
         expect(init.method).toBe('POST');
         expect(init.headers).toEqual({
             Authorization: `Bearer ${TOKEN}`,
@@ -170,19 +168,22 @@ describe('RoutineExecutionAdapter', () => {
         });
     });
 
-    it('rejects a repo without routine config (not retryable)', async () => {
-        const err = await failure(adapter.fire({ ...repo, routineFireUrl: null }, payload));
-        expect(err.kind).toBe('config');
-        expect(err.retryable).toBe(false);
+    it('rejects an executor without fire URL or token (not retryable)', async () => {
+        for (const bad of [{ ...repo, fireUrl: '' }, { ...repo, token: '' }]) {
+            const err = await failure(adapter.fire(bad, payload));
+            expect(err.kind).toBe('config');
+            expect(err.retryable).toBe(false);
+            expect(err.message).toContain('pascal-main');
+        }
         expect(fetchMock).not.toHaveBeenCalled();
     });
 
-    it('rejects a missing env var (not retryable)', async () => {
-        delete process.env.TEST_ROUTINE_TOKEN;
+    it("fires on the executor's URL with its token and names the executor, never the token, in errors", async () => {
+        fetchMock.mockResolvedValue(new Response('nope', { status: 401 }));
         const err = await failure(adapter.fire(repo, payload));
-        expect(err.kind).toBe('config');
-        expect(err.retryable).toBe(false);
-        expect(fetchMock).not.toHaveBeenCalled();
+        expect(err.message).toBe('Routine fire for gilde-dev/gilde on executor "pascal-main" failed with HTTP 401');
+        expect(fetchMock.mock.calls[0][0]).toBe('https://example.test/fire');
+        expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe(`Bearer ${TOKEN}`);
     });
 
     it.each([400, 401, 403, 404])('treats HTTP %i as not retryable', async (status) => {

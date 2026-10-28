@@ -323,6 +323,13 @@ export function JobModal({
               </section>
             )}
 
+            {shown.status === 'queued' && shown.waitingReason && (
+              <section>
+                <h3 className="text-sm font-semibold">Waiting</h3>
+                <p className="mt-1 text-sm">{shown.waitingReason}</p>
+              </section>
+            )}
+
             {shown.lastReason && (
               <section>
                 <h3 className="text-sm font-semibold">Last reason</h3>

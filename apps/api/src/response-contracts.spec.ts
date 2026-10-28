@@ -29,15 +29,15 @@ describe('response contracts', () => {
 
     it('dispatch status: idle, ok and budget-stopped variants', () => {
         expect(DispatchStatusSchema.parse({ at: null, result: null })).toEqual({ at: null, result: null });
-        const ok = { repoId: 'r', fullName: 'o/r', queued: 1, fired: 1, reason: 'none', detail: null, resetsAt: null, waitingOnDependencies: 0, waitingOnRevisions: 0, budget: null };
+        const ok = { repoId: 'r', fullName: 'o/r', queued: 1, fired: 1, reason: 'none', detail: null, resetsAt: null, waitingOnDependencies: 0, waitingOnRevisions: 0, waitingOnExecutor: 0, budget: null };
         const budget = { ...ok, fired: 0, reason: 'budget', detail: 'x', resetsAt: '2026-03-11T00:00:00.000Z', budget: { blockers: [blocker], recovery: 'reset', error: false } };
         const failed = { ...ok, fired: 0, reason: 'budget', budget: { blockers: [], recovery: 'unknown', error: true } };
-        const status = { at: '2026-03-10T12:00:00.000Z', result: { fired: 1, failed: 2, repos: [ok, budget, failed] } };
+        const status = { at: '2026-03-10T12:00:00.000Z', result: { fired: 1, failed: 2, waitingOnExecutor: 0, repos: [ok, budget, failed] } };
         expect(DispatchStatusSchema.parse(status)).toEqual(status);
-        for (const reason of ['repo_paused', 'project_paused', 'no_routine', 'no_manifest', 'no_slots', 'daily_limit']) {
-            expect(DispatchStatusSchema.safeParse({ at: null, result: { fired: 0, failed: 0, repos: [{ ...ok, reason }] } }).success).toBe(true);
+        for (const reason of ['repo_paused', 'project_paused', 'no_manifest', 'no_slots', 'daily_limit']) {
+            expect(DispatchStatusSchema.safeParse({ at: null, result: { fired: 0, failed: 0, waitingOnExecutor: 0, repos: [{ ...ok, reason }] } }).success).toBe(true);
         }
-        expect(DispatchStatusSchema.safeParse({ at: null, result: { fired: 0, failed: 0, repos: [{ ...ok, reason: 'busy' }] } }).success).toBe(false);
+        expect(DispatchStatusSchema.safeParse({ at: null, result: { fired: 0, failed: 0, waitingOnExecutor: 0, repos: [{ ...ok, reason: 'busy' }] } }).success).toBe(false);
     });
 
     it('reconcile, workspace, attribution', () => {

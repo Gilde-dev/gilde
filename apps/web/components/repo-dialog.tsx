@@ -8,8 +8,6 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dial
 import { Field } from './ui/field';
 import { Input } from './ui/input';
 
-/** Same rule as the API: upper case, digits and underscores, starting with a letter. */
-export const ENV_VAR_NAME = /^[A-Z][A-Z0-9_]*$/;
 const FULL_NAME = /^[\w.-]+\/[\w.-]+$/;
 
 /** Add a repo to a project (no `repo`), or edit one (everything except the full name). */
@@ -28,8 +26,6 @@ export function RepoDialog({
 }) {
   const [fullName, setFullName] = useState('');
   const [defaultBranch, setDefaultBranch] = useState('main');
-  const [fireUrl, setFireUrl] = useState('');
-  const [tokenEnv, setTokenEnv] = useState('');
   const [concurrency, setConcurrency] = useState('1');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
@@ -38,18 +34,15 @@ export function RepoDialog({
     if (!open) return;
     setFullName('');
     setDefaultBranch(repo?.defaultBranch ?? 'main');
-    setFireUrl(repo?.routineFireUrl ?? '');
-    setTokenEnv(repo?.routineTokenEnv ?? '');
     setConcurrency(String(repo?.maxConcurrentJobs ?? 1));
     setError(null);
   }, [open, repo]);
 
-  const envInvalid = tokenEnv !== '' && !ENV_VAR_NAME.test(tokenEnv);
   const nameInvalid = !repo && fullName.trim() !== '' && !FULL_NAME.test(fullName.trim());
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
-    if (envInvalid || nameInvalid) return;
+    if (nameInvalid) return;
     setBusy(true);
     setError(null);
     try {
@@ -58,18 +51,12 @@ export function RepoDialog({
         maxConcurrentJobs: Number(concurrency),
       };
       if (repo) {
-        // A blank branch keeps the loaded one; blank URL and token clear (null).
-        await api.replaceRepo(repo.id, repoReplacement(repo, {
-          ...common,
-          routineFireUrl: fireUrl.trim() || null,
-          routineTokenEnv: tokenEnv || null,
-        }));
+        // A blank branch keeps the loaded one.
+        await api.replaceRepo(repo.id, repoReplacement(repo, common));
       } else {
         await api.createRepo(projectId, {
           fullName: fullName.trim(),
           ...common,
-          ...(fireUrl.trim() ? { routineFireUrl: fireUrl.trim() } : {}),
-          ...(tokenEnv ? { routineTokenEnv: tokenEnv } : {}),
         });
       }
       await onSaved();
@@ -86,7 +73,7 @@ export function RepoDialog({
       <DialogContent className="w-[min(30rem,92vw)]">
         <DialogTitle>{repo ? `Edit ${repo.fullName}` : 'Add repo'}</DialogTitle>
         <DialogDescription>
-          {repo ? 'Routine and dispatch settings for this repo.' : 'Register a GitHub repo in this project.'}
+          {repo ? 'Dispatch settings for this repo.' : 'Register a GitHub repo in this project.'}
         </DialogDescription>
         <form onSubmit={submit} className="mt-4 space-y-3">
           {!repo && (
@@ -102,21 +89,16 @@ export function RepoDialog({
           <Field label="Default branch" path="defaultBranch" error={error}>
             <Input value={defaultBranch} required onChange={(e) => setDefaultBranch(e.target.value)} />
           </Field>
-          <Field label="Routine fire URL" path="routineFireUrl" error={error}>
-            <Input type="url" value={fireUrl} placeholder="https://…" onChange={(e) => setFireUrl(e.target.value)} />
-          </Field>
-          <Field
-            label="Routine token env var name"
-            path="routineTokenEnv"
-            error={error}
-            message={envInvalid ? 'Use an UPPER_SNAKE_CASE env var name, e.g. ROUTINE_TOKEN_GILDE' : undefined}
-            hint="This is the NAME of an environment variable on the API server that holds the routine token. The token itself is never entered or stored in Gilde."
-          >
-            <Input className="font-mono" value={tokenEnv} placeholder="ROUTINE_TOKEN_GILDE" onChange={(e) => setTokenEnv(e.target.value)} />
-          </Field>
           <Field label="Max concurrent jobs" path="maxConcurrentJobs" error={error}>
             <Input type="number" min={1} max={10} value={concurrency} required onChange={(e) => setConcurrency(e.target.value)} />
           </Field>
+          <p className="rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground">
+            Capacity now comes from personal executors. Each user adds their own Claude Code routine under{' '}
+            <a href="/settings/executors" className="underline">
+              Settings &gt; Executors
+            </a>
+            ; this repo no longer has a routine of its own.
+          </p>
           {error != null && (error as ApiError).issues?.length === 0 && (
             <p role="alert" className="text-sm text-danger">
               {errorText(error)}
@@ -126,7 +108,7 @@ export function RepoDialog({
             <Button type="button" variant="outline" onClick={onClose}>
               Cancel
             </Button>
-            <Button type="submit" disabled={busy || envInvalid || nameInvalid || (!repo && !fullName.trim())}>
+            <Button type="submit" disabled={busy || nameInvalid || (!repo && !fullName.trim())}>
               {repo ? 'Save' : 'Add repo'}
             </Button>
           </div>

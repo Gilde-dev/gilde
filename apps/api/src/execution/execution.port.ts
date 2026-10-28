@@ -53,10 +53,13 @@ export const JobPayloadSchema = z.object({
 });
 export type JobPayload = z.infer<typeof JobPayloadSchema>;
 
-export interface ExecutionRepo {
+/** Where a job is fired: the repo it is for and the executor's routine. The token is the decrypted secret; never log it. */
+export interface ExecutionTarget {
     fullName: string;
-    routineFireUrl: string | null;
-    routineTokenEnv: string | null;
+    /** The executor's name, for error messages; never the token. */
+    executorName: string;
+    fireUrl: string;
+    token: string;
 }
 
 export interface ExecutionResult {
@@ -94,5 +97,5 @@ export interface ExecutionPort {
     /** Trims and renders the final text for this payload. Pure: no side effects, and an oversized result is returned, not thrown. */
     prepare(payload: JobPayload, context?: PromptContext): PreparedPrompt;
     /** Fires a payload, or a prompt prepared earlier (which is then sent as is). Throws prompt_too_large when it does not fit. */
-    fire(repo: ExecutionRepo, input: JobPayload | PreparedPrompt, context?: PromptContext): Promise<ExecutionResult>;
+    fire(target: ExecutionTarget, input: JobPayload | PreparedPrompt, context?: PromptContext): Promise<ExecutionResult>;
 }

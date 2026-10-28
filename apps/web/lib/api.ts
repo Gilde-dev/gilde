@@ -171,24 +171,19 @@ export interface BudgetStatus {
 export interface CreateRepoInput {
   fullName: string;
   defaultBranch?: string;
-  routineFireUrl?: string | null;
-  /** The NAME of an env var on the API server that holds the routine token; never the token. */
-  routineTokenEnv?: string | null;
   maxConcurrentJobs?: number;
 }
 
-/** Mirrors ReplaceRepoSchema: every key is required, null clears the nullable ones; the full name can't change. */
+/** Mirrors ReplaceRepoSchema: every key is required; the full name can't change. Capacity comes from personal executors, not the repo. */
 export interface ReplaceRepoInput {
   defaultBranch: string;
-  routineFireUrl: string | null;
-  routineTokenEnv: string | null;
   maxConcurrentJobs: number;
 }
 
 /** The updatable fields of a loaded repo with the user's edits on top. */
 export function repoReplacement(r: Repo, edits: Partial<ReplaceRepoInput> = {}): ReplaceRepoInput {
   return overlay<ReplaceRepoInput>(
-    { defaultBranch: r.defaultBranch, routineFireUrl: r.routineFireUrl, routineTokenEnv: r.routineTokenEnv, maxConcurrentJobs: r.maxConcurrentJobs },
+    { defaultBranch: r.defaultBranch, maxConcurrentJobs: r.maxConcurrentJobs },
     edits,
   );
 }
@@ -290,6 +285,10 @@ export interface Job {
   revision: number;
   /** Who created the job; null for system-created jobs. */
   createdBy: { id: string; name: string } | null;
+  /** Whose executors may run the job: the non-bot creator, otherwise the human who queued it; null when unknown. */
+  ownerId: string | null;
+  /** Why a queued job is not being fired: 'no executor', 'executor busy', 'executor limit reached' or 'executor exhausted'. */
+  waitingReason: string | null;
   /** Present (true) when any dependency is rejected, parked, cancelled or merged without work. */
   failedDependency?: boolean;
   /** Merged on GitHub, but the latest run reported blocked: no work was done and it does not satisfy dependencies. */
@@ -479,12 +478,22 @@ export interface RunResult {
   suggestedLesson?: string | null;
 }
 
+/** Name and owner of the executor of a run, never its token. */
+export interface RunExecutor {
+  id: string;
+  name: string;
+  ownerId: string;
+  ownerName: string;
+}
+
 export interface Run {
   id: string;
   jobId: string;
   projectId: string;
   repoId: string;
   attempt: number;
+  /** The executor that ran the attempt; null for runs from before personal executors. */
+  executorId: string | null;
   status: RunStatus;
   sessionId: string | null;
   sessionUrl: string | null;
@@ -570,7 +579,7 @@ export interface JobPrompt {
 }
 
 export interface JobDetail extends Job {
-  runs: (Run & { agentUsage: AgentTotals })[];
+  runs: (Run & { agentUsage: AgentTotals; executor: RunExecutor | null })[];
   /** Lifetime Claude Code usage of the job. */
   agentUsage: AgentTotals;
   feedback: Feedback[];
@@ -937,7 +946,7 @@ export function lessonReplacement(l: Lesson, edits: Partial<ReplaceLessonInput> 
 }
 
 export type DispatchReason =
-  | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
+  | 'repo_paused' | 'project_paused' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
 
 /** Why the estimated-spend guard stopped a repo: every hard day/week period of the project and global scope at once. */
 export interface DispatchBudgetEvidence {
@@ -959,13 +968,15 @@ export interface RepoDispatchReport {
   resetsAt: string | null;
   waitingOnDependencies: number;
   waitingOnRevisions: number;
+  /** Queued jobs whose owner has no executor that can take them right now. */
+  waitingOnExecutor: number;
   /** Set when the reason is budget. */
   budget?: DispatchBudgetEvidence | null;
 }
 
 export interface DispatchStatus {
   at: string | null;
-  result: { fired: number; failed: number; repos: RepoDispatchReport[] } | null;
+  result: { fired: number; failed: number; waitingOnExecutor: number; repos: RepoDispatchReport[] } | null;
 }
 
 const id = encodeURIComponent;

@@ -3,6 +3,7 @@ import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { BudgetModule } from '../budget/budget.module.js';
 import { NotificationModule } from '../notification/notification.module.js';
+import { ExecutorModule } from '../executor/executor.module.js';
 import { ExecutionModule } from '../execution/execution.module.js';
 import { Feature } from '../feature/feature.entity.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
@@ -11,6 +12,7 @@ import { HistoryModule } from '../memory/history/history.module.js';
 import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
+import { User } from '../user/user.entity.js';
 import { RunModule } from '../run/run.module.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { JobRun } from '../run/run.entity.js';
@@ -27,9 +29,11 @@ import { DispatcherService } from './dispatcher.service.js';
             Project,
             JobRun,
             Feature,
-            JobRevision
+            JobRevision,
+            User
         ]),
         ExecutionModule,
+        ExecutorModule,
         HistoryModule,
         RepoModule,
         RunModule,

@@ -206,14 +206,15 @@ describe('Full-replacement PUT updates (e2e)', () => {
       const project = await makeProject();
       const repo = await makeRepo(project.id);
       const url = `/api/v1/repos/${repo.id}`;
-      const full = { defaultBranch: 'develop', routineFireUrl: 'https://example.com/fire', routineTokenEnv: 'ROUTINE_TOKEN_X', maxConcurrentJobs: 3 };
+      const full = { defaultBranch: 'develop', maxConcurrentJobs: 3 };
       expect((await http.put(url).send(full).expect(200)).body).toMatchObject(full);
-      const cleared = (await http.put(url).send({ ...full, routineFireUrl: null, routineTokenEnv: null }).expect(200)).body;
-      expect(cleared).toMatchObject({ routineFireUrl: null, routineTokenEnv: null, defaultBranch: 'develop', maxConcurrentJobs: 3 });
       await expectEachKeyRequired(url, full);
-      for (const bad of [{ defaultBranch: '' }, { routineFireUrl: 'not a url' }, { routineTokenEnv: 'lower' }, { maxConcurrentJobs: 0 }, { maxConcurrentJobs: 11 }]) {
+      for (const bad of [{ defaultBranch: '' }, { maxConcurrentJobs: 0 }, { maxConcurrentJobs: 11 }, { routineFireUrl: 'not a url' }, { routineTokenEnv: 'lower' }]) {
         await http.put(url).send({ ...full, ...bad }).expect(400);
       }
+      // The repo-level routine settings are deprecated: still accepted, never changed.
+      const legacy = (await http.put(url).send({ ...full, routineFireUrl: 'https://example.com/fire', routineTokenEnv: 'ROUTINE_TOKEN_X' }).expect(200)).body;
+      expect(legacy).toMatchObject({ ...full, routineFireUrl: null, routineTokenEnv: null });
       const res = (await http.put(url).send({ ...full, fullName: 'x/changed', paused: true, projectId: NIL }).expect(200)).body;
       expect(res).toMatchObject({ fullName: repo.fullName, paused: false, projectId: project.id });
       await http.patch(url).send({ defaultBranch: 'patched' }).expect(404);

@@ -6,18 +6,17 @@ import { RepoDialog } from './repo-dialog';
 afterEach(() => vi.restoreAllMocks());
 
 const repo = {
-  id: 'r1', fullName: 'o/api', defaultBranch: 'main', routineFireUrl: null, routineTokenEnv: null, maxConcurrentJobs: 1,
+  id: 'r1', fullName: 'o/api', defaultBranch: 'main', maxConcurrentJobs: 1,
 } as Repo;
 
 describe('RepoDialog', () => {
-  it('validates the env var name, explains it and has no token field', () => {
+  it('has no routine or token fields and says capacity comes from personal executors', () => {
     render(<RepoDialog open projectId="p1" repo={repo} onClose={() => {}} onSaved={() => {}} />);
-    expect(screen.getByText(/NAME of an environment variable on the API server/)).toBeInTheDocument();
-    expect(screen.queryByLabelText(/^(routine )?token$/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/Capacity now comes from personal executors/)).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: /Settings > Executors/ })).toHaveAttribute('href', '/settings/executors');
+    expect(screen.queryByLabelText(/routine/i)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/token/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Full name')).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText('Routine token env var name'), { target: { value: 'bad-name' } });
-    expect(screen.getByText(/UPPER_SNAKE_CASE/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
   });
 
   it('sends a complete PUT body when editing', async () => {
@@ -25,28 +24,19 @@ describe('RepoDialog', () => {
     const onSaved = vi.fn();
     render(<RepoDialog open projectId="p1" repo={repo} onClose={() => {}} onSaved={onSaved} />);
     fireEvent.change(screen.getByLabelText('Default branch'), { target: { value: 'develop' } });
-    fireEvent.change(screen.getByLabelText('Routine fire URL'), { target: { value: 'https://example.com/fire' } });
-    fireEvent.change(screen.getByLabelText('Routine token env var name'), { target: { value: 'ROUTINE_TOKEN_API' } });
     fireEvent.change(screen.getByLabelText('Max concurrent jobs'), { target: { value: '3' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(onSaved).toHaveBeenCalled());
-    expect(update).toHaveBeenCalledWith('r1', {
-      defaultBranch: 'develop',
-      maxConcurrentJobs: 3,
-      routineFireUrl: 'https://example.com/fire',
-      routineTokenEnv: 'ROUTINE_TOKEN_API',
-    });
+    expect(update).toHaveBeenCalledWith('r1', { defaultBranch: 'develop', maxConcurrentJobs: 3 });
   });
 
-  it('keeps the loaded branch when the field is blank and clears the routine settings with null', async () => {
-    const loaded = { ...repo, routineFireUrl: 'https://example.com/fire', routineTokenEnv: 'ROUTINE_TOKEN_API', maxConcurrentJobs: 2 } as Repo;
+  it('keeps the loaded branch when the field is blank', async () => {
+    const loaded = { ...repo, maxConcurrentJobs: 2 } as Repo;
     const update = vi.spyOn(api, 'replaceRepo').mockResolvedValue(loaded);
     render(<RepoDialog open projectId="p1" repo={loaded} onClose={() => {}} onSaved={() => {}} />);
     fireEvent.change(screen.getByLabelText('Default branch'), { target: { value: '  ' } });
-    fireEvent.change(screen.getByLabelText('Routine fire URL'), { target: { value: '' } });
-    fireEvent.change(screen.getByLabelText('Routine token env var name'), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith('r1', { defaultBranch: 'main', routineFireUrl: null, routineTokenEnv: null, maxConcurrentJobs: 2 }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('r1', { defaultBranch: 'main', maxConcurrentJobs: 2 }));
   });
 
   it('adds a repo with its full name', async () => {

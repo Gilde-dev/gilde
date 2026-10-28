@@ -28,6 +28,14 @@ export class JobRun {
     @Column({ type: 'integer' })
     attempt: number;
 
+    /** The executor that ran this attempt; null for runs from before personal executors. */
+    @Column({
+        name: 'executor_id',
+        type: 'uuid',
+        nullable: true
+    })
+    executorId: string | null;
+
     @Column({ type: 'simple-enum', enum: RUN_STATUSES, default: 'firing' })
     status: RunStatus;
 

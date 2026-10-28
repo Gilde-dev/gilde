@@ -51,8 +51,9 @@ docker compose exec api node dist/cli/apikey-create.js --email you@example.com -
 
 An executor is one user's own Claude Code routine: a name, the routine's fire URL and token, the repos it may serve, its own
 maximum concurrency and optional daily run limit, and an enabled flag. Capacity is personal: a job is meant to run only on an
-executor of its owner, never on someone else's. **Status:** this version stores executors and exposes the API only; dispatch does not
-use them yet. Design notes: [ADR 0011](docs/adr/0011-personal-executors-with-encrypted-routine-tokens.md).
+executor of its owner, never on someone else's. The dispatcher fires every job on an executor of its owner (see "Dispatch on
+executors" below); the repo-level routine settings are no longer used. Design notes:
+[ADR 0011](docs/adr/0011-personal-executors-with-encrypted-routine-tokens.md).
 
 **Server setup.** Set `EXECUTOR_SECRET_KEY` on the API to the base64 of 32 random bytes:
 
@@ -78,6 +79,30 @@ when you generate it. Only that URL shape is accepted.
 | `DELETE /api/v1/executors/:id` | delete (204) |
 
 Another user's executor is a `404`. Writes need an interactive sign-in as a human: API keys, bot accounts and the scout are refused.
+
+### Dispatch on executors
+
+**Upgrade step.** Before you deploy this version, every user who queues jobs must add an executor (Settings > Executors, listing the repos
+they work on). From this version on the repo-level `routineFireUrl` / `routineTokenEnv` and the `ROUTINE_TOKEN_*` environment variables are
+not used for firing any more; the columns stay (no destructive migration) and the repo form no longer shows them. A user without a usable
+executor does not lose anything: their queued jobs simply wait, with a visible reason, until they add one.
+
+**Owner.** Capacity is personal. The owner of a job (`ownerId`) is its creator when that is a non-bot human, otherwise the human who queued
+it (`jobs.queued_by_id`, set when a human queues a job through the state machine: single or bulk queue, starting a feature, or retrying a
+parked job). A job made by a bot (Verkenner, the Slack bot) and not yet queued by a human has no owner and waits.
+
+**Choosing an executor.** For each queued job the dispatcher takes the owner's executors that are enabled, have a token, list the job's repo,
+are not exhausted (`exhausted_until` empty or past), are below their `max_concurrent` (runs fired and still running) and below their own
+`daily_run_limit` (runs created today, UTC). The least busy one wins, ties by name. Pause, repo concurrency, the project daily limit, the
+budget, dependencies and proposals work as before. A job is never fired on another user's executor or on the repo-level routine.
+
+**Waiting.** A job without a fitting executor stays queued, takes no repo slot and blocks no other job. Its `waitingReason` is `no executor`,
+`executor busy`, `executor limit reached` or `executor exhausted`, shown on the board card, the job and in the co-pilot and Verkenner job
+tools. `GET /api/v1/dispatch/status` reports `waitingOnExecutor` (per repo and in total).
+
+**Runs.** Every run stores `executor_id` (old runs stay empty); the job detail shows the executor's name and owner, never its token.
+Retries and revision rounds pick an executor of the same owner again. A configuration error from the routine (for example HTTP 401 or 403)
+disables nothing: the job is parked with a reason naming the executor (never the token) so its owner can fix or replace the token.
 Names are unique per owner.
 
 ## Postgres and migrations
@@ -578,7 +603,7 @@ Jobs, features, projects, repos and lessons are updated with `PUT` on the resour
 | `PUT /api/v1/jobs/:id` | `title`, `task`, `acceptanceCriteria`, `featureId` (`null` unlinks) |
 | `PUT /api/v1/features/:id` | `title`, `spec`, `acceptanceCriteria` (`""` and `[]` are real values) |
 | `PUT /api/v1/projects/:id` | `name`, `description` (nullable), `dailyRunLimit`, `maxAttempts`, `runTimeoutMinutes`, `retryOnChangesRequested`, `skillsLibrary`, `skillsLibraryRepoId` (nullable), `dailyBudgetUsd` and `weeklyBudgetUsd` (nullable, `0` is a limit), `budgetSoftPct` |
-| `PUT /api/v1/repos/:id` | `defaultBranch`, `routineFireUrl` (nullable), `routineTokenEnv` (nullable), `maxConcurrentJobs` |
+| `PUT /api/v1/repos/:id` | `defaultBranch`, `maxConcurrentJobs` (`routineFireUrl` and `routineTokenEnv` are still accepted but ignored: capacity comes from personal executors) |
 | `PUT /api/v1/lessons/:id` | `text`, `targetKind` (nullable), `targetRepoId` (nullable), `note` (nullable) |
 
 State rules still apply to a full body: a job's content can only differ from the stored one in `triage` (a queued job accepts a new `featureId` with its content resent unchanged), and a feature can only be replaced while it is draft or active. Two people editing the same resource at the same time is last write wins: a complete body carries the values the client loaded, with no version check. Job dependencies keep their own `PUT /api/v1/jobs/:id/dependencies`. See [ADR 0008](docs/adr/0008-full-replacement-put-controllers-use-services-and-dtos.md).
@@ -665,7 +690,7 @@ Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** 
 
 `DispatcherService` asks `BudgetService.status(projectId)` for live recorded spend before the first fire of every repo in a pass and again before every further fire in the same repo, so a hard limit reached during a pass is not hidden. At a hard project **or** global day **or** week limit the repo reports `reason: "budget"` and **nothing is fired**: no run or attempt is reserved, no job changes state, the execution port is not called and `paused`/`pausedReason` are never written. The report (`GET /api/v1/dispatch/status`, the board's dispatch strip) names every simultaneous blocker with scope, period, estimated spend, limit and reset in `budget.blockers`; `resetsAt` is the **latest** blocker reset (the earliest possible full recovery) and is `null` when a limit or configuration change is needed (`budget.recovery: "manual"`, for example a limit of 0 or an invalid `GLOBAL_*_BUDGET_USD`) or when the budget could not be read (`recovery: "unknown"`).
 
-- Order of checks is unchanged: manual project/repo pause, routine, manifest, free slots and the daily run limit still win and report their own reason; the budget is checked after them, before jobs are selected. Dependencies and proposals still exclude jobs as before.
+- Order of checks is unchanged: manual project/repo pause, manifest, free slots and the daily run limit still win and report their own reason; the budget is checked after them, before jobs are selected. Dependencies and proposals still exclude jobs as before.
 - `POST /api/v1/dispatch` (any logged-in user or API key) goes through the same gate; there is no manual bypass.
 - There is no state to clear: every pass re-reads spend and limits, so a reset, a raised limit or a cleared limit resumes automatically. A manually paused project or repo stays paused.
 - A budget **evaluation error never allows a new automatic fire** (fail closed): the repo reports `budget` with `budget.error: true`, the error is logged, and no `$0` status is invented. Already running jobs, CI and reconcile handling, telemetry ingest and attribution, the co-pilot, the API and the UI are unaffected, and so is human chat while the budget cannot be read.
@@ -754,7 +779,7 @@ advisory: they never override the task, acceptance criteria, repo instructions o
   when a job is created or its task or criteria are edited, and by the co-pilot's `validateJob` and `planFeature` (naming the plan job). Exactly
   40000 is accepted. If a prompt is still over 60000 after every reduction, only that job is parked (reason: final size, size of task and criteria,
   limit); no run is created, nothing is sent, the attempt is given back and it uses no daily-run allowance or slot, so the repo's other queued jobs
-  fire in the same pass. Repo configuration errors (missing routine URL or token variable, unreadable instructions file) still pause the repo, and a
+  fire in the same pass. An unreadable agent instructions file still pauses the repo (an executor's configuration error parks the job instead, see "Dispatch on executors"), and a
   paused repo is never unpaused automatically.
 - **Preview.** `GET /api/v1/jobs/:id/prompt` returns `text`, `instructionsVersion`, `length`, `limit` and `trimmed` from the same prepared prompt a
   fire sends, with the same selection of lessons. It fires nothing and changes no state, and it still returns an over-limit text so it can be inspected

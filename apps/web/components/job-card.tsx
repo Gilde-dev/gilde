@@ -165,6 +165,11 @@ export function JobCard({
           )}
         </div>
       )}
+      {job.status === 'queued' && job.waitingReason && (
+        <p className="mt-2 truncate text-sm text-muted-foreground" title={job.waitingReason}>
+          Waiting: {job.waitingReason}
+        </p>
+      )}
       {job.status === 'parked' && job.lastReason && (
         <p className="mt-2 truncate text-sm text-danger" title={job.lastReason}>
           {job.lastReason}

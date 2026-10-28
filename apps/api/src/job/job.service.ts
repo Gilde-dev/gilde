@@ -4,6 +4,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { BadRequestException } from '@nestjs/common';
 import { EntityManager, FindOptionsWhere, In, Repository } from 'typeorm';
 
+import { Executor } from '../executor/executor.entity.js';
 import { Feature } from '../feature/feature.entity.js';
 import { FEATURE_CLOSED } from '../feature/feature-state.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
@@ -19,6 +20,7 @@ import type { BlockingJobDto, CreateJobDto, EnqueueResponseDto, ReplaceJobDto, J
 import { JobDependency } from './job-dependency.entity.js';
 import { Job } from './job.entity.js';
 import { JobMapper } from './job.mapper.js';
+import { jobOwnerId } from './job-owner.js';
 import { JOB_STATUSES, TERMINAL, nextStatus, type JobEvent, type JobStatus } from './job-state.js';
 import { taskContentProblem } from './task-size.js';
 import { JobRevision } from '../revision/revision.entity.js';
@@ -175,8 +177,8 @@ export class JobService {
         return !!result.affected;
     }
 
-    async enqueue(id: string): Promise<EnqueueResponseDto> {
-        return (await this.withWarnings([await this.apply(id, 'enqueue')]))[0];
+    async enqueue(id: string, actor: { id: string } | null = null): Promise<EnqueueResponseDto> {
+        return (await this.withWarnings([await this.apply(id, 'enqueue', undefined, actor)]))[0];
     }
 
     toTriage(id: string): Promise<JobResponseDto> {
@@ -184,13 +186,13 @@ export class JobService {
     }
 
     /** All-or-nothing: if any job is missing or not in triage nothing is queued. */
-    async enqueueMany(ids: string[]): Promise<EnqueueResponseDto[]> {
-        await this.jobRepository.manager.transaction((m) => this.enqueueManyIn(m, ids));
+    async enqueueMany(ids: string[], actor: { id: string } | null = null): Promise<EnqueueResponseDto[]> {
+        await this.jobRepository.manager.transaction((m) => this.enqueueManyIn(m, ids, actor));
         return this.loadEnqueued(ids);
     }
 
     /** The bulk enqueue inside a caller's transaction; pair with `loadEnqueued` once it committed. */
-    async enqueueManyIn(m: EntityManager, ids: string[]): Promise<void> {
+    async enqueueManyIn(m: EntityManager, ids: string[], actor: { id: string } | null = null): Promise<void> {
         const unique = [...new Set(ids)];
         const found = await m.find(Job, { where: { id: In(unique) } });
         const known = new Set(found.map((j) => j.id));
@@ -200,7 +202,7 @@ export class JobService {
         if (offending.length) {
             throw new ConflictException({ message: `Jobs not in triage: ${offending.join(', ')}`, ids: offending });
         }
-        const result = await m.update(Job, { id: In(unique), status: 'triage' }, { status: 'queued', queuedAt: new Date() });
+        const result = await m.update(Job, { id: In(unique), status: 'triage' }, { status: 'queued', queuedAt: new Date(), queuedById: await this.humanId(actor, m) });
         if (result.affected !== unique.length) throw new ConflictException('A job changed in the meantime, try again');
     }
 
@@ -291,9 +293,10 @@ export class JobService {
         const replacedBy = new Map(replacements.map((r) => [r.recreatedFromId, r.id]));
         const creatorIds = [...new Set(entities.map((e) => e.createdById).filter((i): i is string => !!i))];
         const creators = creatorIds.length
-            ? await m.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true } })
+            ? await m.getRepository(User).find({ where: { id: In(creatorIds) }, select: { id: true, name: true, isBot: true } })
             : [];
         const creatorById = new Map(creators.map((u) => [u.id, { id: u.id, name: u.name }]));
+        const botIds = new Set(creators.filter((u) => u.isBot).map((u) => u.id));
         return entities.map((e) => {
             const own = revisions.filter((r) => r.jobId === e.id);
             const revision = {
@@ -305,7 +308,7 @@ export class JobService {
                 .map((id) => depById.get(id))
                 .filter((d): d is Job => !!d && (d.status !== 'merged' || d.mergedBlocked))
                 .map((d) => ({ id: d.id, title: d.title, status: d.status, mergedBlocked: d.status === 'merged' && d.mergedBlocked }));
-            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, replacedById: replacedBy.get(e.id) ?? null, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null });
+            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, replacedById: replacedBy.get(e.id) ?? null, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null, ownerId: jobOwnerId(e, !!e.createdById && botIds.has(e.createdById)) });
         });
     }
 
@@ -362,12 +365,24 @@ export class JobService {
         const [perRun, perJob] = this.agentUsage
             ? await Promise.all([this.agentUsage.forRuns(runs.map((r) => r.id)), this.agentUsage.forJobs([id])])
             : [new Map(), new Map()];
+        const executors = await this.runExecutors(runs.map((r) => r.executorId));
         return {
             ...job,
-            runs: runs.map((r) => ({ ...r, agentUsage: perRun.get(r.id) ?? emptyAgentTotals() })),
+            runs: runs.map((r) => ({ ...r, agentUsage: perRun.get(r.id) ?? emptyAgentTotals(), executor: (r.executorId && executors.get(r.executorId)) || null })),
             agentUsage: perJob.get(id) ?? emptyAgentTotals(),
             feedback: await this.feedbackService.listForJob(id),
         };
+    }
+
+    /** Name and owner of the executors of some runs (never a token); a deleted executor is absent. */
+    private async runExecutors(ids: (string | null)[]): Promise<Map<string, { id: string; name: string; ownerId: string; ownerName: string }>> {
+        const unique = [...new Set(ids.filter((i): i is string => !!i))];
+        if (!unique.length) return new Map();
+        const m = this.jobRepository.manager;
+        const executors = await m.getRepository(Executor).find({ where: { id: In(unique) }, select: { id: true, name: true, ownerId: true } });
+        const owners = await m.getRepository(User).find({ where: { id: In([...new Set(executors.map((e) => e.ownerId))]) }, select: { id: true, name: true } });
+        const ownerName = new Map(owners.map((u) => [u.id, u.name]));
+        return new Map(executors.map((e) => [e.id, { id: e.id, name: e.name, ownerId: e.ownerId, ownerName: ownerName.get(e.ownerId) ?? '' }]));
     }
 
     async cancel(id: string): Promise<JobResponseDto> {
@@ -378,8 +393,8 @@ export class JobService {
         return job;
     }
 
-    retry(id: string): Promise<JobResponseDto> {
-        return this.apply(id, 'manual_retry', 'Requeued manually.');
+    retry(id: string, actor: { id: string } | null = null): Promise<JobResponseDto> {
+        return this.apply(id, 'manual_retry', 'Requeued manually.', actor);
     }
 
     /**
@@ -432,13 +447,24 @@ export class JobService {
         return this.getById(created.id);
     }
 
-    private async apply(id: string, event: JobEvent, reason?: string): Promise<JobResponseDto> {
+    /** The id of the acting user when it is a non-bot human, otherwise null: only humans own queued jobs. */
+    private async humanId(actor: { id: string } | null, m?: EntityManager): Promise<string | null> {
+        if (!actor) return null;
+        const user = await (m ?? this.jobRepository.manager).getRepository(User).findOne({ where: { id: actor.id }, select: { id: true, isBot: true } });
+        return user && !user.isBot ? user.id : null;
+    }
+
+    private async apply(id: string, event: JobEvent, reason?: string, actor: { id: string } | null = null): Promise<JobResponseDto> {
         const job = await this.getOrFail(id);
         const to = nextStatus(job.status, event);
         if (!to) throw new ConflictException(`Cannot ${event.replace('_', ' ')} a job that is ${job.status}`);
 
         const changes: Partial<Job> = { status: to };
-        if (to === 'queued') changes.queuedAt = new Date();
+        if (to === 'queued') { changes.queuedAt = new Date(); changes.waitingReason = null; }
+        if (to === 'queued' && (event === 'enqueue' || event === 'manual_retry')) {
+            const queuer = await this.humanId(actor);
+            if (queuer) changes.queuedById = queuer;
+        }
         if (to === 'triage') changes.queuedAt = null;
         if (reason) changes.lastReason = reason;
 

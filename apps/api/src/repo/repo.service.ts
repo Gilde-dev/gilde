@@ -47,7 +47,9 @@ export class RepoService {
     /** Replaces the updatable settings; fullName and the manifest fields are not part of it. */
     async update(id: string, dto: ReplaceRepoDto): Promise<RepoResponseDto> {
         const entity = await this.getOrFail(id);
-        const saved = await this.repoRepository.save(this.repoRepository.merge(entity, dto));
+        // The repo-level routine settings are no longer used for firing; a PUT never changes them.
+        const { routineFireUrl: _fireUrl, routineTokenEnv: _tokenEnv, ...settings } = dto;
+        const saved = await this.repoRepository.save(this.repoRepository.merge(entity, settings));
         return this.repoMapper.toDTO(saved);
     }
 

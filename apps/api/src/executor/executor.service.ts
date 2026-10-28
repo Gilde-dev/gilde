@@ -96,6 +96,14 @@ export class ExecutorService {
         return this.secrets.decrypt({ ciphertext: row.tokenCiphertext, iv: row.tokenIv, tag: row.tokenTag, keyVersion: row.keyVersion });
     }
 
+    /**
+     * Internal, for the dispatcher only (never behind a route): all executors of one owner, entities without token columns.
+     * `tokenLast4` is null exactly when no token is stored.
+     */
+    listForDispatch(ownerId: string): Promise<Executor[]> {
+        return this.executors.find({ where: { ownerId }, order: { name: 'ASC' } });
+    }
+
     private tokenColumns(token: string) {
         const encrypted = this.secrets.encrypt(token);
         return {

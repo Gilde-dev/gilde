@@ -23,8 +23,9 @@ export const CreateRepoSchema = z.object({
 /** Full replacement of a repo's settings (PUT). fullName is the identity used by webhooks, so it can't change; register a new repo instead. */
 export const ReplaceRepoSchema = z.object({
     defaultBranch: z.string().trim().min(1),
-    routineFireUrl: z.string().url().nullable(),
-    routineTokenEnv: envVarName.nullable(),
+    /** Deprecated and ignored: capacity comes from personal executors. Accepted so old clients keep working; never changed by a PUT. */
+    routineFireUrl: z.string().url().nullable().optional(),
+    routineTokenEnv: envVarName.nullable().optional(),
     maxConcurrentJobs: z.number().int().min(1).max(10),
 });
 

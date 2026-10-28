@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { BudgetBlockerSchema } from '../budget/budget.dto.js';
 
-export const DispatchReasonSchema = z.enum(['repo_paused', 'project_paused', 'no_routine', 'no_manifest', 'no_slots', 'daily_limit', 'budget', 'none']);
+export const DispatchReasonSchema = z.enum(['repo_paused', 'project_paused', 'no_manifest', 'no_slots', 'daily_limit', 'budget', 'none']);
 export type DispatchReason = z.infer<typeof DispatchReasonSchema>;
 
 /** Why the estimated-spend guard stopped a repo: every hard period at once, not only the first one found. */
@@ -31,6 +31,8 @@ export const RepoDispatchReportSchema = z.object({
     resetsAt: z.string().nullable(),
     waitingOnDependencies: z.number(),
     waitingOnRevisions: z.number(),
+    /** Queued jobs whose owner has no executor that can take them right now (see each job's waitingReason). */
+    waitingOnExecutor: z.number(),
     /** Set when the reason is budget. */
     budget: DispatchBudgetEvidenceSchema.nullable(),
 });
@@ -39,6 +41,8 @@ export type RepoDispatchReport = z.infer<typeof RepoDispatchReportSchema>;
 export const DispatchResultSchema = z.object({
     fired: z.number(),
     failed: z.number(),
+    /** Queued jobs waiting for an executor of their owner, over all repos. */
+    waitingOnExecutor: z.number(),
     repos: z.array(RepoDispatchReportSchema),
 });
 export type DispatchResult = z.infer<typeof DispatchResultSchema>;

@@ -7,6 +7,7 @@ import { DispatcherService } from '../dispatch/dispatcher.service.js';
 import { User } from '../user/user.entity.js';
 import { loadDownstream, loadDownstreamContext } from '../execution/downstream.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
+import { Executor } from '../executor/executor.entity.js';
 import { Feature } from '../feature/feature.entity.js';
 import { Feedback } from '../feedback/feedback.entity.js';
 import { FeedbackMapper } from '../feedback/feedback.mapper.js';
@@ -50,7 +51,7 @@ let seq = 0;
 beforeEach(async () => {
     ds = await new DataSource({
         type: 'better-sqlite3', database: ':memory:',
-        entities: [User, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback, Notification], synchronize: true,
+        entities: [User, Executor, Project, Repo, Job, JobRun, JobDependency, Feature, JobRevision, Feedback, Notification], synchronize: true,
     }).initialize();
     jobs = ds.getRepository(Job);
     runs = ds.getRepository(JobRun);
@@ -256,18 +257,24 @@ describe('dispatch with revisions', () => {
         const fire = vi.fn().mockResolvedValue({ sessionId: 's', sessionUrl: 'https://x/s' });
         const execution: ExecutionPort = { fire: (r, i) => fire(r, 'prepared' in i ? i.payload : i), prepare: (p, c) => prepareJobPrompt(p, { text: null, version: null }, c) };
         const repoService = new RepoService(new RepoMapper(), {} as never, ds.getRepository(Repo));
+        const owner = await ds.getRepository(User).save(ds.getRepository(User).create({ email: 'o@example.com', name: 'O', password: 'x' }));
+        const executors = ds.getRepository(Executor);
+        await executors.save(executors.create({
+            ownerId: owner.id, name: 'mine', fireUrl: 'https://fire', repoIds: [repo.id], tokenLast4: 'oken', maxConcurrent: 5, dailyRunLimit: null, enabled: true, exhaustedUntil: null,
+        }));
+        const executorService = { listForDispatch: (ownerId: string) => executors.find({ where: { ownerId } }), revealToken: async () => 'tok' };
         const dispatcher = new DispatcherService(
             new RunService(new RunMapper(), runs), execution, jobs, ds.getRepository(Repo), ds.getRepository(Project), runs,
             repoService, ds.getRepository(Feature), undefined as never,
-            { status: async () => ({ hardBlocked: false }) } as never, { capture: async () => 0 } as never,
+            { status: async () => ({ hardBlocked: false }) } as never, { capture: async () => 0 } as never, executorService as never,
         );
-        const job = await seedJob('queued');
+        const job = await seedJob('queued', { createdById: owner.id });
         const rev = await seedRevision(job, { task: 'a revised task text' });
         expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 0 });
         await revisionService.reject(rev.id);
         expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
 
-        const second = await seedJob('queued');
+        const second = await seedJob('queued', { createdById: owner.id });
         const pending = await seedRevision(second, { title: 'Another title' });
         await revisionService.accept(pending.id);
         expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });

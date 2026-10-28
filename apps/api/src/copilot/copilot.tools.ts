@@ -98,7 +98,7 @@ export function createCopilotTools(s: CopilotServices) {
         id: 'getDispatchStatus',
         description:
             'Get the result of the last dispatch pass: per repo whether jobs are being fired, or why not ' +
-            '(paused, daily limit reached, no free slots, no routine, waiting on dependencies or proposals). Use this to explain why queued jobs do not start.',
+            '(paused, daily limit reached, no free slots, waiting on an executor, waiting on dependencies or proposals). Use this to explain why queued jobs do not start.',
         inputSchema: getDispatchStatusInput,
         execute: async () => b.getDispatchStatus(),
     });

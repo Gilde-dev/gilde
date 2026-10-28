@@ -5,6 +5,8 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, MoreThanOrEqual, Repository, type SelectQueryBuilder } from 'typeorm';
 
+import { Executor } from '../executor/executor.entity.js';
+import { ExecutorService } from '../executor/executor.service.js';
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { loadDownstreamContext } from '../execution/downstream.js';
@@ -13,6 +15,8 @@ import { buildJobPromptInput } from '../execution/job-payload.js';
 import { promptTooLargeError } from '../execution/job-prompt.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult, type PreparedPrompt } from '../execution/execution.port.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
+import { jobOwnerId } from '../job/job-owner.js';
+import { User } from '../user/user.entity.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
@@ -48,6 +52,7 @@ export class DispatcherService {
         private readonly history: HistorySearchService,
         private readonly budget: BudgetService,
         private readonly budgetAlerts: BudgetAlertService,
+        private readonly executors: ExecutorService,
         @Optional() private readonly capture?: NotificationCaptureService,
     ) { }
 
@@ -65,7 +70,7 @@ export class DispatcherService {
      * A pass that starts while another is running in this process returns immediately.
      */
     async dispatch(): Promise<DispatchResult> {
-        if (this.running) return { fired: 0, failed: 0, repos: [] };
+        if (this.running) return { fired: 0, failed: 0, waitingOnExecutor: 0, repos: [] };
         this.running = true;
         try {
             const result = await this.runPass();
@@ -89,6 +94,9 @@ export class DispatcherService {
         const budgets = new Map<string, number>();
         let fired = 0;
         let failed = 0;
+        let waitingOnExecutor = 0;
+        // Executors whose fire was rejected as a configuration error in this pass; their owner's other jobs wait for the next one.
+        const broken = new Set<string>();
 
         const reports: RepoDispatchReport[] = [];
         for (const repoId of repoIds) {
@@ -122,7 +130,7 @@ export class DispatcherService {
 
             const report: RepoDispatchReport = {
                 repoId, fullName: repo.fullName, queued: await queuedJobs().getCount(), fired: 0,
-                reason: 'none', detail: null, resetsAt: null, waitingOnDependencies, waitingOnRevisions, budget: null,
+                reason: 'none', detail: null, resetsAt: null, waitingOnDependencies, waitingOnRevisions, waitingOnExecutor: 0, budget: null,
             };
             reports.push(report);
 
@@ -133,10 +141,6 @@ export class DispatcherService {
             }
             if (!project || project.paused) {
                 report.reason = 'project_paused';
-                continue;
-            }
-            if (!repo.routineFireUrl || !repo.routineTokenEnv) {
-                report.reason = 'no_routine';
                 continue;
             }
             if (repo.testCommands.length === 0) {
@@ -183,6 +187,15 @@ export class DispatcherService {
                 let refill = false;
                 for (const job of jobs) {
                     tried.add(job.id);
+                    // A job without a fitting executor of its owner waits: it takes no slot and blocks nobody.
+                    const choice = await this.chooseExecutor(job, repo, broken);
+                    if (!choice.executor) {
+                        if (choice.reason) await this.markWaiting(job, choice.reason);
+                        report.waitingOnExecutor++;
+                        waitingOnExecutor++;
+                        refill = true;
+                        continue;
+                    }
                     // The pre-check above covered the first fire; later ones see spend recorded since, not a stale answer.
                     if (attempted++ > 0) {
                         const stopped = await this.budgetBlock(project.id);
@@ -193,15 +206,17 @@ export class DispatcherService {
                         }
                     }
                     try {
-                        const outcome = await this.fireJob(job.id, repo, project);
+                        const outcome = await this.fireJob(job.id, repo, project, choice.executor);
                         if (outcome === 'skipped') { capacity--; continue; }
                         if (outcome === 'oversized') { attempted--; refill = true; continue; }
                         if (outcome === 'fired') { fired++; report.fired++; }
                         else failed++;
                         capacity--;
                         budgets.set(project.id, budgets.get(project.id)! - 1);
+                        // The executor's setup is wrong: its owner's other jobs wait for the next pass instead of failing the same way.
+                        if (outcome === 'config_error') broken.add(choice.executor.id);
                         // The repo is now paused; don't fire its remaining jobs this pass.
-                        if (outcome === 'config_error') { stop = true; break; }
+                        if (outcome === 'repo_config_error') { stop = true; break; }
                     } catch (e) {
                         capacity--;
                         this.logger.error(`Job ${job.id}: ${errorMessage(e)}`);
@@ -211,7 +226,7 @@ export class DispatcherService {
             }
         }
         this.logChanges(reports);
-        return { fired, failed, repos: reports };
+        return { fired, failed, waitingOnExecutor, repos: reports };
     }
 
     /**
@@ -241,8 +256,8 @@ export class DispatcherService {
         for (const r of reports) {
             seen.add(r.repoId);
             const detail = r.reason === 'budget' ? (r.budget?.blockers.map((b) => `${b.scope}:${b.period}:${b.kind}`).join(',') ?? 'error') : r.detail;
-            const key = [r.reason, detail, r.waitingOnDependencies, r.waitingOnRevisions].join('|');
-            const previousKey = this.lastKeys.get(r.repoId) ?? 'none||0|0';
+            const key = [r.reason, detail, r.waitingOnDependencies, r.waitingOnRevisions, r.waitingOnExecutor].join('|');
+            const previousKey = this.lastKeys.get(r.repoId) ?? 'none||0|0|0';
             if (key === previousKey) continue;
             this.logger.log(describeRepo(r, this.lastReasons.get(r.repoId)));
             this.lastKeys.set(r.repoId, key);
@@ -263,14 +278,65 @@ export class DispatcherService {
         return project.dailyRunLimit - used;
     }
 
-    private async fireJob(jobId: string, repo: Repo, project: Project): Promise<'fired' | 'failed' | 'skipped' | 'config_error' | 'oversized'> {
+    /**
+     * The executor of the job's owner to fire on, or why there is none. Only the owner's executors are ever considered:
+     * no fallback to another user's executor or to a repo-level routine. A null reason means: wait without saying anything new.
+     */
+    private async chooseExecutor(job: Job, repo: Repo, broken: ReadonlySet<string>): Promise<{ executor: Executor } | { executor: null; reason: string | null }> {
+        const creator = job.createdById
+            ? await this.jobRepository.manager.getRepository(User).findOne({ where: { id: job.createdById }, select: { id: true, isBot: true } })
+            : null;
+        const ownerId = jobOwnerId(job, creator?.isBot ?? false);
+        if (!ownerId) return { executor: null, reason: NO_EXECUTOR };
+
+        const serving = (await this.executors.listForDispatch(ownerId))
+            .filter((e) => e.enabled && e.tokenLast4 !== null && e.repoIds.includes(repo.id));
+        if (!serving.length) return { executor: null, reason: NO_EXECUTOR };
+
+        const now = new Date();
+        const usable = serving.filter((e) => !e.exhaustedUntil || e.exhaustedUntil <= now);
+        if (!usable.length) return { executor: null, reason: EXECUTOR_EXHAUSTED };
+        const working = usable.filter((e) => !broken.has(e.id));
+        if (!working.length) return { executor: null, reason: null };
+
+        const midnight = startOfUtcDay(now);
+        let busy = 0;
+        let atLimit = 0;
+        const free: { executor: Executor; inFlight: number }[] = [];
+        for (const executor of working) {
+            const inFlight = await this.runsInFlight(executor.id);
+            if (inFlight >= executor.maxConcurrent) { busy++; continue; }
+            if (executor.dailyRunLimit !== null && await this.runRepository.countBy({ executorId: executor.id, createdAt: MoreThanOrEqual(midnight) }) >= executor.dailyRunLimit) { atLimit++; continue; }
+            free.push({ executor, inFlight });
+        }
+        if (!free.length) return { executor: null, reason: busy > 0 ? EXECUTOR_BUSY : EXECUTOR_LIMIT };
+        free.sort((a, b) => a.inFlight - b.inFlight || a.executor.name.localeCompare(b.executor.name));
+        return { executor: free[0].executor };
+    }
+
+    /** Runs that are still being executed: fired (or firing) for a job that is still dispatched. */
+    private runsInFlight(executorId: string): Promise<number> {
+        return this.runRepository.createQueryBuilder('run')
+            .innerJoin(Job, 'job', 'job.id = run.jobId')
+            .where('run.executorId = :executorId', { executorId })
+            .andWhere('run.status IN (:...running)', { running: ['firing', 'fired'] })
+            .andWhere("job.status = 'dispatched'")
+            .getCount();
+    }
+
+    private async markWaiting(job: Job, reason: string): Promise<void> {
+        if (job.waitingReason === reason) return;
+        await this.jobRepository.update({ id: job.id, status: 'queued' }, { waitingReason: reason });
+    }
+
+    private async fireJob(jobId: string, repo: Repo, project: Project, executor: Executor): Promise<'fired' | 'failed' | 'skipped' | 'config_error' | 'repo_config_error' | 'oversized'> {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
         // Conditional claim: only one concurrent dispatcher can move the job out of queued.
         const claim = await this.jobRepository.update(
             { id: jobId, status: 'queued' },
-            { status: to, attempts: () => 'attempts + 1' },
+            { status: to, attempts: () => 'attempts + 1', waitingReason: null },
         );
         if (!claim.affected) return 'skipped';
 
@@ -293,18 +359,28 @@ export class DispatcherService {
                 await this.parkOversized(job, prompt);
                 return 'oversized';
             }
-            runId = await this.startRun(job, project.id, repo.id, reserved);
+            runId = await this.startRun(job, project.id, repo.id, reserved, executor.id);
+            const token = await this.executors.revealToken(executor.id).catch(() => {
+                throw new ExecutionError(`Executor "${executor.name}" token could not be read`, 'config');
+            });
             session = await this.execution.fire(
-                { fullName: repo.fullName, routineFireUrl: repo.routineFireUrl, routineTokenEnv: repo.routineTokenEnv },
+                { fullName: repo.fullName, executorName: executor.name, fireUrl: executor.fireUrl, token },
                 prompt,
             );
         } catch (e) {
             const message = errorMessage(e);
-            if (e instanceof ExecutionError && e.kind === 'config') {
-                if (runId) await this.runService.markFailed(runId, message);
+            if (e instanceof ExecutionError && e.kind === 'config' && !runId) {
+                // The setup shared by all runs is wrong (the agent instructions could not be read), not an executor: pause the repo.
                 await this.requeueWithoutAttempt(jobId, message);
                 await this.repoService.pauseWithReason(repo.id, message);
                 this.logger.warn(`Repo ${repo.fullName} paused: ${message}`);
+                return 'repo_config_error';
+            }
+            if (e instanceof ExecutionError && e.kind === 'config') {
+                // Nothing is disabled automatically: the job is parked with the executor's name so its owner can fix the setup.
+                if (runId) await this.runService.markFailed(runId, message);
+                await this.failJob(job, 'park', message);
+                this.logger.warn(`Executor "${executor.name}" rejected the fire for ${repo.fullName}: ${message}`);
                 return 'config_error';
             }
             let event: 'retry' | 'park' = 'park';
@@ -331,15 +407,15 @@ export class DispatcherService {
      * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
      * the earlier fire_failed run instead of creating a new one.
      */
-    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean }): Promise<string> {
+    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean }, executorId: string): Promise<string> {
         if (reserved.reuse) {
             await this.runRepository.update(
                 { id: reserved.id },
-                { status: 'firing', error: null, finishedAt: null },
+                { status: 'firing', error: null, finishedAt: null, executorId },
             );
             return reserved.id;
         }
-        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: job.attempts });
+        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: job.attempts, executorId });
         return run.id;
     }
 
@@ -382,6 +458,11 @@ export class DispatcherService {
 
 }
 
+const NO_EXECUTOR = 'no executor';
+const EXECUTOR_BUSY = 'executor busy';
+const EXECUTOR_LIMIT = 'executor limit reached';
+const EXECUTOR_EXHAUSTED = 'executor exhausted';
+
 interface BudgetGate { detail: string; resetsAt: string | null; evidence: DispatchBudgetEvidence }
 
 function applyBudget(report: RepoDispatchReport, gate: BudgetGate): void {
@@ -404,7 +485,6 @@ export function describeRepo(r: RepoDispatchReport, previous: DispatchReason | u
     switch (r.reason) {
         case 'repo_paused': text = `repo paused${r.detail ? `: ${r.detail}` : ''}`; break;
         case 'project_paused': text = 'project paused'; break;
-        case 'no_routine': text = 'no routine configured'; break;
         case 'no_manifest': text = `no cached .gilde.json (${r.detail ?? 'not refreshed yet'})`; break;
         case 'no_slots': text = `no free slots (${r.detail})`; break;
         case 'daily_limit': text = `daily limit reached (${r.detail}, resets ${r.resetsAt?.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC)`; break;
@@ -414,7 +494,12 @@ export function describeRepo(r: RepoDispatchReport, previous: DispatchReason | u
     const waiting: string[] = [];
     if (r.waitingOnDependencies > 0) waiting.push(`${r.waitingOnDependencies} waiting on dependencies`);
     if (r.waitingOnRevisions > 0) waiting.push(`${r.waitingOnRevisions} waiting on proposals`);
+    if (r.waitingOnExecutor > 0) waiting.push(`${r.waitingOnExecutor} waiting on an executor`);
     return `${r.fullName}: ${text}${waiting.length ? `, ${waiting.join(', ')}` : ''}`;
+}
+
+function startOfUtcDay(now: Date): Date {
+    return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
 }
 
 function nextUtcMidnight(): Date {
