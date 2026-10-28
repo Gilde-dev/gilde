@@ -6,6 +6,7 @@ const valid = { name: 'Pascal', fireUrl: URL_OK, token: 'sk-ant-oat01-abcd1234',
 
 describe('executor DTOs', () => {
     it('accepts a routine fire URL and rejects everything else', () => {
+        // The same examples as apps/web/lib/fire-url.spec.ts; change them together.
         expect(FireUrlSchema.safeParse(URL_OK).success).toBe(true);
         for (const bad of [
             'http://api.anthropic.com/v1/claude_code/routines/abc/fire',
