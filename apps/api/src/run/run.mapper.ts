@@ -18,6 +18,8 @@ export class RunMapper {
             sessionId: e.sessionId,
             sessionUrl: e.sessionUrl,
             instructionsVersion: e.instructionsVersion,
+            context: e.context ?? null,
+            contextError: e.contextError ?? null,
             error: e.error,
             ciConclusion: e.ciConclusion,
             result: e.result,

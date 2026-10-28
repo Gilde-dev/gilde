@@ -38,6 +38,7 @@ let runs: Repository<JobRun>;
 let repoService: RepoService;
 let searchLessons: ReturnType<typeof vi.fn>;
 let notifications: Repository<Notification>;
+let captureContext: ReturnType<typeof vi.fn>;
 let budget: { status: ReturnType<typeof vi.fn> };
 let budgetAlerts: { capture: ReturnType<typeof vi.fn> };
 let executors: Repository<Executor>;
@@ -66,6 +67,7 @@ beforeEach(async () => {
     budget = { status: vi.fn().mockResolvedValue({ hardBlocked: false, blockers: [], recovery: 'none', recoversAt: null }) };
     budgetAlerts = { capture: vi.fn().mockResolvedValue(0) };
     searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
+    captureContext = vi.fn().mockResolvedValue({ context: null, contextError: 'GitHub is not configured' });
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
     const execution = fakeExecution();
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
@@ -78,7 +80,7 @@ beforeEach(async () => {
         markExhausted: (id: string, resetAt: Date | null) => realExecutors.markExhausted(id, resetAt),
     };
     revealToken = executorService.revealToken as ReturnType<typeof vi.fn>;
-    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never, capture);
+    dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never, capture, { capture: captureContext } as never);
 });
 
 afterEach(() => ds.destroy());
@@ -780,6 +782,41 @@ describe('DispatcherService', () => {
             expect(result.repos[0]).toMatchObject({ reason: 'daily_limit', waitingOnExecutor: 0 });
             expect(fire).not.toHaveBeenCalled();
         });
+    });
+});
+
+describe('DispatcherService run context', () => {
+    const context = {
+        gildeboekVersion: 'v1', skills: [{ name: 'alpha', hash: 'h', managedBy: null }], agentsMdHash: 'a', capturedAt: '2026-01-01T00:00:00.000Z',
+    };
+
+    it('stores the captured context on the run when firing', async () => {
+        captureContext.mockResolvedValue({ context, contextError: null });
+        const repo = await seedRepo(await seedProject());
+        const job = await seedJob(repo);
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1 });
+        expect(captureContext).toHaveBeenCalledWith(expect.objectContaining({ id: repo.id, fullName: repo.fullName }));
+        const run = await runs.findOneByOrFail({ jobId: job.id });
+        expect(run.context).toEqual(context);
+        expect(run.contextError).toBeNull();
+    });
+
+    it('fires anyway and stores contextError when the capture reports a GitHub failure', async () => {
+        captureContext.mockResolvedValue({ context: null, contextError: 'GitHub GET /repos/o/r/commits/main failed: 502' });
+        const job = await seedJob(await seedRepo(await seedProject()));
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
+        expect(fire).toHaveBeenCalledTimes(1);
+        const run = await runs.findOneByOrFail({ jobId: job.id });
+        expect(run.status).toBe('fired');
+        expect(run.context).toBeNull();
+        expect(run.contextError).toBe('GitHub GET /repos/o/r/commits/main failed: 502');
+    });
+
+    it('fires anyway when the capture itself throws', async () => {
+        captureContext.mockRejectedValue(new Error('unexpected'));
+        const job = await seedJob(await seedRepo(await seedProject()));
+        expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
+        expect((await runs.findOneByOrFail({ jobId: job.id })).status).toBe('fired');
     });
 });
 

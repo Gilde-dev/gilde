@@ -7,6 +7,7 @@ import { ProjectModule } from '../project/project.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 
 import { RepoSkillsReader } from './repo-skills.js';
+import { RunContextService } from './run-context.service.js';
 import { SkillController } from './skill.controller.js';
 import { SkillLibraryResolver } from './skill-library.resolver.js';
 import { SkillPromoteService } from './skill-promote.service.js';
@@ -18,9 +19,10 @@ import { SkillService } from './skill.service.js';
     providers: [
         SkillService,
         SkillPromoteService,
+        RunContextService,
         SkillLibraryResolver,
         { provide: RepoSkillsReader, useFactory: (github) => new RepoSkillsReader(github), inject: [GITHUB_PORT] },
     ],
-    exports: [SkillLibraryResolver, SkillService],
+    exports: [SkillLibraryResolver, SkillService, RunContextService],
 })
 export class SkillModule { }

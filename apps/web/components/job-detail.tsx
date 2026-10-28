@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run, type RunExecutor } from '@/lib/api';
+import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run, type RunContext, type RunExecutor } from '@/lib/api';
 import { AgentUsageSummary } from './agent-usage';
 import { errorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
@@ -146,6 +146,42 @@ function Overview({ job, dependents, projectId }: { job: JobDetail; dependents: 
   );
 }
 
+const shortHash = (h: string | null) => (h ? h.slice(0, 8) : 'none');
+
+/** What the agent had in this run; old runs and failed captures say so instead of showing zeros. */
+export function RunContextSummary({ context, error }: { context: RunContext | null; error: string | null }) {
+  if (!context) {
+    return (
+      <p className="text-muted-foreground">
+        Context: not recorded{error && <> ({error})</>}
+      </p>
+    );
+  }
+  const managed = context.skills.filter((s) => s.managedBy !== null);
+  const own = context.skills.filter((s) => s.managedBy === null);
+  return (
+    <div className="space-y-1">
+      <p className="text-muted-foreground">
+        Context: gildeboek {context.gildeboekVersion ?? 'unknown'} · {context.skills.length} {context.skills.length === 1 ? 'skill' : 'skills'} · AGENTS.md{' '}
+        <span className="font-mono">{shortHash(context.agentsMdHash)}</span>
+      </p>
+      {context.skills.length > 0 && (
+        <details>
+          <summary className="cursor-pointer text-muted-foreground">Skills ({managed.length} managed, {own.length} repo-owned)</summary>
+          <ul className="mt-1 space-y-0.5 text-xs">
+            {[...managed, ...own].map((s) => (
+              <li key={s.name}>
+                {s.name} <span className="font-mono text-muted-foreground">{shortHash(s.hash)}</span>{' '}
+                <span className="text-muted-foreground">{s.managedBy === null ? 'repo-owned' : `managed (${s.managedBy})`}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
+
 function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTotals; executor?: RunExecutor | null }; prUrl: string | null; prNumber: number | null }) {
   const dur = duration(run);
   return (
@@ -187,6 +223,7 @@ function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTota
         </p>
         {run.result && <p>{run.result.summary}</p>}
         {run.error && <p className="text-danger">{run.error}</p>}
+        <RunContextSummary context={run.context} error={run.contextError} />
         {run.agentUsage && <AgentUsageSummary t={run.agentUsage} label={`Attempt ${run.attempt} usage (Claude Code)`} />}
         {run.retro && (
           <details>

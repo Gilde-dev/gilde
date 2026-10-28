@@ -1,5 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
+import type { RunContext } from './run-context.js';
 import type { GildeResult } from '../webhook/pr-body.js';
 import { RUN_STATUSES, type RunStatus } from './run-status.js';
 
@@ -60,6 +61,18 @@ export class JobRun {
         nullable: true
     })
     instructionsVersion: string | null;
+
+    /** What the agent had when fired (skills, gildeboek version, AGENTS.md hash); null when not recorded. */
+    @Column({ type: 'simple-json', nullable: true })
+    context: RunContext | null;
+
+    /** Why `context` could not be captured: short, no secrets. */
+    @Column({
+        name: 'context_error',
+        type: 'text',
+        nullable: true
+    })
+    contextError: string | null;
 
     @Column({ type: 'text', nullable: true })
     error: string | null;

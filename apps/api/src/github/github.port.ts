@@ -37,6 +37,8 @@ export interface GitHubPort {
     listRecentPulls(fullName: string): Promise<GitHubPull[]>;
     /** Workflow runs for a commit, newest first. */
     listWorkflowRuns(fullName: string, headSha: string): Promise<GitHubWorkflowRun[]>;
+    /** The commit sha a branch points at. */
+    getBranchHeadSha(fullName: string, branch: string): Promise<string>;
     /** A text file at `ref`, or null when it does not exist. */
     getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null>;
     /** The entries of a directory at `ref`, or null when it does not exist. */
