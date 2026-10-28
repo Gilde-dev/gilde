@@ -517,7 +517,7 @@ With the app, GitHub sends all events to the one webhook configured in the app, 
 - **Secret**: a random string, set on the API as `GITHUB_APP_WEBHOOK_SECRET`. A delivery is accepted when its signature matches
   `GITHUB_APP_WEBHOOK_SECRET` or `GITHUB_WEBHOOK_SECRET` (whichever are set), so per-repo webhooks and the app webhook work side by
   side during the switch. With neither set, every delivery is rejected.
-- **Subscribe to**: *Pull request*, *Pull request review*, *Pull request review comment*, *Issue comment*, *Workflow run*. The
+- **Subscribe to**: *Pull request*, *Pull request review*, *Pull request review comment*, *Issue comment*, *Workflow run*, and *Issues* for [issue intake](#issue-intake). The
   *installation* and *installation_repositories* events are sent to every app automatically; Gilde records per repo whether the app is
   installed and shows "GitHub App installed" / "not installed" in the project's repo settings, with a warning when a registered repo
   loses its installation while the app is active. It never registers or removes Gilde repos by itself.
@@ -526,6 +526,35 @@ With the app, GitHub sends all events to the one webhook configured in the app, 
 
 Cut-over order: (1) set the app webhook URL and `GITHUB_APP_WEBHOOK_SECRET`, (2) check in the app's *Advanced → Recent deliveries*
 that they arrive with `200` and show up in the API log, (3) remove the per-repo webhooks, (4) remove `GITHUB_WEBHOOK_SECRET`.
+
+## Issue intake
+
+A GitHub issue in a registered repo that carries the label `gilde:refine` becomes an *intake item*, the start of turning issues into
+draft specs. Refining (drafting the spec) is a separate step; the intake domain only collects, so items stay `new`.
+
+1. Create the label in every repo (the name can be changed with `INTAKE_LABEL` on the API; matching is case-insensitive, like GitHub):
+   `gh label create gilde:refine --repo <owner>/<repo> --color 8143D7 --description "Let Gilde draft a spec from this issue"`
+2. In the GitHub App, **subscribe to the Issues event** (the app already has *Issues: read*). Without it only the sweep finds issues.
+3. Label an issue. It shows up in `GET /api/v1/projects/:id/intake` within seconds (webhook) or at the latest after 15 minutes (sweep).
+
+**Trust model.** The label is the gate: on GitHub only people with triage access or more can label an issue. Issue text is untrusted
+data, whoever wrote it; labelling is the decision that Gilde may read it. Unlabelled issues, pull requests and issues of repos that are
+not registered in Gilde are ignored and never stored.
+
+**Rules.** A new or changed title/body sets status `new`; removing the label or closing the issue sets `withdrawn`; reopening or
+relabelling sets `new` again. An item a human set to `ignored` stays ignored until someone retries it. Specs made from an item are never
+deleted when it is withdrawn.
+
+**Sweep.** Every 15 minutes (and `POST /api/v1/intake/sweep`, verified human) Gilde lists the open labelled issues of each registered
+repo, one request per repo, and applies the same rules, so missed deliveries are recovered. Items whose issue is no longer in a complete
+list are withdrawn. Repos where the app is not installed, or GitHub cannot be read, are skipped.
+
+**API.** `GET /api/v1/projects/:id/intake?status=`, `GET /api/v1/intake/:id` (any authenticated user); `POST /api/v1/intake/:id/ignore`
+and `.../retry` (verified human; retry sets `new` and clears the error).
+
+**What is stored** (table `intake_items`): the issue's node id, number, URL, title, body (at most 20000 characters, `body_truncated` says
+when it was cut), a sha256 of title + body, the author's login, the labels, the status, a link to the spec and the last error. Comments,
+assignees and other issue data are not read or stored. Gilde never writes to GitHub for intake.
 
 ## GitHub webhooks (local)
 
