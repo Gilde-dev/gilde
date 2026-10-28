@@ -47,6 +47,8 @@ import { COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS,
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
+import { BudgetModule } from '../budget/budget.module.js';
+import { BudgetService } from '../budget/budget.service.js';
 import { ScoutSignalService } from './scout-signal.service.js';
 import { ScoutSuggestion } from './scout-suggestion.entity.js';
 import { ScoutSuggestionGuard } from './scout-suggestion-guard.entity.js';
@@ -83,7 +85,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
     providers: [
         RepoContextService,
         {
@@ -165,6 +167,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 jobs: JobService,
                 features: FeatureService,
                 repos: RepoService,
+                budgetService: BudgetService,
             ): ScoutSignalService | null => {
                 if (!scout || !threads) return null;
                 const budget = new ScoutWakeBudgetService(days, { maxWakesPerDay: scout.config.maxWakesPerDay, summaryHourUtc: scout.config.summaryHourUtc });
@@ -172,12 +175,16 @@ export class ScoutLifecycle implements OnModuleDestroy {
                     mastra, threads, receipts, budget, jobs, features, repos,
                     inbox: async () => (await memory.storage.getStore('notifications')) as never,
                     summaryHourUtc: scout.config.summaryHourUtc,
+                    globalBudgetHard: async () => {
+                        const { global } = await budgetService.status();
+                        return global.day.state === 'hard' || global.week.state === 'hard';
+                    },
                 });
                 gate.bind({ now: () => budget.now(), summaryAt: (now) => service.summaryAt(now), allowSummary: (projectId) => service.allowSummary(projectId) });
                 publisher.register(service.sink);
                 return service;
             },
-            inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService],
+            inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService, BudgetService],
         },
         ScoutWakeReader,
         ScoutLifecycle,

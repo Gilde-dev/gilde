@@ -37,7 +37,7 @@ deterministically in this package; the API only stores platform-neutral events (
 | Variable | |
 | --- | --- |
 | `NOTIFICATIONS_ENABLED` | `true` to start the worker. Default off |
-| `NOTIFICATION_KINDS` | Comma-separated kinds, default all five: `job.awaiting_review,job.parked,job.approval_needed,revision.waiting,feature.ready_to_close` |
+| `NOTIFICATION_KINDS` | Comma-separated kinds, default all seven: `job.awaiting_review,job.parked,job.approval_needed,revision.waiting,feature.ready_to_close,budget.soft,budget.hard` |
 | `NOTIFICATION_SLACK_CHANNEL_ID` | Required. Slack channel ID (`C…`) of #werkplaats |
 | `GILDE_PUBLIC_URL` | Required. Public URL of the web UI, used for deep links |
 | `NOTIFICATION_POLL_INTERVAL_MS` | Default 15000 |
@@ -45,7 +45,7 @@ deterministically in this package; the API only stores platform-neutral events (
 | `NOTIFICATION_REQUEST_TIMEOUT_MS` | Default 10000, for every API and Slack request |
 | `NOTIFICATION_RETRY_BASE_MS` / `NOTIFICATION_RETRY_MAX_MS` | Backoff base (30000) and cap (3600000) |
 
-Enabling needs `SLACK_BOT_TOKEN` too (and, by the existing rule, `SLACK_APP_TOKEN`). Example for all five kinds:
+Enabling needs `SLACK_BOT_TOKEN` too (and, by the existing rule, `SLACK_APP_TOKEN`). Example for all kinds:
 
 ```sh
 NOTIFICATIONS_ENABLED=true
@@ -55,6 +55,13 @@ GILDE_PUBLIC_URL=https://gilde.example.com
 
 The channel ID is operator-supplied: in Slack, open the channel details and copy the ID at the bottom.
 Invite the bot to the channel (`/invite @<bot name>`) and give it the `chat:write` scope (already in the scopes above).
+
+Budget alerts (`budget.soft`, `budget.hard`) carry no job, PR or repo: one message per scope (global or project), period
+(day or ISO week) and kind, for example `Budget Gilde: $8.10 of $10.00 estimated today (81%). Resets 00:00 UTC.`.
+They say *estimated*, add a caveat when some usage has no price (the estimate may be too low), explain an invalid
+`GLOBAL_*_BUDGET_USD` setting by variable name only, and link to the project's settings page or, for the global budget,
+to `/metrics`. The API records each occurrence once per scope, period start and kind in the same outbox as every other
+kind (see "Budgets" in the root README); delivery keeps the retry and acknowledgement behaviour below.
 
 Behaviour:
 - Disabled kinds are not polled; they stay unsent and are sent if you enable them later. Changing the channel

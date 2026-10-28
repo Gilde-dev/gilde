@@ -673,7 +673,16 @@ export interface UpdateLessonInput {
 }
 
 export type DispatchReason =
-  | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'none';
+  | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
+
+/** Why the estimated-spend guard stopped a repo: every hard day/week period of the project and global scope at once. */
+export interface DispatchBudgetEvidence {
+  blockers: BudgetBlocker[];
+  /** reset: `resetsAt` is the latest blocker reset; manual: a limit or configuration change is needed; unknown: the evaluation failed. */
+  recovery: 'reset' | 'manual' | 'unknown';
+  /** True when the budget could not be evaluated; new automatic dispatch stays stopped. */
+  error: boolean;
+}
 
 export interface RepoDispatchReport {
   repoId: string;
@@ -682,10 +691,12 @@ export interface RepoDispatchReport {
   fired: number;
   reason: DispatchReason;
   detail: string | null;
-  /** Next UTC midnight (ISO) when the reason is daily_limit. */
+  /** Next UTC midnight (ISO) when the reason is daily_limit; for budget the LATEST blocker reset, null without a reset promise. */
   resetsAt: string | null;
   waitingOnDependencies: number;
   waitingOnRevisions: number;
+  /** Set when the reason is budget. */
+  budget?: DispatchBudgetEvidence | null;
 }
 
 export interface DispatchStatus {

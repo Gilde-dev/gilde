@@ -212,6 +212,8 @@ wake. A claimed wake is not given back once the signal was handed to Mastra (an 
 given back only when sending provably never started. `lastWakeAt` is the actual last wake (stored per project and day; read through
 `ScoutWakeReader`), not the arrival of a signal. Decisions of one project are serialized in the process.
 
+**Global budget gate.** While the GLOBAL estimated budget (day or week) is hard, or cannot be read (fail closed), the scout sends **no native high wake and no daily summary** (`ScoutSignalService`: `globalBudgetHard`). A high event is then stored like an over-quota one (`pending`, `wake: deferred`, no board state sent) and no wake or summary quota is claimed; `allowSummary` holds the due records, which stay pending in the inbox, so nothing is lost and nothing wakes the agent as an immediate catch-up. After the budget clears, the next dispatch pass sends the backlog in the next eligible daily summary. Project budgets do not gate the scout.
+
 **Board state.** Before an actual high wake and before a daily summary the scout gets a project board as a native state signal (`id: board`):
 exact job counts for every status (aggregated in the database through `JobService.statusSnapshot`, not the capped job list), up to 20 parked job
 ids and up to 20 open (draft or active) feature ids with their count. The `cacheKey` is a hash of that content, so an unchanged board is not
@@ -431,7 +433,7 @@ Cost is always labelled *estimated*: it is Claude Code's own figure, and under a
 
 ## Budgets (accounting and status API)
 
-Estimated-USD budgets per UTC day and ISO week (Monday start). This part only **measures**; enforcement and notifications are separate jobs of the same feature, so nothing is stopped by these numbers yet.
+Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** recorded spend, **warn** through the notification outbox and **stop new automatic dispatch** at the hard limit (see "Enforcement" and "Budget notifications" below). Human use of Gilde is never blocked.
 
 **Settings.** Each project has nullable `dailyBudgetUsd` and `weeklyBudgetUsd` (finite, `>= 0`; `null` clears a limit, an omitted field in `PATCH /api/v1/projects/:id` keeps it; `0` means hard immediately, even at zero spend) and `budgetSoftPct` (default 80, `> 0` and `<= 100`). Global limits come from the environment: `GLOBAL_DAILY_BUDGET_USD` and `GLOBAL_WEEKLY_BUDGET_USD` (unset or blank = unlimited; the global soft threshold is 80%). The environment is re-read on every evaluation, so a corrected value takes effect on the next pass without a restart.
 
@@ -442,6 +444,21 @@ Estimated-USD budgets per UTC day and ISO week (Monday start). This part only **
 **Caveats.** Dollars are *estimated*; with a subscription they are notional consumption, not a bill. Rows without a price add nothing to `spent` and are counted in `unpricedRows`; a period with only unpriced rows has `pricing: "unknown"` and is never a priced zero, and unpriced rows alone never cause a hard state. This is a recorded-spend guard, not a reservation system: telemetry arrives and is attributed with delay, and running jobs can overshoot a limit. GitHub Actions agent reviews are not metered unless they send telemetry.
 
 **Invalid global configuration.** A set but invalid `GLOBAL_*_BUDGET_USD` (not a finite, non-negative number) never stops the API from starting and never throws out of the status call. A configuration error naming the variable (never its value) is logged, and only that global period reports `state: "hard"` with `reason.kind: "configError"` and `reason.variable`; its `limit` and `percent` are `null` (no invented number), while spend, unpriced counts and the period dates stay visible. It is a blocker for the global status and for every project's effective status, so new automatic dispatch must fail closed, while human API and chat use is unaffected. A period reset does not clear it: `recovery` is `"manual"` and `recoversAt` is `null` until the variable is corrected or removed; the next evaluation then recovers, subject to other blockers. With several hard blockers, `recoversAt` is the latest of their resets (`recovery: "reset"`).
+
+### Enforcement
+
+`DispatcherService` asks `BudgetService.status(projectId)` for live recorded spend before the first fire of every repo in a pass and again before every further fire in the same repo, so a hard limit reached during a pass is not hidden. At a hard project **or** global day **or** week limit the repo reports `reason: "budget"` and **nothing is fired**: no run or attempt is reserved, no job changes state, the execution port is not called and `paused`/`pausedReason` are never written. The report (`GET /api/v1/dispatch/status`, the board's dispatch strip) names every simultaneous blocker with scope, period, estimated spend, limit and reset in `budget.blockers`; `resetsAt` is the **latest** blocker reset (the earliest possible full recovery) and is `null` when a limit or configuration change is needed (`budget.recovery: "manual"`, for example a limit of 0 or an invalid `GLOBAL_*_BUDGET_USD`) or when the budget could not be read (`recovery: "unknown"`).
+
+- Order of checks is unchanged: manual project/repo pause, routine, manifest, free slots and the daily run limit still win and report their own reason; the budget is checked after them, before jobs are selected. Dependencies and proposals still exclude jobs as before.
+- `POST /api/v1/dispatch` (any logged-in user or API key) goes through the same gate; there is no manual bypass.
+- There is no state to clear: every pass re-reads spend and limits, so a reset, a raised limit or a cleared limit resumes automatically. A manually paused project or repo stays paused.
+- A budget **evaluation error never allows a new automatic fire** (fail closed): the repo reports `budget` with `budget.error: true`, the error is logged, and no `$0` status is invented. Already running jobs, CI and reconcile handling, telemetry ingest and attribution, the co-pilot, the API and the UI are unaffected, and so is human chat while the budget cannot be read.
+- **This is a recorded-spend guard, not a reservation system.** Telemetry arrives with a delay, running jobs keep spending, and the co-pilot is never stopped, so spend can overshoot a limit. Unpriced rows add nothing to `spent`. **GitHub Actions agent reviews are not controlled or metered** by this feature unless they already send telemetry to the OTLP ingest.
+
+### Budget notifications
+
+`budget.soft` and `budget.hard` use the existing outbox (`notifications`) and the Slack worker of `apps/channels`. `BudgetAlertService` evaluates the global scope once and then every project with a configured limit every minute (a non-overlapping pass, projects in batches of 20), independent of queued work; the dispatcher also records a hard stop when it finds one. `GET /api/v1/budget` stays side-effect free. An occurrence is unique per scope (`global` or the project id), period (`day`/`week`), canonical UTC period start and kind: `budget.<kind>:<global|project id>:<day|week>:<period start ISO>`. The database unique key makes retries, restarts, concurrent evaluations, threshold oscillation and limit edits record each soft and each hard at most once per period; a period that is already hard when first seen records `budget.hard` without a made-up soft crossing, and hard wins over soft. A new period is a new occurrence. A period with an invalid global setting records a hard occurrence carrying the variable name (never its value). The row stores the structured facts in `budget` (scope, period, state, estimated spend, limit, percent, UTC start and reset, unpriced count, reason kind); nothing is marked delivered before the Slack worker acknowledges it, so the outbox keeps its at-least-once semantics (not a new exactly-once guarantee). Recording problems are logged and never change a stop decision.
+
 
 ## Notifications
 
@@ -471,6 +488,7 @@ Gilde stores platform-neutral factory events for exactly one consumer process (`
 | `job.parked` | a `park` write landed: CI failure or reviewer send-back (`JobEventsService.retryOrParkJob`) or a failed fire (`DispatcherService.failJob`) | `job.parked:<job>:a<attempts>:<head sha or none>:<cause>`, cause `failure`, `sent_back` or `dispatch` |
 | `job.approval_needed` | a failing gate on the job's current head set `needsApproval` on a job that is not finished | `job.approval_needed:<job>:a<attempts>:<head sha>` |
 | `revision.waiting` | `ProposalService.record` saved a proposed revision | `revision.waiting:<source run>:<target job>:<digest of title, task, criteria, dependsOn and reason>` |
+| `budget.soft` / `budget.hard` | `BudgetAlertService` (scheduled every minute, and the dispatcher at a hard stop) found a soft or hard period | `budget.<kind>:<global or project id>:<day or week>:<UTC period start>`; no job, PR or repo data |
 | `feature.ready_to_close` | a check after a job merge, a job cancel, a job's feature change, a feature start or a feature reopen found `buildProgress(...).readyToClose` | `feature.ready_to_close:<feature>:<digest of the sorted ids of the counted, non-cancelled jobs>` |
 
 - Replays (webhook redelivery, reconciler passes) hit the unique key and are ignored. A new attempt or a new head sha is a new occurrence. Clearing and re-setting the same gate on the same head, or reopening a feature with the same ready job set, does not notify again; a different ready job set does.

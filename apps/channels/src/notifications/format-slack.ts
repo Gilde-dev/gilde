@@ -12,6 +12,8 @@ const HEADINGS: Record<NotificationKind, string> = {
   'job.approval_needed': ':raised_hand: Approval needed',
   'revision.waiting': ':memo: Revision proposal waiting',
   'feature.ready_to_close': ':white_check_mark: Feature ready to close',
+  'budget.soft': ':warning: Budget warning',
+  'budget.hard': ':no_entry: Budget limit reached',
 };
 
 /** Escapes Slack control characters and defuses @channel/@here/@everyone and user-group mentions. */
@@ -37,6 +39,10 @@ function link(url: string, label: string): string {
 
 /** Deep link: a job opens in the dashboard modal, a feature on its detail page. Null when the event has neither. */
 export function deepLink(n: GildeNotification, publicUrl: string): string | null {
+  if (isBudget(n)) {
+    // A project budget lives in that project's settings; the global one is shown on the metrics page.
+    return n.budget?.scope === 'project' && n.projectId ? `${publicUrl}/settings/projects/${encodeURIComponent(n.projectId)}` : `${publicUrl}/metrics`;
+  }
   if (n.jobId) {
     const query = new URLSearchParams();
     if (n.projectId) query.set('project', n.projectId);
@@ -52,8 +58,49 @@ function bounded<T>(items: T[], max: number, render: (item: T) => string): strin
   return items.length > max ? `${shown} and ${items.length - max} more` : shown;
 }
 
+const isBudget = (n: GildeNotification) => n.kind === 'budget.soft' || n.kind === 'budget.hard';
+
+const usd = (n: number) => `$${n.toFixed(2)}`;
+
+/** `00:00 UTC` for a day, `Mon 00:00 UTC` for a week (resets are always UTC midnights). */
+function resetLabel(iso: string, period: 'day' | 'week'): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return 'at the next UTC reset';
+  const time = `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`;
+  return period === 'week' ? `${['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getUTCDay()]} ${d.toISOString().slice(0, 10)} ${time}` : time;
+}
+
+/** Budget alert: no job, PR or repo lines; spend, limit, scope, period and reset come from the structured facts. */
+function formatBudget(n: GildeNotification, publicUrl: string): string {
+  const b = n.budget;
+  const url = deepLink(n, publicUrl);
+  const lines = [`*${HEADINGS[n.kind]}*`];
+  const title = truncate(n.title, MAX_TITLE);
+  if (!b) {
+    lines.push(`${escapeSlack(title)}: ${escapeSlack(truncate(n.reason, MAX_REASON)) || '_no details_'}`);
+  } else if (b.reasonKind === 'configError') {
+    lines.push(`${escapeSlack(title)}: the ${b.scope} ${b.period === 'day' ? 'daily' : 'weekly'} limit setting \`${escapeSlack(b.variable ?? 'unknown').replace(/`/g, "'")}\` is invalid. New automatic dispatch is stopped until it is corrected; a reset does not clear this.`);
+  } else {
+    const span = b.period === 'day' ? 'today' : 'this week';
+    const limit = b.limit === null ? 'no limit' : usd(b.limit);
+    const percent = b.percent === null ? '' : ` (${Math.floor(b.percent)}%)`;
+    lines.push(`${escapeSlack(title)}: ${usd(b.spent)} of ${limit} estimated ${span}${percent}. Resets ${resetLabel(b.resetsAt, b.period)}.`);
+  }
+  if (b && b.unpricedRows > 0) {
+    lines.push(`_Estimate may be too low: ${b.unpricedRows} usage record${b.unpricedRows === 1 ? ' has' : 's have'} no price._`);
+  }
+  lines.push(
+    n.kind === 'budget.hard'
+      ? 'New automatic dispatch is stopped until the period resets or the limit changes. Running work and human use of Gilde continue.'
+      : 'Only a warning: nothing is stopped.',
+  );
+  if (url) lines.push(`Details: ${link(url, b?.scope === 'project' ? 'Open project settings in Gilde' : 'Open metrics in Gilde')}`);
+  return lines.join('\n');
+}
+
 /** Deterministic mrkdwn text for one notification; no LLM involved. */
 export function formatSlack(n: GildeNotification, { publicUrl }: OutboundContext): string {
+  if (isBudget(n)) return formatBudget(n, publicUrl);
   const url = deepLink(n, publicUrl);
   const title = truncate(n.title, MAX_TITLE);
   const lines = [`*${HEADINGS[n.kind]}*`, url ? `*${link(url, title)}*` : `*${escapeSlack(title)}*`];

@@ -4,6 +4,26 @@ import { Icon } from './ui/icon';
 
 const plural = (n: number, one: string) => `${n} job${n === 1 ? '' : 's'} ${one}`;
 
+const utc = (iso: string) => `${iso.slice(0, 16).replace('T', ' ')} UTC`;
+const usd = (n: number) => `$${n.toFixed(2)}`;
+
+/** Every blocker with scope, period and spend; the reset promise is only the latest one, never the first. */
+function explainBudget(r: RepoDispatchReport): string {
+  const b = r.budget;
+  if (!b) return `Stopped by estimated budget${r.detail ? `: ${r.detail}` : ''}`;
+  if (b.error) return 'Estimated budget could not be checked: new automatic dispatch is stopped';
+  const parts = b.blockers.map((x) =>
+    x.kind === 'configError'
+      ? `${x.scope} ${x.period} (${x.variable ?? 'budget variable'} is invalid; a reset does not clear it)`
+      : `${x.scope} ${x.period} ${usd(x.spent)} of ${x.limit === null ? '–' : usd(x.limit)} estimated, resets ${utc(x.resetsAt)}`,
+  );
+  const recovery =
+    b.recovery === 'reset' && r.resetsAt
+      ? `. Earliest automatic recovery ${utc(r.resetsAt)} (when all blockers have reset)`
+      : '. Needs a limit or configuration change';
+  return `Stopped by estimated budget: ${parts.join('; ')}${recovery}`;
+}
+
 /** One-line explanation of why a repo's queued jobs are not being fired; null when nothing is held back. */
 export function explainRepo(r: RepoDispatchReport): string | null {
   const reasons: Record<Exclude<DispatchReason, 'none'>, () => string> = {
@@ -14,6 +34,7 @@ export function explainRepo(r: RepoDispatchReport): string | null {
     no_slots: () => `No free slots (${r.detail ?? ''} running)`,
     daily_limit: () =>
       `Daily limit reached ${r.detail ?? ''}${r.resetsAt ? `, resets at ${new Date(r.resetsAt).toLocaleString()}` : ''}`,
+    budget: () => explainBudget(r),
   };
   const parts: string[] = [];
   if (r.reason !== 'none') parts.push(reasons[r.reason]());

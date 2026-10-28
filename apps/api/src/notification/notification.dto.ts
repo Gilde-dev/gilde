@@ -9,6 +9,20 @@ export const MAX_ERROR_LENGTH = 500;
 
 const PrSchema = z.object({ repo: z.string(), number: z.number().int(), url: z.string() });
 
+const BudgetSchema = z.object({
+    scope: z.enum(['global', 'project']),
+    period: z.enum(['day', 'week']),
+    state: z.enum(['soft', 'hard']),
+    spent: z.number(),
+    limit: z.number().nullable(),
+    percent: z.number().nullable(),
+    startsAt: z.string(),
+    resetsAt: z.string(),
+    unpricedRows: z.number().int(),
+    reasonKind: z.enum(['limit', 'configError']),
+    variable: z.string().nullable(),
+});
+
 /** What a producer records. The occurrence key must come from stable source identity, never the clock or a row id. */
 export const RecordNotificationSchema = z.object({
     occurrenceKey: z.string().min(1).max(500),
@@ -21,6 +35,7 @@ export const RecordNotificationSchema = z.object({
     repos: z.array(z.string()),
     reason: z.string(),
     prLinks: z.array(PrSchema).optional(),
+    budget: BudgetSchema.nullable().optional(),
 });
 
 /** `kinds` is a comma-separated list of kinds; omitted means all kinds. */
@@ -50,6 +65,7 @@ export const NotificationResponseSchema = z.object({
     repos: z.array(z.string()),
     reason: z.string(),
     prLinks: z.array(PrSchema),
+    budget: BudgetSchema.nullable(),
     status: z.enum(NOTIFICATION_STATUSES),
     attempts: z.number().int(),
     nextRetryAt: z.string().datetime().nullable(),
