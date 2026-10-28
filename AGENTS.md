@@ -14,7 +14,7 @@ pnpm workspace (`pnpm-workspace.yaml`: `apps/*`, `packages/*`).
 - `apps/web/` — the Next.js (App Router) web UI (`@gilde/web`), Tailwind + shadcn-style components in `components/ui`
   - `lib/api.ts` — typed fetch client and response types (mirror the API DTOs); calls `/api/gilde`, a server-side proxy (`app/api/gilde/[...path]/route.ts`) that adds the token from the httpOnly `gilde_session` cookie and forwards to `GILDE_API_URL` (server-only, default `http://localhost:4100/api`). The browser must never read or store the token. `middleware.ts` redirects to `/login` without the cookie. The proxy streams responses (`text/event-stream` is not buffered)
   - `lib/use-polling.ts` — `usePolling(fn, intervalMs)`; no data-fetching library, go through these two files
-  - pages: job board (`/`), `/features`, `/metrics`, `/lessons`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
+  - pages: job board (`/`), `/features`, `/specs`, `/proposals`, `/chat` (full-page co-pilot with the user's own conversations), `/metrics`, `/lessons`, `/skills`, `/settings/{projects,api-keys,executors}`; tests are `*.spec.ts(x)` (vitest + jsdom + Testing Library)
 - `apps/channels/` — a separate Node process (`@gilde/channels`) that runs the co-pilot in chat platforms (Slack first) with CopilotKit Channels, over AG-UI against `/api/v1/mastra`, authenticated with an API key of a bot user (`GILDE_API_KEY`). Platform credentials (`SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`) live only in its env. Adapters are listed in `src/adapters.ts`; see its README
 - `packages/` — shared packages (none yet)
 - `docs/adr/` — Architecture Decision Records, one per decision, index in docs/adr/README.md; see the write-adr skill
@@ -33,24 +33,31 @@ Run from the repo root unless noted.
 
 ## API domains (`apps/api/src/`)
 One NestJS module per domain:
-- `user/` — users (name, email, argon2id password hash); created with the `user:create` CLI (`pnpm --filter @gilde/api user:create --email <email> --name <name>`)
-- `auth/` — `POST /api/v1/auth/login` (passport-local, throttled 5/min per IP) issues a JWT; `GET /api/v1/auth/me`; the global `JwtAuthGuard`, which accepts a JWT or an API key (`Authorization: Bearer gk_...`); both end up as `req.user`. Env: `JWT_SECRET` (≥ 32 chars), `JWT_EXPIRES_IN`, `AUTH_ENABLED`
+- `user/` — users (name, email, argon2id password hash, `is_bot`); created with the `user:create` CLI (`pnpm --filter @gilde/api user:create --email <email> --name <name> [--bot]`), bots marked with `user:mark-bot --email <email>`. Human-only operations use `requireVerifiedHuman` (`common/verified-human.ts`, `auth/jwt-human.guard.ts`): a persisted non-bot, non-scout user authenticated with a JWT, never an API key
+- `auth/` — `POST /api/v1/auth/login` (passport-local, throttled 5/min per IP) issues a JWT; `GET /api/v1/auth/me`; the global `JwtAuthGuard`, which accepts a JWT or an API key (`Authorization: Bearer gk_...`); both end up as `req.user`, with `credential` (`jwt` or `api_key`) recording which. Env: `JWT_SECRET` (≥ 32 chars), `JWT_EXPIRES_IN`, `AUTH_ENABLED`
 - `api-key/` — `api_keys` (`gk_<prefix>_<secret>`, sha256 hash stored, shown once on creation); `POST/GET /api/v1/api-keys`, `DELETE /api/v1/api-keys/:id` for the current user; CLI `pnpm --filter @gilde/api apikey:create --email <email> --name <name>`; the web page is `/settings/api-keys`
 - `project/` — products; policies like daily run limit, max attempts, run timeout, retry on changes requested, pause
-- `repo/` — GitHub repos in a project; test command, routine fire URL and token env var name, concurrency, pause
-- `job/` — units of work; `job-state.ts` is the state machine (triage → queued → dispatched → pr_open → awaiting_review → merged, plus rejected/parked/cancelled); `job-dependency.entity.ts` for dependencies; `job-events.service.ts` applies GitHub events to jobs
+- `repo/` — GitHub repos in a project; test commands, concurrency, pause, manifest sync and GitHub App installation status. The repo-level routine fire URL and token env var are no longer used for firing (capacity comes from executors)
+- `job/` — units of work; `job-state.ts` is the state machine (triage → queued → dispatched → pr_open → awaiting_review → merged, plus rejected/parked/cancelled); `job-dependency.entity.ts` for dependencies; `job-events.service.ts` applies GitHub events to jobs. A run reporting `blocked` parks its job; a merged PR whose last result was blocked (`mergedBlocked`) does not satisfy dependents and can be recreated (`POST /api/v1/jobs/:id/recreate`). A job's owner (`ownerId`) is its non-bot creator, otherwise the human who queued it (`queuedById`)
 - `feature/` — groups of jobs across a project's repos; its own state machine in `feature-state.ts`
-- `run/` — one row per attempt (`job_runs`): session, parsed PR result and retro, CI conclusion
-- `dispatch/` — fires queued jobs every minute (and `POST /api/v1/dispatch`), respecting pause, concurrency, the daily limit and dependencies
-- `execution/` — `ExecutionPort` and the Claude Code routine adapter that fires jobs
-- `webhook/` — `POST /api/webhooks/github` (HMAC-verified): pull request, workflow run, review and comment events; `pr-body.ts` parses the agent's PR body
+- `run/` — one row per attempt (`job_runs`): executor, session, parsed PR result and retro, CI conclusion
+- `dispatch/` — fires queued jobs every minute (and `POST /api/v1/dispatch`) on an executor of the job's owner, respecting pause, repo and executor concurrency, the daily limits, budgets, dependencies and revisions; without a usable executor a job waits with a reason, never on another user's executor
+- `execution/` — `ExecutionPort` and the Claude Code routine adapter that fires jobs; builds and trims the agent prompt (`job-prompt.ts`, limit 60000 characters)
+- `executor/` — personal executors: a user's own Claude Code routine (fire URL, token encrypted with AES-256-GCM under `EXECUTOR_SECRET_KEY`, write-only), repos, concurrency, daily limit, `exhausted_until` after a usage limit (`EXECUTOR_EXHAUSTED_BACKOFF_MINUTES`). `/api/v1/executors` for the current user only, writes need a verified human; web page `/settings/executors`. ADR 0011
+- `webhook/` — `POST /api/webhooks/github` (HMAC-verified with `GITHUB_APP_WEBHOOK_SECRET` or `GITHUB_WEBHOOK_SECRET`, deduplicated per delivery id): pull request, workflow run, review and comment events; `pr-body.ts` parses the agent's PR body
 - `reconcile/` — every 5 minutes (and `POST /api/v1/reconcile`) recovers job state from GitHub when webhooks were missed
-- `github/` — `GitHubPort` with a read-only REST adapter (`GITHUB_TOKEN`)
+- `github/` — `GitHubPort` with a read-only REST adapter. All credentials go through `github-credentials.ts`: GitHub App installation tokens when `GITHUB_APP_ID` and `GITHUB_APP_PRIVATE_KEY` are set, otherwise `GITHUB_TOKEN`; nothing else reads them. ADR 0012
 - `feedback/` — reviews and review comments on agent PRs
-- `lesson/` — lessons collected hourly from runs and feedback; review, merge and apply
+- `lesson/` — lessons collected hourly from agents' suggested lessons and member review feedback (not retros); review, merge and apply. CLI `lesson:reject-retro-candidates`
 - `metrics/` — `GET /api/v1/metrics`
+- `spec/` — versioned, immutable specs per repo; only a verified human approves, which atomically creates a triage recording job; features can pin an approved version (ADR 0009)
+- `revision/` — proposals and revision rounds on agent PRs
+- `skill/` — skills per repo from the gildeboek library (sync status, promote)
+- `budget/`, `usage/`, `otel/` — estimated spend limits per project and global; co-pilot LLM usage and Claude Code token usage ingested over OTLP (`/api/v1/otel/v1/{logs,metrics}`, `OTEL_INGEST_TOKEN`) and attributed to runs
+- `notification/` — the notification outbox delivered by the channels app
+- `mcp/` — MCP server for operators at `/api/v1/mcp` (Streamable HTTP, off unless `MCP_ENABLED=true`): read tools plus triage/draft-only writes for non-bot users, with daily limits (ADR 0010)
 - `health/` — `GET /api/health`, returns `{ status, checks }`, 503 when the DB is down
-- `copilot/` — the co-pilot: a Mastra agent (`gilde`) built in a Nest provider (`copilot.mastra.ts`) so its tools get the services by injection; `@mastra/nestjs` is mounted under `/api/v1/mastra` (RouterModule) and the CopilotKit/AG-UI route is `/api/v1/mastra/copilotkit`. Behind the global JWT guard; `CopilotContextInterceptor` puts `req.user` and the memory resourceId (the user id) into the Mastra request context on every Mastra route. Tools are in `copilot.tools.ts` (read-only, call services, return DTOs). `GET /api/v1/copilot/status` returns `{ enabled, model }`. Env: `OPENAI_API_KEY` and `COPILOT_MODEL` (`openai/<model>`, no default); without them the routes answer 503 and the API still starts. Memory: Postgres on `DATABASE_URL`, otherwise `mastra.db` (gitignored)
+- `copilot/` — the co-pilot: a Mastra agent (`gilde`) built in a Nest provider (`copilot.mastra.ts`) so its tools get the services by injection; `@mastra/nestjs` is mounted under `/api/v1/mastra` (RouterModule) and the CopilotKit/AG-UI route is `/api/v1/mastra/copilotkit`. Behind the global JWT guard; `CopilotContextInterceptor` puts `req.user` and the memory resourceId (the user id) into the Mastra request context on every Mastra route. Tools are in `copilot.tools.ts` (call services, return DTOs). `GET /api/v1/copilot/threads` and `threads/:id/messages` serve the user's own conversations for `/chat`. `GET /api/v1/copilot/status` returns `{ enabled, model }`. Env: `OPENAI_API_KEY` and `COPILOT_MODEL` (`openai/<model>`, no default); without them the routes answer 503 and the API still starts. Memory: Postgres on `DATABASE_URL`, otherwise `mastra.db` (gitignored)
 - Verkenner (the scout, in `copilot/verkenner.*`): an opt-in, unattended second Mastra agent (id `verkenner`) in the same Mastra instance and storage as `gilde`. Env `SCOUT_ENABLED=true`, `SCOUT_USER_EMAIL` (an existing bot user), `SCOUT_MODEL` (fallback `COPILOT_MODEL`); it is off, and the API still starts, otherwise. It has read tools and its notification inbox only, thread `verkenner:<projectId>` under the bot user, and the project comes from a server-issued binding, never from tool input. It is refused on every Mastra HTTP route. Verified signal APIs: `docs/verkenner-signals.md`; setup: README "Verkenner"
 - `common/` — shared pipes and helpers (zod validation, db errors)
 
@@ -94,7 +101,7 @@ Unit tests live next to the code as `*.spec.ts` (vitest, globals enabled).
 - Every route requires a JWT unless marked `@Public()` (from `common/`). Only mark routes public that authenticate in another way (like the webhook signature) or must be reachable without login.
 - e2e tests: create an authenticated agent with `authedAgent(app)` from `test/helpers/auth.ts`; don't log in per test (login is throttled).
 - Job status changes only through the state machine in `job/job-state.ts`.
-- Co-pilot tools call existing services and return their DTOs; never query repositories or call the HTTP API from a tool. A tool of the human co-pilot that changes state must ask the user for confirmation first (`requireApproval`); the one exception is the Verkenner scout's bounded triage-only `suggestJob` (ADR 0007). The acting user comes from the Mastra request context (`copilotUser`), never from tool input.
+- Co-pilot tools call existing services and return their DTOs; never query repositories or call the HTTP API from a tool. A tool of the human co-pilot that changes state must ask the user for confirmation first (`requireApproval`). The exceptions are the Verkenner scout's bounded triage-only `suggestJob` (ADR 0007) and the MCP server's triage/draft-only writes, made on an operator's own authenticated call (ADR 0010); neither can queue, approve, merge or change settings. The acting user comes from the Mastra request context (`copilotUser`), never from tool input.
 - Keep routes of the co-pilot under `/api/v1/mastra`; Mastra's catch-all controller must not shadow other routes.
 
 ## Rules for agents
