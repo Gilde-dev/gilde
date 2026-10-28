@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { GitHubCredentials } from './github-credentials.js';
-import type { GitHubDirEntry, GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
+import { GITHUB_ISSUE_PAGE_SIZE, type GitHubDirEntry, type GitHubFile, type GitHubIssue, type GitHubIssuePage, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -18,6 +18,18 @@ interface PullJson {
 
 interface WorkflowRunsJson {
     workflow_runs: { name?: string | null; status?: string | null; conclusion?: string | null }[];
+}
+
+interface IssueJson {
+    node_id: string;
+    number: number;
+    html_url: string;
+    title: string;
+    body: string | null;
+    state: string;
+    user?: { login?: string } | null;
+    labels?: (string | { name?: string })[];
+    pull_request?: object;
 }
 
 interface ContentJson {
@@ -86,6 +98,13 @@ export class GitHubRestAdapter implements GitHubPort {
             .map((e) => ({ name: e.name, path: e.path, type: e.type === 'dir' ? 'dir' : 'file' }));
     }
 
+    async listOpenIssuesWithLabel(fullName: string, label: string): Promise<GitHubIssuePage> {
+        const rows = await this.get<IssueJson[]>(
+            `/repos/${fullName}/issues?state=open&labels=${encodeURIComponent(label)}&per_page=${GITHUB_ISSUE_PAGE_SIZE}`,
+        );
+        return { issues: rows.filter((r) => !r.pull_request).map(toIssue), complete: rows.length < GITHUB_ISSUE_PAGE_SIZE };
+    }
+
     private async get<T>(path: string, nullOn404?: false): Promise<T>;
     private async get<T>(path: string, nullOn404: true): Promise<T | null>;
     private async get<T>(path: string, nullOn404 = false): Promise<T | null> {
@@ -115,4 +134,15 @@ const toPull = (p: PullJson): GitHubPull => ({
     headRef: p.head.ref,
     htmlUrl: p.html_url,
     body: p.body,
+});
+
+const toIssue = (i: IssueJson): GitHubIssue => ({
+    nodeId: i.node_id,
+    number: i.number,
+    htmlUrl: i.html_url,
+    title: i.title,
+    body: i.body,
+    state: i.state === 'open' ? 'open' : 'closed',
+    authorLogin: i.user?.login ?? null,
+    labels: (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name ?? '')).filter(Boolean),
 });

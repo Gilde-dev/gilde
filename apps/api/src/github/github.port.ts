@@ -29,6 +29,27 @@ export interface GitHubDirEntry {
     type: 'file' | 'dir';
 }
 
+export interface GitHubIssue {
+    /** The issue's GraphQL node id. */
+    nodeId: string;
+    number: number;
+    htmlUrl: string;
+    title: string;
+    body: string | null;
+    state: 'open' | 'closed';
+    authorLogin: string | null;
+    labels: string[];
+}
+
+export interface GitHubIssuePage {
+    /** Real issues only; pull requests are left out. */
+    issues: GitHubIssue[];
+    /** False when GitHub returned a full page, so more issues may exist. */
+    complete: boolean;
+}
+
+export const GITHUB_ISSUE_PAGE_SIZE = 100;
+
 export interface GitHubPort {
     /** False when no GitHub credentials are configured; the other methods would fail. */
     isConfigured(): boolean;
@@ -43,4 +64,6 @@ export interface GitHubPort {
     getFileContent(fullName: string, path: string, ref: string): Promise<GitHubFile | null>;
     /** The entries of a directory at `ref`, or null when it does not exist. */
     listDirectory(fullName: string, path: string, ref: string): Promise<GitHubDirEntry[] | null>;
+    /** One page (at most GITHUB_ISSUE_PAGE_SIZE) of the open issues that carry `label`. */
+    listOpenIssuesWithLabel(fullName: string, label: string): Promise<GitHubIssuePage>;
 }

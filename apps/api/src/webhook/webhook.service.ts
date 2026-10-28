@@ -11,6 +11,7 @@ import { isUniqueViolation } from '../common/db-errors.js';
 import { WebhookDelivery } from './webhook-delivery.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
+import { IntakeService } from '../intake/intake.service.js';
 import { parsePrBody } from './pr-body.js';
 
 interface PullRequestPayload {
@@ -46,7 +47,17 @@ interface WebhookPayload {
         line?: number | null;
         original_line?: number | null;
     };
-    issue?: { number: number; pull_request?: object };
+    issue?: {
+        number: number;
+        pull_request?: object;
+        node_id?: string;
+        html_url?: string;
+        title?: string;
+        body?: string | null;
+        state?: string;
+        user?: { login?: string };
+        labels?: { name?: string }[];
+    };
     installation?: { id?: number };
     repositories?: { full_name?: string }[];
     repositories_added?: { full_name?: string }[];
@@ -63,8 +74,9 @@ interface WebhookPayload {
 const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const HANDLED_EVENTS = new Set([
     'pull_request', 'check_suite', 'workflow_run', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
-    'installation', 'installation_repositories',
+    'installation', 'installation_repositories', 'issues',
 ]);
+const INTAKE_ACTIONS = new Set(['opened', 'edited', 'labeled', 'unlabeled', 'closed', 'reopened']);
 
 @Injectable()
 export class WebhookService {
@@ -79,6 +91,7 @@ export class WebhookService {
         private readonly events: JobEventsService = new JobEventsService(jobs, runs, projects),
         @InjectRepository(WebhookDelivery) private readonly deliveries?: Repository<WebhookDelivery>,
         private readonly installations?: GithubInstallationService,
+        private readonly intake?: IntakeService,
     ) { }
 
     /**
@@ -115,6 +128,7 @@ export class WebhookService {
         if (event === 'pull_request_review') return this.onReview(repo.id, payload!);
         if (event === 'pull_request_review_comment') return this.onReviewComment(repo.id, payload!);
         if (event === 'issue_comment') return this.onIssueComment(repo.id, payload!);
+        if (event === 'issues') return this.onIssue(repo, payload!);
         return this.onPullRequest(repo.id, payload!);
     }
 
@@ -139,6 +153,25 @@ export class WebhookService {
         await this.installations?.record(added, true);
         await this.installations?.record(removed, false);
         return `recorded app installed on ${added.length} and removed from ${removed.length} repos`;
+    }
+
+    /** Labelled issues of registered repos become intake items; see IntakeService.applyIssue for the rules. */
+    private async onIssue(repo: { id: string; projectId: string }, payload: WebhookPayload): Promise<string> {
+        const issue = payload.issue;
+        if (!this.intake) return 'ignored: intake is not available';
+        if (!payload.action || !INTAKE_ACTIONS.has(payload.action) || !issue) return `ignored: issues ${payload.action ?? '(no action)'}`;
+        if (issue.pull_request) return `ignored: #${issue.number} is a pull request`;
+        const change = await this.intake.applyIssue(repo, {
+            nodeId: issue.node_id ?? String(issue.number),
+            number: issue.number,
+            url: issue.html_url ?? '',
+            title: issue.title ?? '',
+            body: issue.body ?? null,
+            open: issue.state !== 'closed',
+            authorLogin: issue.user?.login ?? null,
+            labels: (issue.labels ?? []).map((l) => l.name ?? '').filter(Boolean),
+        });
+        return `intake ${change} for issue #${issue.number}`;
     }
 
     private async onReview(repoId: string, payload: WebhookPayload): Promise<string> {
