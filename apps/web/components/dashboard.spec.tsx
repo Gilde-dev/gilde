@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, type Job, type JobDetail, type JobStatus, type Project } from '@/lib/api';
+import { budgetStatus } from './budget.fixture';
 import { Dashboard } from './dashboard';
 
 const nav = vi.hoisted(() => ({ search: '', replace: vi.fn() }));
@@ -21,6 +22,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listRepos').mockResolvedValue([]);
   vi.spyOn(api, 'listJobs').mockResolvedValue([]); // the job is outside the board's list
   vi.spyOn(api, 'listFeatures').mockResolvedValue([]);
+  vi.spyOn(api, 'getBudget').mockImplementation(async (id) => budgetStatus({ projectId: id }));
   vi.spyOn(api, 'getDispatchStatus').mockResolvedValue({ result: null } as never);
   vi.spyOn(api, 'listJobRevisions').mockResolvedValue([]);
   vi.spyOn(api, 'getJob').mockResolvedValue(detail);
@@ -247,5 +249,47 @@ describe('Dashboard Suggested badges', () => {
     render(<Dashboard />);
     await screen.findByText('By the bot');
     expect(screen.queryByText('Suggested')).toBeNull();
+  });
+});
+
+describe('Dashboard budget banner', () => {
+  beforeEach(() => {
+    nav.search = 'project=p2';
+  });
+
+  it('shows no banner when every period is ok', async () => {
+    render(<Dashboard />);
+    await waitFor(() => expect(api.getBudget).toHaveBeenCalledWith('p2'));
+    expect(screen.queryByRole('status', { name: 'Estimated budget' })).toBeNull();
+  });
+
+  it('shows the selected project warning, then the new project status after a switch, without refetching jobs for it', async () => {
+    vi.mocked(api.getBudget).mockImplementation(async (id) =>
+      id === 'p2' ? budgetStatus({ projectId: 'p2', pDay: { state: 'soft', limit: 10, percent: 90, spent: 9 } }) : budgetStatus({ projectId: id }),
+    );
+    const { rerender } = render(<Dashboard />);
+    const banner = await screen.findByRole('status', { name: 'Estimated budget' });
+    expect(banner).toHaveClass('text-warning');
+    expect(screen.getByRole('link', { name: 'Project budget settings' })).toHaveAttribute('href', '/settings/projects/p2?project=p2');
+    nav.search = 'project=p1';
+    rerender(<Dashboard />);
+    await waitFor(() => expect(api.getBudget).toHaveBeenCalledWith('p1'));
+    await waitFor(() => expect(screen.queryByRole('status', { name: 'Estimated budget' })).toBeNull());
+  });
+
+  it('does not change the job counts and keeps the dispatch strip', async () => {
+    vi.mocked(api.getBudget).mockResolvedValue(budgetStatus({ projectId: 'p2', gWeek: { state: 'hard', limit: 5, percent: 200, spent: 10 }, status: { hardBlocked: true, recovery: 'reset', recoversAt: '2026-03-16T00:00:00.000Z' } }));
+    vi.mocked(api.listJobs).mockResolvedValue([{ ...job, id: 'a', projectId: 'p2', status: 'triage' } as Job]);
+    render(<Dashboard />);
+    await screen.findByText(/Dispatch paused by budget/);
+    await waitFor(() => expect(within(screen.getByText('Triage (waiting for you)').parentElement!).getByText('1')).toBeInTheDocument());
+    expect(api.getJob).not.toHaveBeenCalled();
+    expect(api.getBudget).toHaveBeenCalledTimes(1);
+  });
+
+  it('says the budget is unavailable when the request fails', async () => {
+    vi.mocked(api.getBudget).mockRejectedValue(new Error('down'));
+    render(<Dashboard />);
+    expect(await screen.findByText('Estimated budget status is unavailable right now.')).toBeInTheDocument();
   });
 });

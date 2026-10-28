@@ -15,6 +15,7 @@ import { PageHeader } from './ui/page-header';
 import { Select } from './ui/select';
 import { StatCard } from './ui/stat-card';
 import { Board } from './board';
+import { BudgetBanner } from './budget-banner';
 import { DispatchStrip } from './dispatch-strip';
 import { JobModal } from './job-modal';
 import { CopilotPageContext } from './copilot-provider';
@@ -150,6 +151,7 @@ export function Dashboard() {
           }
         />
       )}
+      {projectId && <BudgetBanner projectId={projectId} />}
       {projectId && (
         <section aria-label="Job counts" className="px-4 pt-4">
           <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">

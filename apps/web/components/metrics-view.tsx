@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { api, type Metrics } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { useProject } from '@/lib/use-project';
+import { BudgetSection } from './budget-section';
 import { NoProjects } from './no-projects';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -76,6 +77,7 @@ export function MetricsView() {
         {metrics.error && <p className="p-4 text-sm text-danger">{metrics.error.message}</p>}
         {metrics.loading && !metrics.data && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
         {metrics.data && <MetricsBody metrics={metrics.data} />}
+        {projectId && <BudgetSection projectId={projectId} />}
         {projectId && <ScoutSection projectId={projectId} />}
         <UsageSection days={days} projectId={projectId} projectName={projects?.find((p) => p.id === projectId)?.name} />
     </>

@@ -431,7 +431,7 @@ In the UI, **Metrics** shows *Co-pilot usage* (always all projects, not filtered
 
 Cost is always labelled *estimated*: it is Claude Code's own figure, and under a subscription it is notional, not billing. An unknown cost is shown as `unavailable`, never `$0`; a partly known one as `$x+ (n requests unknown)`. "No telemetry received" (no rows) is shown differently from loading, an error, and real zero values.
 
-## Budgets (accounting and status API)
+## Budgets
 
 Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** recorded spend, **warn** through the notification outbox and **stop new automatic dispatch** at the hard limit (see "Enforcement" and "Budget notifications" below). Human use of Gilde is never blocked.
 
@@ -459,6 +459,16 @@ Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** 
 
 `budget.soft` and `budget.hard` use the existing outbox (`notifications`) and the Slack worker of `apps/channels`. `BudgetAlertService` evaluates the global scope once and then every project with a configured limit every minute (a non-overlapping pass, projects in batches of 20), independent of queued work; the dispatcher also records a hard stop when it finds one. `GET /api/v1/budget` stays side-effect free. An occurrence is unique per scope (`global` or the project id), period (`day`/`week`), canonical UTC period start and kind: `budget.<kind>:<global|project id>:<day|week>:<period start ISO>`. The database unique key makes retries, restarts, concurrent evaluations, threshold oscillation and limit edits record each soft and each hard at most once per period; a period that is already hard when first seen records `budget.hard` without a made-up soft crossing, and hard wins over soft. A new period is a new occurrence. A period with an invalid global setting records a hard occurrence carrying the variable name (never its value). The row stores the structured facts in `budget` (scope, period, state, estimated spend, limit, percent, UTC start and reset, unpriced count, reason kind); nothing is marked delivered before the Slack worker acknowledges it, so the outbox keeps its at-least-once semantics (not a new exactly-once guarantee). Recording problems are logged and never change a stop decision.
 
+
+### Budgets in the web UI
+
+- **Project settings** (`/settings/projects/<id>`, tab Budget): daily and weekly estimated USD (blank sends `null` = no limit, `0` is an intentional immediate stop, anything that is not a plain number `>= 0` is rejected before sending) and the soft percentage (`> 0` and `<= 100`). Next to each field the current UTC period's estimated spend, unpriced status and reset are shown for the **route's** project; after saving, the project and the budget status are reloaded. Server validation issues appear at their own field. Global limits are read-only (environment).
+- **Board banner**: below the page header, a warning for a soft and a danger notice for a hard period of the selected project or the global scope. The hard text, "Dispatch paused by budget until …", uses the API's `recoversAt` (the LATEST blocker reset) and lists every hard blocker; with `recovery: "manual"` it says a limit or configuration change is needed. It states that a manual pause is separate and that the time is not a promise. While loading nothing is shown, and a failed load says the status is unavailable. It links to the project settings (keeping `?project=`). The job counts, filters and the dispatch strip are unchanged and there are no per-card requests.
+- **Metrics**: bars for the project and global current UTC day and week, always from `GET /api/v1/budget` (independent of the days and repo filters), with spent/limit, percent (the fill is clamped at 100, the numbers are not), state, unpriced rows and reset time. No limit, a zero limit, no usage, a priced zero and all-unpriced or partial totals are shown as distinct states.
+
+**Verkenner.** The scout is implemented on main; it stops its native wakes and daily summaries at a hard global budget (see "Global budget gate" under Verkenner), so there is no open TODO. Project budgets do not gate it.
+
+**Human co-pilot.** It is never blocked by a budget; the sidebar only shows a nonblocking global warning.
 
 ## Notifications
 
