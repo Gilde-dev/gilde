@@ -29,6 +29,7 @@ import { NotificationModule } from './notification/notification.module.js';
 import { OtelModule } from './otel/otel.module.js';
 import { BudgetModule } from './budget/budget.module.js';
 import { SpecModule } from './spec/spec.module.js';
+import { McpModule } from './mcp/mcp.module.js';
 import { ScoutSignalModule } from './scout-signal/scout-signal.module.js';
 
 
@@ -67,6 +68,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     ApiKeyModule,
     AuthModule,
     CopilotModule,
+    McpModule.register(),
     NotificationModule,
     OtelModule,
   ],

@@ -13,5 +13,6 @@ One file per decision; see the write-adr skill. Accepted ADRs are not edited, on
 | 0007 | [Let the Verkenner scout create triage jobs without approval](0007-verkenner-scout-may-create-triage-jobs.md) | Accepted | 2026-10-27 |
 | 0008 | [Full-replacement PUT for updates; controllers depend on services and return DTOs](0008-full-replacement-put-controllers-use-services-and-dtos.md) | Accepted | 2026-10-28 |
 | 0009 | [Features pin an approved spec version and are created in one transaction](0009-features-pin-an-approved-spec-version.md) | Accepted | 2026-10-28 |
+| 0010 | [Serve an MCP server for operators that can read, triage and draft, nothing more](0010-mcp-server-for-operators-triage-and-draft-only.md) | Accepted | 2026-10-28 |
 
 The ADRs 0001–0006 were written retrospectively for decisions already in the code. Their dates are the merge dates of the pull requests that introduced the decision (taken from `git log`), and each ADR cites that evidence.

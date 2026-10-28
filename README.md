@@ -293,6 +293,44 @@ and a stub model. The same spec ran against a real local Postgres 16 (opt-in, `V
 run is not part of CI. The cron was not waited on (the dispatcher pass it triggers was run directly), only one process was used, and native
 `dedupeKey` is not restart-safe after delivery, so event publishing keeps its own durable receipt.
 
+## MCP server
+
+Gilde can act as a remote MCP server so an operator's own MCP client (Claude Code first) can read the factory and put work into triage
+without the co-pilot sidebar. It is a new external interface, see [ADR 0010](docs/adr/0010-mcp-server-for-operators-triage-and-draft-only.md).
+**No infrastructure change is included**: this repo only adds the endpoint; publishing it is an infra decision outside this repo.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `MCP_ENABLED` | off | Only the literal `true` enables `POST /api/v1/mcp`. Off, the path is a plain 404, also without credentials. |
+| `MCP_DAILY_JOB_LIMIT` | `20` | Jobs one user may create through MCP per UTC day, across all projects and keys. A planned feature's jobs count here. |
+| `MCP_DAILY_FEATURE_LIMIT` | `5` | Features one user may create through MCP per UTC day. |
+
+The limits are non-negative integers; `0` disables creating that kind. An empty, negative, fractional or non-numeric value stops the API at
+startup instead of lifting the limit. MCP needs no LLM and no co-pilot configuration.
+
+Authentication is the normal global guard: a personal API key (`gk_...`, create one at `/settings/api-keys`) or a JWT. Every tool call
+re-reads the account: deleted users, bot accounts and the scout account (`SCOUT_USER_EMAIL`) are refused, and with `AUTH_ENABLED=false`
+every tool fails closed. Connect Claude Code:
+
+```bash
+claude mcp add --transport http gilde <url>/api/v1/mcp --header "Authorization: Bearer gk_…"
+```
+
+Until infra exposes the path, open an SSH tunnel to the API and use `http://localhost:4100/api/v1/mcp` as the endpoint
+(`claude mcp add --transport http gilde http://localhost:4100/api/v1/mcp --header "Authorization: Bearer gk_…"`).
+
+The server is stateless (no session; `GET` and `DELETE` answer 405) and exposes exactly these 22 tools:
+
+- Read: `listProjects`, `listRepos`, `listJobs`, `getJob`, `listFeatures`, `getFeature`, `listProposals`, `getDispatchStatus`, `getMetrics`,
+  `listLessons`, `getRepoSkills`, `listSpecs`, `getSpec`, `searchHistory`, `listRepoFiles`, `readRepoFile`, `searchRepoCode`
+- Validate only (write nothing, use no allowance): `validateJob`, `planFeature`
+- Permitted writes: `createJob` (one job in `triage`, created by you), `createPlannedFeature` (a `draft` feature and its `triage` jobs,
+  pinned to an approved spec version when given), `draftSpec` (a spec draft with `expectedVersion`)
+
+Human-only, not available over MCP: queueing, dispatching, cancelling, retrying and merging jobs, approving specs, project and repo
+settings, users and API keys, notifications and the co-pilot's memory. Failures (invalid drafts, a stale `expectedVersion` (409), daily
+limits) come back as tool errors. Created jobs and features are logged as `audit source=mcp ...` (ids and caller only).
+
 ## Factory history (searchable)
 
 A separate, shared index of what the factory has learned, built on the same Mastra vector store and OpenAI embedder as the co-pilot memory
