@@ -616,6 +616,29 @@ export interface CopilotStatus {
   scout: { enabled: boolean; model: string | null };
 }
 
+/** GET /v1/copilot/threads: one of the caller's own co-pilot conversations. */
+export interface CopilotThread {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** One message of a conversation, in the shape the chat takes as history (AG-UI). */
+export interface CopilotThreadMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+  toolCalls?: { id: string; name: string; arguments: string }[];
+  toolCallId?: string;
+}
+
+/** GET /v1/copilot/threads/:id/messages */
+export interface CopilotThreadMessages {
+  thread: CopilotThread;
+  messages: CopilotThreadMessage[];
+}
+
 /**
  * GET /v1/copilot/scout-activity?projectId=: what the scout did in one project. Counts cover the project's whole history
  * (not the board's loaded list) and stay visible while the scout is off. `scoutUserId` is the configured scout user, for
@@ -912,6 +935,8 @@ export const api = {
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
   copilotStatus: () => request<CopilotStatus>('/v1/copilot/status'),
+  listCopilotThreads: () => request<CopilotThread[]>('/v1/copilot/threads'),
+  getCopilotThread: (threadId: string) => request<CopilotThreadMessages>(`/v1/copilot/threads/${id(threadId)}/messages`),
   scoutActivity: (projectId: string) => request<ScoutActivity>(`/v1/copilot/scout-activity?projectId=${id(projectId)}`),
   listRepos: (projectId: string) => request<Repo[]>(`/v1/projects/${id(projectId)}/repos`),
   listJobs: (projectId: string, createdBy?: 'me') =>

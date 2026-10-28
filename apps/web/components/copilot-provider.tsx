@@ -71,6 +71,7 @@ export function CopilotBudgetWarning() {
 export function CopilotProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const onLogin = pathname === '/login';
+  const onChat = pathname === '/chat' || pathname.startsWith('/chat/');
   const [enabled, setEnabled] = useState<boolean | null>(null);
 
   useEffect(() => {
@@ -108,9 +109,14 @@ export function CopilotProvider({ children }: { children: ReactNode }) {
         <CopilotPlanApproval />
         <CopilotToolRenderers />
         <CopilotBusyIndicator />
-        <CopilotSidebar defaultOpen={false} labels={{ title: 'Gilde co-pilot' }} RenderMessage={GroupedMessage}>
-          {children}
-        </CopilotSidebar>
+        {onChat ? (
+          // The full-page chat is the one chat on /chat: no sidebar next to it.
+          children
+        ) : (
+          <CopilotSidebar defaultOpen={false} labels={{ title: 'Gilde co-pilot' }} RenderMessage={GroupedMessage}>
+            {children}
+          </CopilotSidebar>
+        )}
         <CopilotBudgetWarning />
       </CopilotKit>
     </EnabledContext.Provider>

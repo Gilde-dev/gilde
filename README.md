@@ -129,6 +129,25 @@ recall and history search report errors; job dispatch does not depend on the co-
 `PGVECTOR_SMOKE_URL=postgres://gilde:gilde@localhost:5432/gilde pnpm --filter @gilde/api test -- memory.pgvector`
 (creates and drops a `gilde_smoke_*` index and checks insert/query with the fake embedder).
 
+## Chat page
+
+`/chat` is a full-page chat with the `gilde` co-pilot, next to the signed-in user's earlier conversations (newest first,
+"New conversation" starts an empty thread). The collapsible co-pilot sidebar stays on every other page; on `/chat` it is
+not rendered, so there is only one chat at a time. Below `md` the conversation list sits behind a button. Without
+`OPENAI_API_KEY` and `COPILOT_MODEL` the page shows the "Co-pilot not configured" note.
+
+- Conversations are the co-pilot's Mastra memory threads (Postgres on `DATABASE_URL`, otherwise `mastra.db`), one thread per
+  conversation with the user id as resource. CopilotKit's `CopilotThreadsDrawer`/`useThreads` are not used: in 1.80 they need
+  CopilotKit Intelligence, a paid cloud platform that stores conversations outside Gilde.
+- `GET /api/v1/copilot/threads` returns `{ id, title, createdAt, updatedAt }` of the caller's own threads; `GET
+  /api/v1/copilot/threads/:id/messages` returns one thread's messages as chat history. The user comes from the token. Threads
+  of other users, and of bot users (the Verkenner scout, the Slack bot), are never listed, and another user's id is a 404.
+  The title is Mastra's thread title when set, otherwise the first user message cut to 60 characters, otherwise "Untitled
+  conversation".
+- The AG-UI Mastra agent does not replay history on connect, so the page loads the messages through the endpoint above and
+  sets them on the agent (`agent.setMessages`) before the chat mounts, with the thread id on the chat configuration. The next
+  message then continues the same Mastra thread.
+
 ## Blocked results and merged-without-work
 
 An agent reports `blocked` in its `gilde-result` block when it could not do the task. Gilde treats that as follows:
