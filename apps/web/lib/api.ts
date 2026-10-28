@@ -657,6 +657,49 @@ export interface ScoutActivity {
   lastWakeAt: string | null;
 }
 
+export interface Executor {
+  id: string;
+  ownerId: string;
+  name: string;
+  kind: 'routine';
+  fireUrl: string;
+  hasToken: boolean;
+  /** Last four characters of the token; the token itself is never returned. */
+  tokenLast4: string | null;
+  repoIds: string[];
+  maxConcurrent: number;
+  dailyRunLimit: number | null;
+  enabled: boolean;
+  exhaustedUntil: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateExecutorInput {
+  name: string;
+  fireUrl: string;
+  token: string;
+  repoIds: string[];
+  maxConcurrent?: number;
+  dailyRunLimit?: number | null;
+  enabled?: boolean;
+}
+
+/** Full PUT body: every non-secret updatable field. */
+export type ReplaceExecutorInput = Pick<Executor, 'name' | 'fireUrl' | 'repoIds' | 'maxConcurrent' | 'dailyRunLimit' | 'enabled'>;
+
+export function executorReplacement(e: Executor, changes: Partial<ReplaceExecutorInput> = {}): ReplaceExecutorInput {
+  return {
+    name: e.name,
+    fireUrl: e.fireUrl,
+    repoIds: e.repoIds,
+    maxConcurrent: e.maxConcurrent,
+    dailyRunLimit: e.dailyRunLimit,
+    enabled: e.enabled,
+    ...changes,
+  };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -933,6 +976,13 @@ export const api = {
   createApiKey: (input: { name: string; expiresInDays?: number }) =>
     request<CreatedApiKey>('/v1/api-keys', 'POST', input),
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
+  listExecutors: () => request<Executor[]>('/v1/executors'),
+  createExecutor: (input: CreateExecutorInput) => request<Executor>('/v1/executors', 'POST', input),
+  replaceExecutor: (executorId: string, input: ReplaceExecutorInput) =>
+    request<Executor>(`/v1/executors/${id(executorId)}`, 'PUT', input),
+  replaceExecutorToken: (executorId: string, token: string) =>
+    request<void>(`/v1/executors/${id(executorId)}/token`, 'PUT', { token }),
+  deleteExecutor: (executorId: string) => request<void>(`/v1/executors/${id(executorId)}`, 'DELETE'),
   listProjects: () => request<Project[]>('/v1/projects'),
   copilotStatus: () => request<CopilotStatus>('/v1/copilot/status'),
   listCopilotThreads: () => request<CopilotThread[]>('/v1/copilot/threads'),
