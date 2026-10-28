@@ -174,6 +174,20 @@ export function FeatureDetailView() {
                   <TabsTrigger value="activity">Activity</TabsTrigger>
                 </TabsList>
                 <TabsContent value="overview" className="space-y-4 pt-4">
+                  {f.pinnedSpec && (
+                    <section aria-label="Pinned spec" className="text-sm">
+                      <h3 className="text-sm font-semibold">Pinned spec</h3>
+                      <p className="mt-1">
+                        <Link href={withProject(`/specs/${f.pinnedSpec.specId}/versions/${f.pinnedSpec.version}`, projectId ?? null)} className="underline">
+                          {f.pinnedSpec.title} v{f.pinnedSpec.version}
+                        </Link>{' '}
+                        <span className="text-muted-foreground">
+                          approved by {f.pinnedSpec.approvedByName} · <span className="font-mono">{f.pinnedSpec.repoFullName}</span>{' '}
+                          <span className="font-mono">{f.pinnedSpec.path}</span>
+                        </span>
+                      </p>
+                    </section>
+                  )}
                   <section aria-label="Spec">
                     <h3 className="text-sm font-semibold">Spec</h3>
                     {f.spec ? (

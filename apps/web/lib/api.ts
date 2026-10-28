@@ -940,7 +940,11 @@ export const api = {
     request<Feature[]>(`/v1/projects/${id(projectId)}/features${status ? `?status=${status}` : ''}`),
   createFeature: (projectId: string, input: CreateFeatureInput) =>
     request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
+  listSpecs: (projectId: string) => request<Spec[]>(`/v1/projects/${id(projectId)}/specs`),
   getSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}`),
+  /** Verified humans only. Sends exactly the version the caller saw; a stale one is a 409. */
+  approveSpec: (specId: string, expectedVersion: number) =>
+    request<SpecDetail>(`/v1/specs/${id(specId)}/approve`, 'POST', { expectedVersion }),
   getFeature: (featureId: string) => request<FeatureDetail>(`/v1/features/${id(featureId)}`),
   replaceFeature: (featureId: string, input: ReplaceFeatureInput) =>
     request<Feature>(`/v1/features/${id(featureId)}`, 'PUT', input),
