@@ -417,10 +417,13 @@ function PromptTab({ jobId }: { jobId: string }) {
   );
 }
 
+const fetchMe = () => api.me();
+
 export function JobDetailView() {
   const { id } = useParams<{ id: string }>();
   const fetchJob = useCallback(() => api.getJob(id), [id]);
   const job = usePolling(fetchJob, POLL_MS);
+  const me = usePolling(fetchMe, 5 * 60_000);
   const fetchRevisions = useCallback(() => api.listJobRevisions(id), [id]);
   const revisions = usePolling(fetchRevisions, 15_000);
   const j = job.data;
@@ -485,7 +488,7 @@ export function JobDetailView() {
           )}
           {latestCi && <Badge variant={latestCi === 'success' ? 'success' : 'danger'}>CI {latestCi}</Badge>}
         </div>
-        <JobActions job={j} onChanged={refreshAll} />
+        <JobActions job={j} onChanged={refreshAll} showSync={me.data !== undefined} />
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">

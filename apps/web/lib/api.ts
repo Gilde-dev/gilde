@@ -645,6 +645,28 @@ export interface CurrentUser {
   email: string;
 }
 
+export interface JobSyncState {
+  status: JobStatus;
+  prNumber: number | null;
+  headSha: string | null;
+  needsApproval: boolean;
+}
+
+/** `before` and `after` are the job's state when the check started and ended; `changes` is empty when nothing changed. */
+export interface JobSyncResult {
+  jobId: string;
+  pr: { number: number; state: 'open' | 'closed'; merged: boolean; headSha: string } | null;
+  ciConclusion: string | null;
+  before: JobSyncState;
+  after: JobSyncState;
+  changes: string[];
+}
+
+export interface ReconcileResult {
+  checked: number;
+  corrected: number;
+}
+
 export interface ApiKey {
   id: string;
   name: string;
@@ -1161,6 +1183,10 @@ export const api = {
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
   recreateJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/recreate`, 'POST'),
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
+  /** Re-checks the job's PR on GitHub (verified humans only). */
+  syncJob: (jobId: string) => request<JobSyncResult>(`/v1/jobs/${id(jobId)}/sync`, 'POST'),
+  /** The reconcile pass for one project's jobs (verified humans only). */
+  reconcileProject: (projectId: string) => request<ReconcileResult>(`/v1/projects/${id(projectId)}/reconcile`, 'POST'),
   sendBackJob: (jobId: string, reason: string) => request<Job>(`/v1/jobs/${id(jobId)}/send-back`, 'POST', { reason }),
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),

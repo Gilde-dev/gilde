@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api, type EnqueueResult, type Job } from '@/lib/api';
 import { withProject } from '@/lib/use-project';
-import { canCancel, canEnqueue, canRecreate, canRetry, canSendBack, canTriage, errorText, warningLines } from '@/lib/job-actions';
+import { canCancel, canEnqueue, canRecreate, canRetry, canSendBack, canSync, describeSync, canTriage, errorText, humanOnlyErrorText, warningLines } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -13,11 +13,14 @@ export function JobActions({
   job,
   onChanged,
   onEnqueued,
+  showSync = false,
 }: {
   job: Job;
   onChanged: () => void | Promise<void>;
   /** Called with the warning lines after a job was queued. */
   onEnqueued?: (warnings: string[]) => void;
+  /** Offers Sync from GitHub; only the modal and detail page set it, for a signed-in human. */
+  showSync?: boolean;
 }) {
   const [confirming, setConfirming] = useState(false);
   const [sendingBack, setSendingBack] = useState(false);
@@ -25,15 +28,18 @@ export function JobActions({
   const [recreating, setRecreating] = useState(false);
   const [replacement, setReplacement] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
+  const [syncNote, setSyncNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const replacementId = replacement?.id ?? job.replacedById;
   const showRecreate = canRecreate(job) && !replacement;
-  if (!showRecreate && !replacementId && !canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
+  const syncable = showSync && canSync(job);
+  if (!syncable && !showRecreate && !replacementId && !canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
+    setSyncNote(null);
     try {
       await action();
       setConfirming(false);
@@ -44,6 +50,15 @@ export function JobActions({
       setBusy(false);
     }
   }
+
+  const sync = () =>
+    void run(async () => {
+      try {
+        setSyncNote(describeSync(await api.syncJob(job.id)));
+      } catch (e) {
+        throw new Error(humanOnlyErrorText(e, 'sync jobs from GitHub'));
+      }
+    });
 
   return (
     <div className="space-y-1" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.stopPropagation()}>
@@ -60,6 +75,11 @@ export function JobActions({
             }
           >
             Queue
+          </Button>
+        )}
+        {syncable && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={sync}>
+            {busy ? 'Checking GitHub…' : 'Sync from GitHub'}
           </Button>
         )}
         {canTriage(job.status) && (
@@ -176,6 +196,11 @@ export function JobActions({
           </div>
         </DialogContent>
       </Dialog>
+      {syncNote && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {syncNote}
+        </p>
+      )}
       {error && !sendingBack && !recreating && (
         <p role="alert" className="text-xs text-danger">
           {error}

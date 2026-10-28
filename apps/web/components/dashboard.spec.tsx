@@ -293,3 +293,26 @@ describe('Dashboard budget banner', () => {
     expect(await screen.findByText('Estimated budget status is unavailable right now.')).toBeInTheDocument();
   });
 });
+
+describe('Dashboard reconcile and sync placement', () => {
+  it('reconciles the selected project, never the global endpoint', async () => {
+    nav.search = 'project=p2';
+    const reconcile = vi.spyOn(api, 'reconcileProject').mockResolvedValue({ checked: 2, corrected: 0 });
+    render(<Dashboard />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Reconcile now' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Checked 2 jobs; nothing needed correcting.');
+    expect(reconcile).toHaveBeenCalledWith('p2');
+  });
+
+  it('offers Sync from GitHub in the job dialog but not on board cards', async () => {
+    nav.search = 'project=p2';
+    const pr = { ...job, status: 'pr_open', prNumber: 5 } as Job;
+    vi.mocked(api.listJobs).mockResolvedValue([pr]);
+    vi.mocked(api.getJob).mockResolvedValue({ ...detail, ...pr } as JobDetail);
+    render(<Dashboard />);
+    const card = (await screen.findAllByText('Deep linked job'))[0];
+    expect(screen.queryByRole('button', { name: 'Sync from GitHub' })).toBeNull();
+    fireEvent.click(card);
+    expect(await screen.findByRole('button', { name: 'Sync from GitHub' })).toBeInTheDocument();
+  });
+});

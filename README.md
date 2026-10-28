@@ -490,6 +490,31 @@ with the GitHub credentials (see "GitHub App"; read access to *Contents*) on man
 `GET /api/v1/repos/:id/workspace` shows `{ cloned, headSha, fetchedAt, error }`. Without a clone the co-pilot falls back to the GitHub API
 for listing and reading files; code search then reports an error.
 
+## When a job is stuck
+
+If a PR was merged or closed on GitHub but its job still says `pr_open` or `awaiting_review`, a webhook was missed. GitHub is the
+source of truth, so there is no "mark as merged" action; Gilde re-reads GitHub and applies exactly what the webhook would have:
+
+- **Sync from GitHub** (job modal and job page): re-checks that one job now (`POST /api/v1/jobs/:id/sync`). It works for dispatched,
+  `pr_open` and `awaiting_review` jobs (a dispatched job without a PR is looked up by its branch), for parked jobs with a PR, and,
+  as a CI-only refresh, for merged or rejected jobs with a PR. The result says what changed, for example "PR #130 is merged: moved to merged".
+- **Reconcile now** (next to the dispatch status on the board): runs the scheduled reconcile pass for the selected project only
+  (`POST /api/v1/projects/:id/reconcile`). `POST /api/v1/reconcile` and the 5-minute schedule are unchanged.
+
+Both need a signed-in human (JWT); API keys, bot accounts and the scout are refused. Neither is exposed as a co-pilot tool or an MCP
+tool, and none should be added: they change job state. All GitHub reads happen before anything is written, so a failed read changes
+nothing and answers `502` with the repo and a short reason (never a token or a raw response).
+
+A `502` means GitHub access needs fixing, not the job status. Credentials are GitHub App installation tokens when `GITHUB_APP_ID` and
+`GITHUB_APP_PRIVATE_KEY` are set, otherwise the `GITHUB_TOKEN` PAT. Check, in order:
+
+1. **Installation**: the Gilde GitHub App is installed on the repo ("not installed on ..."); install it, or set `GITHUB_APP_INSTALLATION_ID`.
+2. **Private key**: `GITHUB_APP_PRIVATE_KEY` matches the app (a refused installation token or `401`).
+3. **Permissions**: the app can read pull requests, actions and contents (`403`/`404`); accept pending permission changes on the installation.
+4. **Rate limit or network** (`429`, "could not be reached"): retry later.
+
+Logs name only the job, repo and failure reason; tokens and keys are never logged.
+
 ## GitHub App
 
 Gilde's own GitHub access (REST reads, reconcile, manifest and skills sync, clones for the code tools) can run on a GitHub App
