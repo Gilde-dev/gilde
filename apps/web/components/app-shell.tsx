@@ -7,6 +7,7 @@ import {
   FileText,
   FolderKanban,
   KeyRound,
+  Server,
   Layers,
   LayoutDashboard,
   MessageSquare,
@@ -52,6 +53,7 @@ const NAV: NavItem[] = [
 const SETTINGS: NavItem[] = [
   { href: '/settings/projects', label: 'Projects', icon: FolderKanban },
   { href: '/settings/api-keys', label: 'API keys', icon: KeyRound },
+  { href: '/settings/executors', label: 'Executors', icon: Server },
 ];
 
 /** localStorage key of the desktop icon-rail preference ('1' = rail). */

@@ -56,6 +56,7 @@ describe('AppShell', () => {
     const settings = within(screen.getAllByRole('navigation', { name: 'Settings' })[0]);
     expect(settings.getByRole('link', { name: 'Projects' })).toHaveAttribute('href', '/settings/projects?project=p2');
     expect(settings.getByRole('link', { name: 'API keys' })).toBeInTheDocument();
+    expect(settings.getByRole('link', { name: 'Executors' })).toHaveAttribute('href', '/settings/executors?project=p2');
     expect(await screen.findByText('Pascal')).toBeInTheDocument();
   });
 
