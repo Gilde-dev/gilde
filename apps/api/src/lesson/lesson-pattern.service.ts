@@ -114,7 +114,7 @@ export class LessonPatternService {
                     .filter((x) => x.score >= threshold)
                     .sort((a, b) => b.score - a.score || byId(a.c, b.c))
                     .slice(0, MAX_COVERED)
-                    .map(({ c }) => ({ lessonId: c.id, text: c.text, status: c.status, appliedJobId: c.appliedJobId })),
+                    .map(({ c }) => ({ lessonId: c.id, text: c.text, status: c.status, appliedJobId: c.appliedJobId, skillName: c.appliedSkillName })),
             };
         });
         patterns.sort((a, b) => b.size - a.size || (a.lastSeen < b.lastSeen ? 1 : a.lastSeen > b.lastSeen ? -1 : 0) || (a.id < b.id ? -1 : 1));

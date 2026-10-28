@@ -1,3 +1,5 @@
+import { LESSON_PATTERN_MIN_SIZE } from '../lesson/lesson.dto.js';
+
 import { COPILOT_MODEL_PREFIX, copilotMaxSteps } from './copilot.config.js';
 
 export const SCOUT_AGENT_ID = 'verkenner';
@@ -5,6 +7,7 @@ export const SCOUT_AGENT_ID = 'verkenner';
 export const DEFAULT_SCOUT_SUMMARY_HOUR_UTC = 6;
 export const DEFAULT_SCOUT_MAX_WAKES_PER_DAY = 6;
 export const DEFAULT_SCOUT_DAILY_SUGGESTIONS = 3;
+export const DEFAULT_SCOUT_PATTERN_MIN_SIZE = 4;
 
 export type ScoutConfig =
     | {
@@ -15,6 +18,8 @@ export type ScoutConfig =
           summaryHourUtc: number;
           maxWakesPerDay: number;
           dailySuggestions: number;
+          /** Smallest lesson pattern the scout may suggest a skill for. */
+          patternMinSize: number;
           maxSteps: number;
       }
     | { enabled: false; model: null; reason: string };
@@ -45,7 +50,10 @@ export function scoutConfig(env: NodeJS.ProcessEnv = process.env): ScoutConfig {
     const dailySuggestions = integerSetting(env.SCOUT_DAILY_SUGGESTIONS, DEFAULT_SCOUT_DAILY_SUGGESTIONS, 1);
     if (dailySuggestions === null) return disabled('SCOUT_DAILY_SUGGESTIONS must be a positive integer');
 
-    return { enabled: true, model, userEmail, summaryHourUtc, maxWakesPerDay, dailySuggestions, maxSteps: copilotMaxSteps(env) };
+    const patternMinSize = integerSetting(env.SCOUT_PATTERN_MIN_SIZE, DEFAULT_SCOUT_PATTERN_MIN_SIZE, LESSON_PATTERN_MIN_SIZE, 100);
+    if (patternMinSize === null) return disabled(`SCOUT_PATTERN_MIN_SIZE must be an integer from ${LESSON_PATTERN_MIN_SIZE} to 100`);
+
+    return { enabled: true, model, userEmail, summaryHourUtc, maxWakesPerDay, dailySuggestions, patternMinSize, maxSteps: copilotMaxSteps(env) };
 }
 
 /** Missing or blank: the default. Present but not an integer in range: null (invalid). */

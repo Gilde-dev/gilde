@@ -43,7 +43,7 @@ describe('LessonPatternsPanel', () => {
   it('shows a pattern, expands it to lessons with PR links and notes the covered ones', async () => {
     vi.spyOn(api, 'listLessonPatterns').mockResolvedValue({
       method: 'embeddings', threshold: 0.85,
-      patterns: [pattern({ alreadyCovered: [{ lessonId: 'l9', text: 'Already in AGENTS.md', status: 'applied', appliedJobId: null }] })],
+      patterns: [pattern({ alreadyCovered: [{ lessonId: 'l9', text: 'Already in AGENTS.md', status: 'applied', appliedJobId: null, skillName: null }] })],
     });
     render(<LessonPatternsPanel projectId="p1" onMerged={vi.fn()} />);
     expect(await screen.findByText('2 lessons')).toBeInTheDocument();
@@ -68,6 +68,52 @@ describe('LessonPatternsPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Merge 2 lessons' }));
     await waitFor(() => expect(merge).toHaveBeenCalledWith('l2', ['l1']));
     await waitFor(() => expect(onMerged).toHaveBeenCalled());
+  });
+
+  it('proposes a skill from the dialog and shows the resulting job link', async () => {
+    vi.spyOn(api, 'listLessonPatterns').mockResolvedValue({ method: 'text', threshold: 0.6, patterns: [pattern()] });
+    const propose = vi.spyOn(api, 'proposeSkillFromPattern').mockResolvedValue({ jobId: 'abcdef12-0000', skillName: 'pnpm-install', lessonIds: ['l1', 'l2'] });
+    const onMerged = vi.fn();
+    render(<LessonPatternsPanel projectId="p1" onMerged={onMerged} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Propose skill' }));
+    const submit = screen.getByRole('button', { name: 'Create proposal job' });
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText('pnpm-install-first'), { target: { value: 'Bad Name' } });
+    expect(screen.getByText(/Use lowercase letters/)).toBeInTheDocument();
+    expect(submit).toBeDisabled();
+    fireEvent.change(screen.getByPlaceholderText('pnpm-install-first'), { target: { value: 'pnpm-install' } });
+    fireEvent.click(screen.getByLabelText('Stack'));
+    expect(submit).toBeDisabled();
+    fireEvent.click(screen.getByLabelText('nestjs'));
+    fireEvent.click(submit);
+    await waitFor(() => expect(propose).toHaveBeenCalledWith('p1', 'pat1', { name: 'pnpm-install', scope: 'stack', stacks: ['nestjs'] }));
+    expect(await screen.findByRole('link', { name: 'job abcdef12' })).toHaveAttribute('href', '/?job=abcdef12-0000&project=p1');
+    expect(onMerged).toHaveBeenCalled();
+  });
+
+  it('shows the server error in the dialog', async () => {
+    vi.spyOn(api, 'listLessonPatterns').mockResolvedValue({ method: 'text', threshold: 0.6, patterns: [pattern()] });
+    vi.spyOn(api, 'proposeSkillFromPattern').mockRejectedValue(new Error("The library already has a skill named 'x-skill'"));
+    render(<LessonPatternsPanel projectId="p1" onMerged={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Propose skill' }));
+    fireEvent.change(screen.getByPlaceholderText('pnpm-install-first'), { target: { value: 'x-skill' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Create proposal job' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('already has a skill');
+  });
+
+  it('shows the job instead of the action for a pattern being applied, and the skill with its impact link once applied', async () => {
+    vi.spyOn(api, 'listLessonPatterns').mockResolvedValue({
+      method: 'text', threshold: 0.6,
+      patterns: [
+        pattern({ id: 'a', representativeText: 'Being applied', alreadyCovered: [{ lessonId: 'l8', text: 'x', status: 'applying', appliedJobId: 'job99999-aaaa', skillName: 'my-skill' }] }),
+        pattern({ id: 'b', representativeText: 'Already a skill', alreadyCovered: [{ lessonId: 'l9', text: 'y', status: 'applied', appliedJobId: 'job88888-aaaa', skillName: 'my-skill' }] }),
+      ],
+    });
+    render(<LessonPatternsPanel projectId="p1" onMerged={vi.fn()} />);
+    expect(await screen.findByRole('link', { name: 'job job99999' })).toHaveAttribute('href', '/?job=job99999-aaaa&project=p1');
+    expect(screen.getAllByRole('button', { name: 'Propose skill' })).toHaveLength(1);
+    expect(screen.getByText('my-skill')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'See its impact' })).toHaveAttribute('href', '/skills?tab=impact&project=p1');
   });
 
   it('shows a merge failure', async () => {

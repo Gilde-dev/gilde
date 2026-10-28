@@ -31,6 +31,7 @@ export class LessonMapper {
             note: e.note,
             appliedJobId: e.appliedJobId,
             appliedJobPrUrl,
+            appliedSkillName: e.appliedSkillName,
             appliedAt: e.appliedAt?.toISOString() ?? null,
             sources,
             sourceCount: new Set(sources.map((s) => s.jobId)).size,

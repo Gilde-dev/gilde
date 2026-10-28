@@ -290,6 +290,18 @@ describe('LessonService', () => {
             expect(dto.appliedAt).toBeNull();
         });
 
+        it('finishes every lesson a job applies (a skill proposal applies a whole pattern)', async () => {
+            const a = await applying();
+            const b = await applying();
+            await service.onJobEnded(J1, 'merged');
+            expect((await service.getById(a.id)).status).toBe('applied');
+            expect((await service.getById(b.id)).status).toBe('applied');
+            const c = await applying();
+            const d = await applying();
+            await service.onJobEnded(J1, 'rejected');
+            expect([(await service.getById(c.id)).status, (await service.getById(d.id)).status]).toEqual(['approved', 'approved']);
+        });
+
         it('does nothing for unrelated jobs, other statuses and non-applying lessons', async () => {
             const l = await applying();
             const done = await lesson({ status: 'applied', appliedJobId: J2 });

@@ -1,5 +1,6 @@
 'use client';
 
+import { useSearchParams } from 'next/navigation';
 import { useCallback, useEffect, useState } from 'react';
 import {
   SKILLS_LIBRARY_KINDS,
@@ -37,6 +38,7 @@ export const STATUS_VARIANTS: Record<SkillStatus, BadgeVariant> = {
 
 export function SkillsView() {
   const { projects, project, projectId, refresh: refreshProjects } = useProject();
+  const tab = useSearchParams().get('tab');
 
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([] as Repo[])), [projectId]);
   const repos = usePolling(fetchRepos, POLL_MS);
@@ -84,7 +86,7 @@ export function SkillsView() {
         {project && project.skillsLibrary === 'none' && (
           <p className="p-4 text-sm text-muted-foreground">No skills library is configured for this project.</p>
         )}
-        <Tabs defaultValue="library" className="px-4 pt-3">
+        <Tabs defaultValue={tab === 'impact' ? 'impact' : 'library'} className="px-4 pt-3">
           <TabsList>
             <TabsTrigger value="library">Library</TabsTrigger>
             <TabsTrigger value="impact">Impact</TabsTrigger>

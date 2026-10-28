@@ -13,14 +13,15 @@ import { HistorySearchSchema } from '../memory/history/history.dto.js';
 import { createCodeTools } from './copilot.code-tools.js';
 import { compactFeature, compactJob, type CopilotServices } from './copilot.tools.js';
 import type { ScoutSuggestionService } from './scout-suggestion.service.js';
+import { DEFAULT_SCOUT_PATTERN_MIN_SIZE } from './verkenner.config.js';
 import { requireScoutBinding, scoutBinding } from './verkenner.context.js';
 
 /** The services the scout tools may call: reads only. */
-export type ScoutServices = Pick<CopilotServices, 'jobs' | 'features' | 'lessons' | 'repos' | 'history' | 'github' | 'workspace'>;
+export type ScoutServices = Pick<CopilotServices, 'jobs' | 'features' | 'lessons' | 'lessonPatterns' | 'repos' | 'history' | 'github' | 'workspace'>;
 
 /** Names of the tools the scout gets. Anything not listed here is not exposed to it (see verkenner.tools.spec.ts). */
 export const SCOUT_TOOL_NAMES = [
-    'listRepos', 'listJobs', 'getJob', 'listFeatures', 'getFeature', 'listLessons', 'searchHistory',
+    'listRepos', 'listJobs', 'getJob', 'listFeatures', 'getFeature', 'listLessons', 'listLessonPatterns', 'searchHistory',
     'listRepoFiles', 'readRepoFile', 'searchRepoCode', 'notificationInbox', 'suggestJob',
 ] as const;
 
@@ -35,7 +36,7 @@ const wrongProject = (what: string, ref: string) => new Error(`${what} ${ref} is
  * server put in the request context (verkenner.context.ts), and every id the model passes is checked against it.
  * The tools call services and return DTOs; none of them creates, changes, queues, starts or cancels anything.
  */
-export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>, suggestions: Pick<ScoutSuggestionService, 'suggest'>) {
+export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>, suggestions: Pick<ScoutSuggestionService, 'suggest'>, patternMinSize = DEFAULT_SCOUT_PATTERN_MIN_SIZE) {
     const projectOf = (requestContext: Parameters<typeof requireScoutBinding>[0]) => requireScoutBinding(requestContext).projectId;
 
     async function assertRepo(repoId: string, projectId: string) {
@@ -104,6 +105,15 @@ export function createScoutTools(s: ScoutServices, storage: Pick<MastraComposite
         execute: async ({ status }, { requestContext }) => s.lessons.list({ status, projectId: projectOf(requestContext) }),
     });
 
+    const listLessonPatterns = createTool({
+        id: 'listLessonPatterns',
+        description:
+            `List recurring lesson patterns of your project with at least ${patternMinSize} lessons: id, representative text, member lessons, jobs and repos. ` +
+            'A pattern whose alreadyCovered holds an "applying" lesson is already being handled. Read-only. To propose a skill for one, pass its id as patternId to suggestJob.',
+        inputSchema: z.object({}),
+        execute: async (_input, { requestContext }) => s.lessonPatterns.list(projectOf(requestContext), { minSize: patternMinSize }),
+    });
+
     const searchHistory = createTool({
         id: 'searchHistory',
         description:
@@ -165,13 +175,14 @@ export function createScoutTools(s: ScoutServices, storage: Pick<MastraComposite
             task: z.string().describe('The full task for the agent, at least 10 characters. The Why section is added for you.'),
             acceptanceCriteria: z.array(z.string()).describe('At most 20 concrete, testable criteria of at least 3 characters'),
             reason: z.string().describe('Why this job, in a few sentences: the recurrence or the missing follow-up you found'),
-            basedOn: z.array(z.string()).describe('Ids of the runs, jobs, lessons or features that support the suggestion; at least one'),
+            basedOn: z.array(z.string()).describe('Ids of the runs, jobs, lessons or features that support the suggestion; at least one (optional with patternId)'),
+            patternId: z.string().optional().describe('Id of a lesson pattern from listLessonPatterns, to propose a skill in the skills library repo (repoId must be that repo). The pattern\'s lessons become the evidence; no lesson is changed.'),
         }),
         execute: async (input, { requestContext }) => suggestions.suggest(scoutBinding(requestContext), input),
     });
 
     return {
-        listRepos, listJobs, getJob, listFeatures, getFeature, listLessons, searchHistory,
+        listRepos, listJobs, getJob, listFeatures, getFeature, listLessons, listLessonPatterns, searchHistory,
         listRepoFiles: guarded(code.listRepoFiles), readRepoFile: guarded(code.readRepoFile as never), searchRepoCode: guarded(code.searchRepoCode as never),
         notificationInbox, suggestJob,
     };

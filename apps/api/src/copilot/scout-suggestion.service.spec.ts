@@ -316,4 +316,59 @@ describe('ScoutSuggestionService', () => {
             expect(JSON.stringify(off)).not.toContain('@');
         });
     });
+
+    describe('pattern suggestions', () => {
+        const L1 = 'a3a3a3a3-a3a3-43a3-83a3-a3a3a3a3a3a3';
+        const L2 = 'a4a4a4a4-a4a4-44a4-84a4-a4a4a4a4a4a4';
+        let pattern: { id: string; members: { lessonId: string }[]; alreadyCovered: { status: string; appliedJobId: string | null }[] };
+        let list: ReturnType<typeof vi.fn>;
+        let library: Repo;
+
+        beforeEach(async () => {
+            const repos = ds.getRepository(Repo);
+            library = await repos.save(repos.create({ projectId: p1.id, fullName: 'o/library', testCommands: ['pnpm validate'] }));
+            await ds.getRepository(Project).update({ id: p1.id }, { skillsLibrary: 'repo', skillsLibraryRepoId: library.id });
+            pattern = { id: 'pat1', members: [{ lessonId: LESSON_P1 }, { lessonId: L1 }, { lessonId: L2 }], alreadyCovered: [] };
+            list = vi.fn(async () => ({ patterns: [pattern] }));
+        });
+        const withPatterns = () => new ScoutSuggestionService(
+            ds, jobService, {} as never,
+            { getById: async (id: string) => { if (![LESSON_P1, L1, L2].includes(id)) throw new Error('nf'); return { id, projectId: p1.id }; } } as never,
+            {} as never, { getById: (id: string) => ds.getRepository(Repo).findOneByOrFail({ id }) },
+            { user: { id: BOT }, dailySuggestions: 3, patternMinSize: 3 }, () => clock,
+            { list } as never, { getById: (id: string) => ds.getRepository(Project).findOneByOrFail({ id }) } as never,
+        );
+        const ask = (over: Partial<SuggestionInput> = {}) => input({ repoId: library.id, basedOn: [], patternId: 'pat1', ...over });
+
+        it('creates a triage job in the library repo with the pattern lessons as evidence, asking for the configured minimum size', async () => {
+            const res = await withPatterns().suggest(binding(), ask());
+            expect(res).toMatchObject({ created: true, status: 'triage', basedOn: canonicalEvidence([LESSON_P1, L1, L2]) });
+            if (!res.created) throw new Error('unreachable');
+            expect(list).toHaveBeenCalledWith(p1.id, { minSize: 3 });
+            const job = await jobsRepo().findOneByOrFail({ id: res.jobId });
+            expect(job).toMatchObject({ status: 'triage', repoId: library.id, createdById: BOT });
+            expect(job.task).toContain('Source pattern: pat1');
+            expect(await receipts()).toHaveLength(1);
+        });
+
+        it('refuses a stale or too small pattern, one being applied, and a repo that is not the library', async () => {
+            list.mockResolvedValueOnce({ patterns: [] });
+            expect(await withPatterns().suggest(binding(), ask())).toMatchObject({ created: false, refusal: { reason: 'unknown_pattern' } });
+            pattern.alreadyCovered = [{ status: 'applying', appliedJobId: job1.id }];
+            expect(await withPatterns().suggest(binding(), ask())).toMatchObject({ created: false, refusal: { reason: 'pattern_in_progress', ids: [job1.id] } });
+            pattern.alreadyCovered = [{ status: 'applied', appliedJobId: null }];
+            expect(await withPatterns().suggest(binding(), ask({ repoId: repo1.id }))).toMatchObject({ created: false, refusal: { reason: 'not_library_repo' } });
+            expect(await receipts()).toHaveLength(0);
+        });
+
+        it('dedupes on the pattern lessons, counts against the daily cap and never changes a lesson', async () => {
+            expect(await withPatterns().suggest(binding(), ask())).toMatchObject({ created: true });
+            expect(await withPatterns().suggest(binding(), ask({ title: 'Another title' }))).toMatchObject({ created: false, refusal: { reason: 'duplicate_evidence' } });
+            expect(Object.keys(list.mock.calls[0][1])).toEqual(['minSize']); // read-only call: no service with a write method is even wired
+        });
+
+        it('refuses a pattern suggestion when no pattern service is wired', async () => {
+            expect(await service.suggest(binding(), ask())).toMatchObject({ created: false, refusal: { reason: 'unknown_pattern' } });
+        });
+    });
 });
