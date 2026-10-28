@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { api, SKILLS_LIBRARY_KINDS, type ApiError, type Project, type SkillsLibraryKind, type UpdateProjectInput } from '@/lib/api';
+import { api, SKILLS_LIBRARY_KINDS, type ApiError, type BudgetPeriodStatus, type BudgetStatus, type Project, type SkillsLibraryKind, type UpdateProjectInput } from '@/lib/api';
+import { periodSummary } from '@/lib/budget';
 import { errorText } from '@/lib/job-actions';
-import { usePolling } from '@/lib/use-polling';
+import { usePolling, type Polling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
 import { PauseToggle } from './pause-toggle';
@@ -194,12 +195,99 @@ function SkillsForm({
   );
 }
 
+/** Blank = no limit (null). Anything else must be a plain non-negative decimal: never Number('') = 0. */
+function parseLimit(raw: string): { value: number | null; message?: string } {
+  const t = raw.trim();
+  if (t === '') return { value: null };
+  if (!/^(\d+(\.\d*)?|\.\d+)$/.test(t) || !Number.isFinite(Number(t))) return { value: null, message: 'Enter a number of 0 or more, or leave blank for no limit.' };
+  return { value: Number(t) };
+}
+
+function parseSoftPct(raw: string): { value: number; message?: string } {
+  const t = raw.trim();
+  const n = Number(t);
+  if (t === '' || !Number.isFinite(n) || n <= 0 || n > 100) return { value: 0, message: 'Enter a percentage above 0 and up to 100.' };
+  return { value: n };
+}
+
+function BudgetForm({
+  project,
+  budget,
+  onSaved,
+}: {
+  project: Project;
+  budget: Polling<BudgetStatus>;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [daily, setDaily] = useState(project.dailyBudgetUsd == null ? '' : String(project.dailyBudgetUsd));
+  const [weekly, setWeekly] = useState(project.weeklyBudgetUsd == null ? '' : String(project.weeklyBudgetUsd));
+  const [softPct, setSoftPct] = useState(String(project.budgetSoftPct ?? 80));
+  const d = parseLimit(daily);
+  const w = parseLimit(weekly);
+  const s = parseSoftPct(softPct);
+  // The first render after a route change still holds another project's status.
+  const status = budget.data?.project?.projectId === project.id ? budget.data.project : undefined;
+  const spend = (p: BudgetPeriodStatus | undefined) =>
+    p ? `Current ${p.period} (UTC): ${periodSummary(p)}.` : budget.error ? 'Current spend could not be loaded.' : 'Current spend is loading…';
+  const resetNote = ' Resets at 00:00 UTC';
+  return (
+    <SettingsForm
+      project={project}
+      onSaved={async () => {
+        await Promise.all([onSaved(), budget.refresh()]);
+      }}
+      disabled={Boolean(d.message || w.message || s.message)}
+      build={() => ({ dailyBudgetUsd: d.value, weeklyBudgetUsd: w.value, budgetSoftPct: s.value })}
+    >
+      {(error) => (
+        <>
+          <p className="text-sm text-muted-foreground">
+            Estimated USD per UTC day and ISO week (Monday start). Estimated: with a subscription this is notional consumption, not a bill. At the
+            hard limit only new automatic dispatch stops; running work and manual use continue, and a manual pause stays separate. Global limits
+            are set by the server environment and cannot be edited here.
+          </p>
+          <Field
+            label="Daily budget (estimated USD)"
+            path="dailyBudgetUsd"
+            error={error}
+            message={d.message}
+            hint={`Blank = no limit; 0 stops new dispatch immediately.${resetNote} daily. ${spend(status?.day)}`}
+          >
+            <Input type="text" inputMode="decimal" value={daily} onChange={(e) => setDaily(e.target.value)} />
+          </Field>
+          <Field
+            label="Weekly budget (estimated USD)"
+            path="weeklyBudgetUsd"
+            error={error}
+            message={w.message}
+            hint={`Blank = no limit; 0 stops new dispatch immediately.${resetNote} on Monday. ${spend(status?.week)}`}
+          >
+            <Input type="text" inputMode="decimal" value={weekly} onChange={(e) => setWeekly(e.target.value)} />
+          </Field>
+          <Field
+            label="Warn at (% of limit)"
+            path="budgetSoftPct"
+            error={error}
+            message={s.message}
+            hint="Above 0 and up to 100. Reaching it raises a warning; reaching the limit stops new dispatch."
+          >
+            <Input type="text" inputMode="decimal" value={softPct} onChange={(e) => setSoftPct(e.target.value)} />
+          </Field>
+        </>
+      )}
+    </SettingsForm>
+  );
+}
+
 export function ProjectSettingsView() {
   const { id } = useParams<{ id: string }>();
   const fetchProject = useCallback(() => api.getProject(id), [id]);
   const project = usePolling(fetchProject, 30_000);
   const fetchRepos = useCallback(() => api.listRepos(id), [id]);
   const repos = usePolling(fetchRepos, 30_000);
+  // The route's project, not the selected one in the dropdown.
+  const fetchBudget = useCallback(() => api.getBudget(id), [id]);
+  const budget = usePolling(fetchBudget, 30_000);
 
   const back = (
     <Link href={withProject('/settings/projects', id)} className="text-sm text-muted-foreground hover:text-foreground hover:underline">
@@ -233,6 +321,7 @@ export function ProjectSettingsView() {
         <TabsList aria-label="Project settings">
           <TabsTrigger value="general">General</TabsTrigger>
           <TabsTrigger value="policies">Policies</TabsTrigger>
+          <TabsTrigger value="budget">Budget</TabsTrigger>
           <TabsTrigger value="skills">Skills library</TabsTrigger>
           <TabsTrigger value="danger">Danger zone</TabsTrigger>
         </TabsList>
@@ -241,6 +330,9 @@ export function ProjectSettingsView() {
         </TabsContent>
         <TabsContent value="policies" className="pt-4">
           <PoliciesForm project={p} onSaved={project.refresh} />
+        </TabsContent>
+        <TabsContent value="budget" className="pt-4">
+          <BudgetForm project={p} budget={budget} onSaved={project.refresh} />
         </TabsContent>
         <TabsContent value="skills" className="pt-4">
           <SkillsForm project={p} repos={repos.data ?? []} onSaved={project.refresh} />

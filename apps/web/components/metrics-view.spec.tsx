@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { JOB_STATUSES, api, type Metrics, type ScoutActivity, type Usage } from '@/lib/api';
+import { budgetStatus } from './budget.fixture';
 import { agentUsage } from './agent-usage.fixture';
 import { MetricsView, formatMinutes } from './metrics-view';
 
@@ -62,6 +63,7 @@ beforeEach(() => {
   vi.spyOn(api, 'getAgentUsage').mockResolvedValue(agentUsage());
   vi.spyOn(api, 'scoutActivity').mockResolvedValue(activity());
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r1', fullName: 'o/r' } as never]);
+  vi.spyOn(api, 'getBudget').mockImplementation(async (id) => budgetStatus({ projectId: id }));
 });
 
 describe('MetricsView', () => {
@@ -183,5 +185,58 @@ describe('MetricsView Verkenner section', () => {
     expect(await within(s).findByRole('alert')).toHaveTextContent('scout activity unavailable');
     expect(within(s).getAllByText('–').length).toBe(3);
     expect(within(s).queryByText('0')).toBeNull();
+  });
+});
+
+describe('Budget section', () => {
+  beforeEach(() => {
+    vi.spyOn(api, 'getMetrics').mockResolvedValue(empty);
+  });
+  const section = () => screen.findByRole('region', { name: 'Estimated budget' });
+
+  it('shows project and global day and week bars, labelled estimated, with no limit as text', async () => {
+    render(<MetricsView />);
+    const s = await section();
+    await within(s).findAllByRole('listitem');
+    for (const name of ['Project day (estimated)', 'Project week (estimated)', 'Global day (estimated)', 'Global week (estimated)']) {
+      expect(await within(s).findByRole('listitem', { name })).toBeInTheDocument();
+    }
+    expect(within(s).queryByRole('progressbar')).toBeNull();
+    expect(s).toHaveTextContent('No limit');
+    expect(s).toHaveTextContent('(UTC)');
+  });
+
+  it('shows spend, percent, state and overspend, and ignores the days and repo filters', async () => {
+    vi.spyOn(api, 'getBudget').mockResolvedValue(
+      budgetStatus({ pDay: { spent: 12, limit: 10, percent: 120, state: 'hard' }, gWeek: { spent: 4, limit: 10, percent: 40 } }),
+    );
+    render(<MetricsView />);
+    const s = await section();
+    const day = await within(s).findByRole('listitem', { name: 'Project day (estimated)' });
+    expect(day).toHaveTextContent('120%');
+    expect(day).toHaveTextContent('Limit reached');
+    expect(within(day).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
+    fireEvent.click(screen.getByRole('button', { name: '7d' }));
+    fireEvent.change(screen.getByLabelText('Repo'), { target: { value: 'r1' } });
+    await waitFor(() => expect(api.getMetrics).toHaveBeenCalledWith({ projectId: 'p1', repoId: 'r1', days: 7 }));
+    expect(api.getBudget).toHaveBeenCalledTimes(1);
+    expect(api.getBudget).toHaveBeenCalledWith('p1');
+  });
+
+  it('shows loading and an error, never a zero', async () => {
+    vi.spyOn(api, 'getBudget').mockImplementation(() => new Promise(() => {}));
+    const { unmount } = render(<MetricsView />);
+    expect(await screen.findByText('Loading budget…')).toBeInTheDocument();
+    unmount();
+    vi.spyOn(api, 'getBudget').mockRejectedValue(new Error('nope'));
+    render(<MetricsView />);
+    expect(await screen.findByText('Budget could not be loaded: nope')).toBeInTheDocument();
+    expect(screen.queryByRole('progressbar')).toBeNull();
+  });
+
+  it('keeps the agent usage section', async () => {
+    render(<MetricsView />);
+    await section();
+    expect(screen.getAllByRole('region').length).toBeGreaterThan(1);
   });
 });

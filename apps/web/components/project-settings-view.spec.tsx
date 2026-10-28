@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, type Project, type Repo } from '@/lib/api';
+import { budgetStatus } from './budget.fixture';
 import { ProjectSettingsView } from './project-settings-view';
 
 vi.mock('next/navigation', () => ({
@@ -20,13 +21,14 @@ vi.mock('./copilot-provider', () => ({ CopilotPageContext: () => null }));
 
 const project = {
   id: 'p1', slug: 'shop', name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3,
-  runTimeoutMinutes: 60, retryOnChangesRequested: true, paused: false, skillsLibrary: 'none', skillsLibraryRepoId: null,
+  runTimeoutMinutes: 60, retryOnChangesRequested: true, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
 } as Project;
 const repos = [{ id: 'r1', fullName: 'o/api', stacks: [], testCommands: [], paused: false, maxConcurrentJobs: 1, defaultBranch: 'main' }] as unknown as Repo[];
 
 beforeEach(() => {
   vi.spyOn(api, 'getProject').mockResolvedValue(project);
   vi.spyOn(api, 'listRepos').mockResolvedValue(repos);
+  vi.spyOn(api, 'getBudget').mockResolvedValue(budgetStatus({ pDay: { spent: 1.5 }, pWeek: { spent: 20, limit: 50, percent: 40 } }));
   vi.spyOn(api, 'getRepoWorkspace').mockResolvedValue({ cloned: false, headSha: null, fetchedAt: null, error: null });
 });
 afterEach(() => vi.restoreAllMocks());
@@ -96,5 +98,84 @@ describe('ProjectSettingsView', () => {
     vi.spyOn(api, 'getProject').mockRejectedValue(new ApiError('nope', 404));
     render(<ProjectSettingsView />);
     expect(await screen.findByText('Project not found')).toBeInTheDocument();
+  });
+
+  describe('Budget tab', () => {
+    const open = async () => {
+      render(<ProjectSettingsView />);
+      fireEvent.click(await screen.findByRole('tab', { name: 'Budget' }));
+    };
+
+    it('shows current spend, UTC resets and the route project id budget beside the fields', async () => {
+      await open();
+      expect(api.getBudget).toHaveBeenCalledWith('p1');
+      expect(screen.getByLabelText('Daily budget (estimated USD)')).toHaveValue('');
+      expect(screen.getByLabelText('Weekly budget (estimated USD)')).toHaveValue('50');
+      expect(screen.getByLabelText('Daily budget (estimated USD)')).toHaveAccessibleDescription(/Current day \(UTC\): \$1\.50 estimated · No limit · resets 2026-03-10 00:00 UTC/);
+      expect(screen.getByLabelText('Weekly budget (estimated USD)')).toHaveAccessibleDescription(/\$20\.00 estimated · Limit \$50\.00/);
+      expect(screen.getByText(/Global limits are set by the server environment/)).toBeInTheDocument();
+    });
+
+    it('saves valid limits and refreshes spend and project data', async () => {
+      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      await open();
+      fireEvent.change(screen.getByLabelText('Daily budget (estimated USD)'), { target: { value: '12.5' } });
+      fireEvent.change(screen.getByLabelText('Warn at (% of limit)'), { target: { value: '90' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Saved')).toBeInTheDocument();
+      expect(update).toHaveBeenCalledWith('p1', { dailyBudgetUsd: 12.5, weeklyBudgetUsd: 50, budgetSoftPct: 90 });
+      expect(api.getBudget).toHaveBeenCalledTimes(2);
+      expect(api.getProject).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends null for a blank field and keeps an intentional zero', async () => {
+      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      await open();
+      fireEvent.change(screen.getByLabelText('Weekly budget (estimated USD)'), { target: { value: '' } });
+      fireEvent.change(screen.getByLabelText('Daily budget (estimated USD)'), { target: { value: '0' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80 }));
+    });
+
+    it.each(['abc', '-1', '1e3', 'NaN', 'Infinity'])('blocks the invalid limit %s without sending it', async (bad) => {
+      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      await open();
+      const input = screen.getByLabelText('Daily budget (estimated USD)');
+      fireEvent.change(input, { target: { value: bad } });
+      expect(input).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByText('Enter a number of 0 or more, or leave blank for no limit.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+      expect(update).not.toHaveBeenCalled();
+    });
+
+    it.each(['', '0', '101', 'x'])('blocks the soft percentage %j', async (bad) => {
+      await open();
+      fireEvent.change(screen.getByLabelText('Warn at (% of limit)'), { target: { value: bad } });
+      expect(screen.getByText('Enter a percentage above 0 and up to 100.')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
+    });
+
+    it('shows a server issue next to its own field only', async () => {
+      vi.spyOn(api, 'updateProject').mockRejectedValue(new ApiError('bad', 400, 'bad', [{ path: 'weeklyBudgetUsd', message: 'Too large' }]));
+      await open();
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByText('Too large')).toBeInTheDocument();
+      expect(screen.getByLabelText('Weekly budget (estimated USD)')).toHaveAttribute('aria-invalid', 'true');
+      expect(screen.getByLabelText('Daily budget (estimated USD)')).not.toHaveAttribute('aria-invalid');
+    });
+
+    it('shows a general server error as an alert', async () => {
+      vi.spyOn(api, 'updateProject').mockRejectedValue(new ApiError('Server exploded', 500));
+      await open();
+      fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');
+    });
+
+    it('does not claim spend while loading or after a failed load', async () => {
+      vi.spyOn(api, 'getBudget').mockRejectedValue(new Error('x'));
+      await open();
+      expect(await screen.findAllByText(/Current spend could not be loaded/)).not.toHaveLength(0);
+      expect(screen.queryByText(/\$0\.00/)).toBeNull();
+    });
   });
 });
