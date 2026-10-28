@@ -47,6 +47,39 @@ docker compose exec api node dist/cli/user-create.js --email you@example.com --n
 docker compose exec api node dist/cli/apikey-create.js --email you@example.com --name channels
 ```
 
+## Executors
+
+An executor is one user's own Claude Code routine: a name, the routine's fire URL and token, the repos it may serve, its own
+maximum concurrency and optional daily run limit, and an enabled flag. Capacity is personal: a job is meant to run only on an
+executor of its owner, never on someone else's. **Status:** this version stores executors and exposes the API only; dispatch does not
+use them yet. Design notes: [ADR 0011](docs/adr/0011-personal-executors-with-encrypted-routine-tokens.md).
+
+**Server setup.** Set `EXECUTOR_SECRET_KEY` on the API to the base64 of 32 random bytes:
+
+```
+openssl rand -base64 32
+```
+
+Tokens are stored encrypted (AES-256-GCM, random IV per write) and are write-only: the API returns `hasToken` and the last four
+characters only. Without the key the API starts and listing works, but creating an executor or setting a token answers `503`; a key
+that is not base64 of exactly 32 bytes stops the API at startup. Back the key up: changing or losing it makes every stored token
+undecryptable (rotation is not supported yet; `key_version` is reserved), and owners must set their tokens again.
+
+**Creating the routine.** In Claude Code, create a routine (the routine instructions are in "Agent instructions" below), add an API
+trigger and copy two things: the fire URL, `https://api.anthropic.com/v1/claude_code/routines/<id>/fire`, and the token shown once
+when you generate it. Only that URL shape is accepted.
+
+| Route | Meaning |
+|---|---|
+| `GET /api/v1/executors`, `GET /api/v1/executors/:id` | your own executors |
+| `POST /api/v1/executors` | `name`, `fireUrl`, `token`, `repoIds`, optional `maxConcurrent` (1-10, default 1), `dailyRunLimit` (null: none), `enabled` |
+| `PUT /api/v1/executors/:id` | full replacement of `name`, `fireUrl`, `repoIds`, `maxConcurrent`, `dailyRunLimit`, `enabled` (no token) |
+| `PUT /api/v1/executors/:id/token` | replace the token only (204) |
+| `DELETE /api/v1/executors/:id` | delete (204) |
+
+Another user's executor is a `404`. Writes need an interactive sign-in as a human: API keys, bot accounts and the scout are refused.
+Names are unique per owner.
+
 ## Postgres and migrations
 
 By default the API uses SQLite (`db.sqlite`) with `synchronize`, so local development needs no migrations. To use Postgres instead:
