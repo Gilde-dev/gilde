@@ -9,6 +9,7 @@ import {
   KeyRound,
   Layers,
   LayoutDashboard,
+  MessageSquare,
   Lightbulb,
   Menu,
   ChevronRight as ChevronRightGlyph,
@@ -40,6 +41,7 @@ interface NavItem {
 }
 const NAV: NavItem[] = [
   { href: '/', label: 'Board', icon: LayoutDashboard },
+  { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/features', label: 'Features', icon: Layers },
   { href: '/specs', label: 'Specs', icon: FileText },
   { href: '/proposals', label: 'Proposals', icon: Lightbulb },

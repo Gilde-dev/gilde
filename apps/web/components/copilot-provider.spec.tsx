@@ -68,6 +68,15 @@ describe('CopilotProvider', () => {
     expect(screen.getByText('app')).toBeInTheDocument();
   });
 
+  it('renders no sidebar on /chat, where the full-page chat is the one chat', async () => {
+    pathname.value = '/chat';
+    status.mockResolvedValue(enabledStatus);
+    render(<CopilotProvider><p>chat page</p></CopilotProvider>);
+    expect(await screen.findByTestId('copilotkit')).toBeInTheDocument();
+    expect(screen.getByText('chat page')).toBeInTheDocument();
+    expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
+  });
+
   it('treats a failing status call as not configured', async () => {
     status.mockRejectedValue(new Error('down'));
     render(<CopilotProvider><p>app</p></CopilotProvider>);
