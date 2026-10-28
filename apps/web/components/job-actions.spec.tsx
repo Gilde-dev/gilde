@@ -1,6 +1,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { api, ApiError, JOB_STATUSES, type Job, type JobStatus } from '@/lib/api';
+import { api, ApiError, JOB_STATUSES, type Job, type JobStatus, type JobSyncResult } from '@/lib/api';
+import { describeSync } from '@/lib/job-actions';
 import { JobActions } from './job-actions';
 
 const job = (status: JobStatus) => ({ id: 'j1', status }) as Job;
@@ -140,5 +141,86 @@ describe('JobActions recreate', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Recreate job' }).at(-1)!);
     expect(await screen.findByRole('alert')).toHaveTextContent('The job changed in the meantime');
     expect(onChanged).not.toHaveBeenCalled();
+  });
+});
+
+describe('JobActions sync from GitHub', () => {
+  const synced = (over: Partial<JobSyncResult> = {}): JobSyncResult => ({
+    jobId: 'j1',
+    pr: { number: 130, state: 'open', merged: false, headSha: 'abc' },
+    ciConclusion: null,
+    before: { status: 'pr_open', prNumber: 130, headSha: 'abc', needsApproval: false },
+    after: { status: 'pr_open', prNumber: 130, headSha: 'abc', needsApproval: false },
+    changes: [],
+    ...over,
+  });
+  const withPr = (status: JobStatus, prNumber: number | null = 130) => ({ id: 'j1', status, prNumber }) as Job;
+
+  it.each([
+    ['dispatched', null, true],
+    ['pr_open', 130, true],
+    ['awaiting_review', 130, true],
+    ['parked', 130, true],
+    ['parked', null, false],
+    ['merged', 130, true],
+    ['merged', null, false],
+    ['rejected', 130, true],
+    ['rejected', null, false],
+    ['triage', null, false],
+    ['queued', 130, false],
+    ['cancelled', 130, false],
+  ] as const)('%s with PR %s: sync offered=%s', (status, pr, offered) => {
+    render(<JobActions job={withPr(status, pr)} showSync onChanged={() => {}} />);
+    expect(!!screen.queryByRole('button', { name: 'Sync from GitHub' })).toBe(offered);
+  });
+
+  it('is not offered unless the view asks for it (board cards)', () => {
+    render(<JobActions job={withPr('pr_open')} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Sync from GitHub' })).toBeNull();
+  });
+
+  it('is busy while running, refreshes and reports a move', async () => {
+    let resolve!: (r: JobSyncResult) => void;
+    const sync = vi.spyOn(api, 'syncJob').mockReturnValue(new Promise((r) => (resolve = r)));
+    const onChanged = vi.fn();
+    render(<JobActions job={withPr('awaiting_review')} showSync onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
+    const busy = screen.getByRole('button', { name: 'Checking GitHub…' });
+    expect(busy).toBeDisabled();
+    fireEvent.click(busy);
+    resolve(synced({
+      pr: { number: 130, state: 'closed', merged: true, headSha: 'abc' },
+      after: { status: 'merged', prNumber: 130, headSha: 'abc', needsApproval: false },
+      changes: ['PR #130 merged'],
+    }));
+    expect(await screen.findByRole('status')).toHaveTextContent('PR #130 is merged: moved to merged');
+    expect(sync).toHaveBeenCalledTimes(1);
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('says nothing changed with the CI state, and handles no PR', async () => {
+    const sync = vi.spyOn(api, 'syncJob').mockResolvedValueOnce(synced());
+    render(<JobActions job={withPr('pr_open')} showSync onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
+    expect(await screen.findByRole('status')).toHaveTextContent('Nothing changed: PR #130 is open, CI pending');
+    sync.mockResolvedValueOnce(synced({ pr: null }));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('No PR found on GitHub'));
+  });
+
+  it('reports a CI-only refresh accurately', () => {
+    expect(describeSync(synced({ ciConclusion: 'success', changes: ['CI success recorded for the latest run'] }))).toBe(
+      'PR #130 is open: CI success recorded for the latest run',
+    );
+  });
+
+  it('shows the safe 502 reason and a clean 403 message', async () => {
+    const sync = vi.spyOn(api, 'syncJob').mockRejectedValueOnce(new ApiError('x', 502, 'Cannot read o/r on GitHub: not found (404)'));
+    render(<JobActions job={withPr('pr_open')} showSync onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Cannot read o/r on GitHub: not found (404)');
+    sync.mockRejectedValueOnce(new ApiError('x', 403, 'A verified human is required'));
+    fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Only a signed-in person can sync jobs from GitHub'));
   });
 });

@@ -229,6 +229,8 @@ function RevisionHistory({ jobId, revision }: { jobId: string; revision: number 
   );
 }
 
+const fetchMe = () => api.me();
+
 export function JobModal({
   job,
   projectJobs = [],
@@ -246,6 +248,7 @@ export function JobModal({
   const jobId = job?.id;
   const fetchDetail = useCallback(() => (jobId ? api.getJob(jobId) : Promise.resolve(undefined)), [jobId]);
   const { data, error, refresh } = usePolling(fetchDetail, 5000);
+  const me = usePolling(fetchMe, 5 * 60_000);
   // The board's copy is available immediately; the detail adds runs.
   const shown = data ?? job;
 
@@ -279,6 +282,7 @@ export function JobModal({
 
             <JobActions
               job={shown}
+              showSync={me.data !== undefined}
               onChanged={async () => {
                 await Promise.all([refresh(), onChanged?.()]);
               }}

@@ -17,6 +17,7 @@ import { StatCard } from './ui/stat-card';
 import { Board } from './board';
 import { BudgetBanner } from './budget-banner';
 import { DispatchStrip } from './dispatch-strip';
+import { ReconcileNow } from './reconcile-now';
 import { JobModal } from './job-modal';
 import { CopilotPageContext } from './copilot-provider';
 import { NoProjects } from './no-projects';
@@ -179,6 +180,7 @@ export function Dashboard() {
         </div>
       )}
       {projectId && <DispatchStrip repos={(dispatch.data?.result?.repos ?? []).filter((d) => repos.data?.some((r) => r.id === d.repoId))} />}
+      {projectId && me.data !== undefined && <ReconcileNow projectId={projectId} onDone={jobs.refresh} />}
       {projectId && (
         <div className="flex flex-wrap items-center gap-2 px-4 pt-4">
           <Select

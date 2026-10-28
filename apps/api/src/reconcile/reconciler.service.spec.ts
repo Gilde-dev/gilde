@@ -54,7 +54,7 @@ beforeEach(async () => {
         new NotificationService(notifications, new NotificationMapper()), ds.getRepository(Repo), jobs, ds.getRepository(Feature),
     );
     const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects, undefined, undefined, undefined, capture);
-    service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo));
+    service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo), projects, ds.getRepository(JobRun));
 });
 
 afterEach(() => ds.destroy());
@@ -195,7 +195,7 @@ describe('ReconcilerService', () => {
         vi.stubEnv('GITHUB_TOKEN', '');
         const fetchSpy = vi.spyOn(globalThis, 'fetch');
         const events = new JobEventsService(jobs, ds.getRepository(JobRun), projects);
-        const unconfigured = new ReconcilerService(new GitHubRestAdapter(new GitHubCredentials()), events, jobs, ds.getRepository(Repo));
+        const unconfigured = new ReconcilerService(new GitHubRestAdapter(new GitHubCredentials()), events, jobs, ds.getRepository(Repo), projects, ds.getRepository(JobRun));
         const job = await prJob('pr_open');
 
         expect(() => unconfigured.onModuleInit()).not.toThrow();
