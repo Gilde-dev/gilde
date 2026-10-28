@@ -46,6 +46,25 @@ describe('ExecutorsView', () => {
     expect(screen.getByText(/only run on your own executors/)).toBeInTheDocument();
   });
 
+  it('lets the owner clear an active exhaustion, and offers nothing when the time has passed', async () => {
+    const list = vi.spyOn(api, 'listExecutors').mockResolvedValue([executor({ exhaustedUntil: '2999-01-01T00:00:00.000Z' })]);
+    const reset = vi.spyOn(api, 'resetExecutorExhaustion').mockResolvedValue(executor());
+    render(<ExecutorsView />);
+    list.mockResolvedValue([executor()]);
+    fireEvent.click(await screen.findByRole('button', { name: 'Clear exhaustion of Pascal laptop' }));
+    await waitFor(() => expect(reset).toHaveBeenCalledWith('e1'));
+    await waitFor(() => expect(screen.queryByText(/Exhausted until/)).not.toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: /Clear exhaustion/ })).not.toBeInTheDocument();
+  });
+
+  it('does not show an exhaustion whose reset time has passed', async () => {
+    vi.spyOn(api, 'listExecutors').mockResolvedValue([executor({ exhaustedUntil: '2000-01-01T00:00:00.000Z' })]);
+    render(<ExecutorsView />);
+    expect(await screen.findByText('Pascal laptop')).toBeInTheDocument();
+    expect(screen.queryByText(/Exhausted until/)).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Clear exhaustion/ })).not.toBeInTheDocument();
+  });
+
   it('shows a loading skeleton, then an empty state with an Add action', async () => {
     vi.spyOn(api, 'listExecutors').mockResolvedValue([]);
     render(<ExecutorsView />);

@@ -5,7 +5,7 @@ import { deepLink, escapeSlack, formatSlack } from './format-slack.js';
 
 const ctx = { publicUrl: 'https://gilde.example.com' };
 
-const JOB_KINDS = NOTIFICATION_KINDS.filter((k) => !k.startsWith('budget.'));
+const JOB_KINDS = NOTIFICATION_KINDS.filter((k) => !k.startsWith('budget.') && k !== 'executor.exhausted');
 
 describe('formatSlack', () => {
   it.each(JOB_KINDS)('shows title, repo, reason, deep link and PR for %s', (kind) => {
@@ -50,6 +50,20 @@ const budget = (kind: NotificationKind, b: Partial<NonNullable<GildeNotification
     budget: { scope: 'global', period: 'day', state: kind === 'budget.hard' ? 'hard' : 'soft', spent: 8.1, limit: 10, percent: 81.2, startsAt: '2026-03-10T00:00:00.000Z', resetsAt: '2026-03-11T00:00:00.000Z', unpricedRows: 0, reasonKind: 'limit', variable: null, ...b },
     ...over,
   });
+
+describe('formatSlack executor.exhausted', () => {
+  it('names the executor, owner and reset time, links to the executors page and has no job lines', () => {
+    const text = formatSlack(notification({
+      kind: 'executor.exhausted', jobId: null, projectId: null, repos: [], prLinks: [], title: 'Executor laptop',
+      reason: 'Pascal\'s executor "laptop" hit its usage limit; no jobs fire on it until 2026-10-28T12:00:00.000Z',
+    }), ctx);
+    expect(text).toContain('Executor exhausted');
+    expect(text).toContain('until 2026-10-28T12:00:00.000Z');
+    expect(text).toContain('https://gilde.example.com/settings/executors');
+    expect(text).not.toContain('Repo');
+    expect(text).not.toContain('PR:');
+  });
+});
 
 describe('formatSlack budget alerts', () => {
   it('renders the global daily soft alert without job, PR or repo data', () => {

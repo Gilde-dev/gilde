@@ -10,6 +10,7 @@ export const NOTIFICATION_KINDS = [
   'feature.ready_to_close',
   'budget.soft',
   'budget.hard',
+  'executor.exhausted',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

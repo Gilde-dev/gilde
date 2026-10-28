@@ -113,6 +113,27 @@ describe('Executors (e2e)', () => {
       expect(await app.get(ExecutorService).revealToken(mine.id)).toBe(TOKEN);
     });
 
+    it('lets the owner clear the exhaustion; other users, API keys and bots cannot', async () => {
+      const mine = await create();
+      const exhaust = () => app.get(DataSource).query('UPDATE executors SET exhausted_until = ? WHERE id = ?', ['2999-01-01 00:00:00', mine.id]);
+      await exhaust();
+      expect((await http().get(`/api/v1/executors/${mine.id}`).set(as(ann))).body.exhaustedUntil).not.toBeNull();
+
+      await http().post(`/api/v1/executors/${mine.id}/reset-exhaustion`).set(as(bob)).expect(404);
+      const viaKey = { Authorization: `Bearer ${await createApiKey(app, ann)}` };
+      await http().post(`/api/v1/executors/${mine.id}/reset-exhaustion`).set(viaKey).expect(401);
+      await http().post(`/api/v1/executors/${mine.id}/reset-exhaustion`).expect(401);
+      const bot = await createTestUser(app, { name: 'Bot' });
+      await app.get(UserService).markBot(bot.email);
+      await http().post(`/api/v1/executors/${mine.id}/reset-exhaustion`).set(as(bot)).expect(403);
+      expect((await http().get(`/api/v1/executors/${mine.id}`).set(as(ann))).body.exhaustedUntil).not.toBeNull();
+
+      const res = await http().post(`/api/v1/executors/${mine.id}/reset-exhaustion`).set(as(ann)).expect(200);
+      expect(res.body).toMatchObject({ id: mine.id, exhaustedUntil: null });
+      expect(JSON.stringify(res.body)).not.toContain(TOKEN);
+      expect((await http().get(`/api/v1/executors/${mine.id}`).set(as(ann))).body.exhaustedUntil).toBeNull();
+    });
+
     it('refuses writes by API key and by bot, while an API key may still read', async () => {
       const mine = await create();
       const key = await createApiKey(app, ann);

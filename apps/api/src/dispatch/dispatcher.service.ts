@@ -211,6 +211,8 @@ export class DispatcherService {
                         if (outcome === 'oversized') { attempted--; refill = true; continue; }
                         if (outcome === 'fired') { fired++; report.fired++; }
                         else failed++;
+                        // Other executors of the owner (or the next pass) may still take the rest of the queue.
+                        if (outcome === 'exhausted') refill = true;
                         capacity--;
                         budgets.set(project.id, budgets.get(project.id)! - 1);
                         // The executor's setup is wrong: its owner's other jobs wait for the next pass instead of failing the same way.
@@ -295,7 +297,10 @@ export class DispatcherService {
 
         const now = new Date();
         const usable = serving.filter((e) => !e.exhaustedUntil || e.exhaustedUntil <= now);
-        if (!usable.length) return { executor: null, reason: EXECUTOR_EXHAUSTED };
+        if (!usable.length) {
+            const soonest = Math.min(...serving.map((e) => e.exhaustedUntil!.getTime()));
+            return { executor: null, reason: `${EXECUTOR_EXHAUSTED} until ${new Date(soonest).toISOString()}` };
+        }
         const working = usable.filter((e) => !broken.has(e.id));
         if (!working.length) return { executor: null, reason: null };
 
@@ -329,7 +334,7 @@ export class DispatcherService {
         await this.jobRepository.update({ id: job.id, status: 'queued' }, { waitingReason: reason });
     }
 
-    private async fireJob(jobId: string, repo: Repo, project: Project, executor: Executor): Promise<'fired' | 'failed' | 'skipped' | 'config_error' | 'repo_config_error' | 'oversized'> {
+    private async fireJob(jobId: string, repo: Repo, project: Project, executor: Executor): Promise<'fired' | 'failed' | 'skipped' | 'config_error' | 'repo_config_error' | 'oversized' | 'exhausted'> {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
@@ -383,6 +388,13 @@ export class DispatcherService {
                 this.logger.warn(`Executor "${executor.name}" rejected the fire for ${repo.fullName}: ${message}`);
                 return 'config_error';
             }
+            if (e instanceof ExecutionError && e.kind === 'executor_exhausted') {
+                // The executor's account is out of capacity, not the job: give the attempt back and let another executor take it.
+                if (runId) await this.runService.markFailed(runId, message);
+                await this.requeueWithoutAttempt(jobId, message);
+                await this.exhaust(executor, e.resetAt);
+                return 'exhausted';
+            }
             let event: 'retry' | 'park' = 'park';
             if (runId) await this.runService.markFailed(runId, message);
             if (e instanceof ExecutionError && e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
@@ -435,6 +447,15 @@ export class DispatcherService {
             this.logger.warn(`Job ${job.id} parked: ${reason}`);
             await this.capture?.jobParked(job, reason, 'dispatch');
         }
+    }
+
+    /** Marks the executor exhausted and tells its owner once per exhaustion. Notification problems never change the outcome. */
+    private async exhaust(executor: Executor, resetAt: Date | null): Promise<void> {
+        const until = await this.executors.markExhausted(executor.id, resetAt);
+        if (!until) return;
+        this.logger.warn(`Executor "${executor.name}" is exhausted until ${until.toISOString()}`);
+        const owner = await this.jobRepository.manager.getRepository(User).findOne({ where: { id: executor.ownerId }, select: { id: true, name: true } }).catch(() => null);
+        await this.capture?.executorExhausted(executor, owner?.name ?? 'Its owner', until);
     }
 
     /** A config error says nothing about the job: back to the queue, and the claim's attempt is given back. */
