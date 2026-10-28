@@ -1,11 +1,12 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { GitHubCredentials } from '../github/github-credentials.js';
 import { gitAuthHeader, RepoWorkspaceService, type WorkspaceRepo } from './repo-workspace.service.js';
 
 const TOKEN = 'ghp_supersecrettoken123';
@@ -22,10 +23,13 @@ const sh = (cwd: string, ...args: string[]) =>
 
 /** Uses a local repository as the remote and records every git invocation. */
 class TestWorkspace extends RepoWorkspaceService {
+    constructor(credentials: GitHubCredentials = new GitHubCredentials()) {
+        super(credentials);
+    }
     protected override remoteUrl(): string {
         return remote;
     }
-    protected override git(args: string[], opts: { cwd?: string; auth?: boolean } = {}): Promise<string> {
+    protected override git(args: string[], opts: { cwd?: string; auth?: boolean; fullName?: string } = {}): Promise<string> {
         calls.push(args);
         // The local remote needs no auth header; keep the real one out of the file transport.
         return super.git(args, opts);
@@ -135,9 +139,9 @@ describe('RepoWorkspaceService', () => {
     });
 
     it('reports a missing clone, a missing token and unknown state', async () => {
+        delete process.env.GITHUB_TOKEN;
         const ws = new TestWorkspace();
         expect(await ws.describe(repo)).toEqual({ cloned: false, headSha: null, fetchedAt: null, error: null });
-        delete process.env.GITHUB_TOKEN;
         expect(await ws.ensure(repo)).toBeNull();
         expect(ws.status(repo).error).toContain('GITHUB_TOKEN');
     });
@@ -226,5 +230,33 @@ describe('RepoWorkspaceService', () => {
             expect((await ws.grep(dir, { query: 'top secret' })).matches).toEqual([]);
             expect((await ws.listDirectory(dir, ''))!.map((e) => e.name)).not.toContain('escape');
         });
+    });
+});
+
+describe('RepoWorkspaceService in app mode', () => {
+    it('authenticates with an installation token without storing it', async () => {
+        const { generateKeyPairSync } = await import('node:crypto');
+        const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+        delete process.env.GITHUB_TOKEN;
+        process.env.GITHUB_APP_ID = '42';
+        process.env.GITHUB_APP_PRIVATE_KEY = privateKey.export({ type: 'pkcs8', format: 'pem' }).toString();
+        const INSTALL_TOKEN = 'ghs_installationtoken456';
+        const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (url) =>
+            String(url).endsWith('/installation')
+                ? new Response(JSON.stringify({ id: 7 }))
+                : new Response(JSON.stringify({ token: INSTALL_TOKEN, expires_at: new Date(Date.now() + 3_600_000).toISOString() })),
+        );
+        try {
+            const ws = new TestWorkspace();
+            expect(await ws.ensure(repo)).toBe(ws.cloneDir('o/r'));
+            expect(fetchSpy).toHaveBeenCalledTimes(2);
+            expect(calls.flat().join(' ')).not.toContain(INSTALL_TOKEN);
+            const config = readFileSync(join(ws.cloneDir('o/r'), '.git', 'config'), 'utf8');
+            expect(config).not.toContain(INSTALL_TOKEN);
+            expect(config).not.toContain(Buffer.from(`x-access-token:${INSTALL_TOKEN}`).toString('base64'));
+        } finally {
+            delete process.env.GITHUB_APP_ID;
+            delete process.env.GITHUB_APP_PRIVATE_KEY;
+        }
     });
 });

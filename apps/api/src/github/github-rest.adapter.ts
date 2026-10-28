@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { GitHubCredentials } from './github-credentials.js';
 import type { GitHubDirEntry, GitHubFile, GitHubPort, GitHubPull, GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
@@ -34,8 +35,10 @@ interface ContentEntryJson {
 
 @Injectable()
 export class GitHubRestAdapter implements GitHubPort {
+    constructor(private readonly credentials: GitHubCredentials) { }
+
     isConfigured(): boolean {
-        return !!process.env.GITHUB_TOKEN;
+        return this.credentials.isConfigured();
     }
 
     async getPull(fullName: string, number: number): Promise<GitHubPull> {
@@ -81,8 +84,9 @@ export class GitHubRestAdapter implements GitHubPort {
     private async get<T>(path: string, nullOn404?: false): Promise<T>;
     private async get<T>(path: string, nullOn404: true): Promise<T | null>;
     private async get<T>(path: string, nullOn404 = false): Promise<T | null> {
-        const token = process.env.GITHUB_TOKEN;
-        if (!token) throw new Error('GITHUB_TOKEN is not set');
+        const fullName = /^\/repos\/([^/]+\/[^/?]+)/.exec(path)?.[1];
+        if (!fullName) throw new Error(`GitHub path ${path.split('?')[0]} has no repo`);
+        const token = await this.credentials.tokenFor(fullName);
         const res = await fetch(`${API}${path}`, {
             headers: {
                 Authorization: `Bearer ${token}`,

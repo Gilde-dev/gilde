@@ -26,7 +26,7 @@ export class ReconcilerService implements OnModuleInit {
     ) { }
 
     onModuleInit(): void {
-        if (!this.github.isConfigured()) this.logger.log('GITHUB_TOKEN is not set; reconcile sweep is disabled');
+        if (!this.github.isConfigured()) this.logger.log('GitHub is not configured; reconcile sweep is disabled');
     }
 
     @Cron(CronExpression.EVERY_5_MINUTES)

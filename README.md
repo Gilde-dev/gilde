@@ -36,7 +36,7 @@ Deployment is done from the separate `Gilde-dev/gilde-infra` repo (compose file,
 
 Environment variables per image:
 
-- **api** (listens on `PORT`, default 4100; healthcheck `GET /api/health`): `DATABASE_URL` (`postgres://`, migrations run on startup), `JWT_SECRET` (at least 32 chars), `WEB_ORIGIN`, `GITHUB_TOKEN`, `GITHUB_WEBHOOK_SECRET`, `OPENAI_API_KEY` and `COPILOT_MODEL` (co-pilot). Preset in the image: `GILDE_WORKSPACE_DIR=/data/workspace` (mount a volume there; it is writable by the runtime user) and `AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md`. Optional: `JWT_EXPIRES_IN`, `GILDE_CI_WORKFLOWS`, `GILDE_GATE_WORKFLOWS`, `COPILOT_MAX_BODY`. The API trusts exactly one proxy hop (`trust proxy 1`), so run it behind one reverse proxy only.
+- **api** (listens on `PORT`, default 4100; healthcheck `GET /api/health`): `DATABASE_URL` (`postgres://`, migrations run on startup), `JWT_SECRET` (at least 32 chars), `WEB_ORIGIN`, `GITHUB_TOKEN` or the GitHub App variables (see "GitHub App"), `GITHUB_WEBHOOK_SECRET`, `OPENAI_API_KEY` and `COPILOT_MODEL` (co-pilot). Preset in the image: `GILDE_WORKSPACE_DIR=/data/workspace` (mount a volume there; it is writable by the runtime user) and `AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md`. Optional: `JWT_EXPIRES_IN`, `GILDE_CI_WORKFLOWS`, `GILDE_GATE_WORKFLOWS`, `COPILOT_MAX_BODY`. The API trusts exactly one proxy hop (`trust proxy 1`), so run it behind one reverse proxy only.
 - **web** (listens on 3000, `HOSTNAME=0.0.0.0`): `GILDE_API_URL` (for example `http://api:4100/api`), read at runtime on the server, never baked into the build. The session cookie is `Secure` because `NODE_ENV=production`.
 - **channels** (no ports): `GILDE_API_URL`, `GILDE_PUBLIC_URL`, `GILDE_API_KEY`, `SLACK_BOT_TOKEN`, `SLACK_APP_TOKEN`.
 
@@ -479,10 +479,29 @@ approximate index can return fewer rows than `topK` after many deletions; revali
 The co-pilot searches and reads repo code from local clones (`git grep`), kept under `GILDE_WORKSPACE_DIR`
 (default `.gilde-workspace` in the API working directory, gitignored). There is one depth-1 clone of the default branch per
 registered repo, so disk use is about the size of each repo's checkout (usually tens of MB). Clones are created and updated
-with `GITHUB_TOKEN` (needs read access to *Contents*) on manifest refresh (hourly, on demand and after a PR merges) and at most every
+with the GitHub credentials (see "GitHub App"; read access to *Contents*) on manifest refresh (hourly, on demand and after a PR merges) and at most every
 10 minutes on demand. Gilde never commits or pushes in them, and the directory can be deleted at any time.
 `GET /api/v1/repos/:id/workspace` shows `{ cloned, headSha, fetchedAt, error }`. Without a clone the co-pilot falls back to the GitHub API
 for listing and reading files; code search then reports an error.
+
+## GitHub App
+
+Gilde's own GitHub access (REST reads, reconcile, manifest and skills sync, clones for the code tools) can run on a GitHub App
+instead of a personal access token ([ADR 0012](docs/adr/0012-github-app-for-gildes-own-github-access.md)). Routines are unaffected.
+
+1. As an owner of the Gilde-dev organisation: **Settings → Developer settings → GitHub Apps → New GitHub App**. Give it **read-only**
+   repository permissions, exactly: *Contents*, *Pull requests*, *Checks*, *Actions* and *Metadata*. No write permissions.
+2. Generate a **private key** (a `.pem` download) and note the **App ID**.
+3. **Install** the app on the Gilde-dev organisation, on the repos registered in Gilde.
+4. Set on the API: `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY` (the PEM, or base64 of it, since env files cannot hold line breaks:
+   `base64 -w0 key.pem`) and optionally `GITHUB_APP_INSTALLATION_ID` (skips the per-repo installation lookup when one installation
+   covers every repo). Setting only one of the two required variables, or an unparseable key, stops the API at startup.
+5. Check the mode in the startup log: `GitHub credentials: GitHub App (installation tokens)`. Without the app variables it says
+   `personal access token (GITHUB_TOKEN)` or `not configured`.
+
+With the app active, a registered repo the app is not installed on fails with "the Gilde GitHub App is not installed on <owner>/<repo>";
+there is no fallback to the PAT. Once everything works, `GITHUB_TOKEN` can be removed. Installation tokens live one hour and are held in
+memory only; the key never appears in logs, errors or the database.
 
 ## GitHub webhooks (local)
 
