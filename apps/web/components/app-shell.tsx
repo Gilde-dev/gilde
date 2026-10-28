@@ -4,6 +4,7 @@ import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
   BookOpen,
   ChartColumn,
+  FileText,
   FolderKanban,
   KeyRound,
   Layers,
@@ -40,6 +41,7 @@ interface NavItem {
 const NAV: NavItem[] = [
   { href: '/', label: 'Board', icon: LayoutDashboard },
   { href: '/features', label: 'Features', icon: Layers },
+  { href: '/specs', label: 'Specs', icon: FileText },
   { href: '/proposals', label: 'Proposals', icon: Lightbulb },
   { href: '/lessons', label: 'Lessons', icon: BookOpen },
   { href: '/skills', label: 'Skills', icon: Sparkles },

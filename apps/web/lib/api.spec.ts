@@ -23,6 +23,18 @@ describe('api client', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/gilde/v1/projects');
   });
 
+  it('lists specs and approves with exactly the given expectedVersion', async () => {
+    const fetchMock = vi.fn().mockImplementation(async () => new Response('[]', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.listSpecs('p1');
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/gilde/v1/projects/p1/specs');
+    await api.approveSpec('s1', 4);
+    const [url, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(url).toBe('/api/gilde/v1/specs/s1/approve');
+    expect(init.method).toBe('POST');
+    expect(JSON.parse(String(init.body))).toEqual({ expectedVersion: 4 });
+  });
+
   it('throws a readable error on non-2xx', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'Job not found' }), { status: 404 })));
     await expect(api.getJob('x')).rejects.toThrow('GET /v1/jobs/x failed: 404 Job not found');

@@ -34,6 +34,21 @@ describe('FeatureDetailView', () => {
     expect(screen.getByText('It works')).toBeInTheDocument();
   });
 
+  it('links the pinned spec version, not the latest draft, and leaves unlinked features alone', async () => {
+    setup({ pinnedSpec: {
+      specId: 's1', specVersionId: 'v1', version: 2, slug: 'dark-mode', title: 'Dark mode', repoId: 'r1', repoFullName: 'o/repo', path: 'docs/specs/dark-mode.md',
+      bodySha256: 'h', approvalId: 'ap', approvedAt: '2026-01-02T00:00:00.000Z', approvedByName: 'Ann', recordingId: 'rec', recordingJobId: 'j', recordingJobTitle: 'Record',
+    } });
+    expect(await screen.findByRole('link', { name: 'Dark mode v2' })).toHaveAttribute('href', '/specs/s1/versions/2?project=p');
+    expect(screen.getByText(/approved by Ann/)).toBeInTheDocument();
+  });
+
+  it('shows no pinned spec section for a feature without one', async () => {
+    setup();
+    await screen.findByText(/Line one/);
+    expect(screen.queryByRole('region', { name: 'Pinned spec' })).not.toBeInTheDocument();
+  });
+
   it('lists jobs on the jobs tab in dependency order and toggles to repos', async () => {
     setup({ jobs: [{ ...job('b', 'merged'), dependsOn: ['a'], updatedAt: '2026-01-01T00:00:00.000Z' } as Job, { ...job('a', 'triage'), dependsOn: [] } as Job] });
     fireEvent.click(await screen.findByRole('tab', { name: 'Jobs' }));
