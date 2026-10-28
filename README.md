@@ -77,9 +77,14 @@ the time passes the dispatcher skips the executor, uses another executor of the 
 is recorded per exhaustion (executor name, owner, reset time, no token). The owner can clear it early on `/settings/executors`
 (`POST /api/v1/executors/:id/reset-exhaustion`, own executor, verified human). The Verkenner does not receive it.
 
-**Creating the routine.** In Claude Code, create a routine (the routine instructions are in "Agent instructions" below), add an API
-trigger and copy two things: the fire URL, `https://api.anthropic.com/v1/claude_code/routines/<id>/fire`, and the token shown once
-when you generate it. Only that URL shape is accepted.
+**Creating the routine.** Settings > Executors > Add executor is a four-step wizard that walks through this:
+
+1. **Create a routine in Claude Code.** Open <https://claude.ai/code/routines> and create a new routine on your own Claude account. Give it access to the repositories you want to work on (the same repos you tick in the last step) and use the routine description from "Agent instructions" below. For token-usage figures the routine's environment needs the OpenTelemetry settings under "Routine environment"; the ingest token comes from the Gilde operator.
+2. **Add an API trigger.** Open the routine for editing, click "Add another trigger" under "Select a trigger", choose "API" and click "Generate token". The modal shows the fire URL, `https://api.anthropic.com/v1/claude_code/routines/trig_…/fire`, and the token (it starts with `sk-ant-oat01-`). The token is shown only once, and generating a new token revokes the previous one. See the [routines fire documentation](https://platform.claude.com/docs/en/api/claude-code/routines-fire).
+3. **Paste the fire URL and token.** Only that URL shape is accepted. The token is stored encrypted and never shown again.
+4. **Name and scope.** Name, repos, max concurrent, daily run limit and enabled.
+
+Editing an executor later is a single form; the token is replaced in its own dialog.
 
 | Route | Meaning |
 |---|---|
