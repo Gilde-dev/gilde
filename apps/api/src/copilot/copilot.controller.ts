@@ -5,14 +5,8 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import type { CopilotConfig } from './copilot.config.js';
 import { COPILOT_CONFIG, SCOUT_SETUP } from './copilot.tokens.js';
 import type { ScoutSetup } from './copilot.mastra.js';
-import { ScoutActivityQuerySchema, ScoutActivityService, type ScoutActivityDto } from './scout-activity.service.js';
-
-export interface CopilotStatusDto {
-    enabled: boolean;
-    model: string | null;
-    /** The unattended scout (Verkenner), configured separately from the co-pilot. */
-    scout: { enabled: boolean; model: string | null };
-}
+import { ScoutActivityQuerySchema, type CopilotStatusDto, type ScoutActivityDto, type ScoutActivityQuery } from './copilot.dto.js';
+import { ScoutActivityService } from './scout-activity.service.js';
 
 @Controller('/v1/copilot')
 export class CopilotController {
@@ -33,7 +27,7 @@ export class CopilotController {
 
     /** What the scout did in one project: for the metrics page and the creator comparison of the board's Suggested badge. */
     @Get('scout-activity')
-    scoutActivity(@Query(new ZodValidationPipe(ScoutActivityQuerySchema)) q: { projectId: string }): Promise<ScoutActivityDto> {
+    scoutActivity(@Query(new ZodValidationPipe(ScoutActivityQuerySchema)) q: ScoutActivityQuery): Promise<ScoutActivityDto> {
         return this.activity!.get(q.projectId);
     }
 }

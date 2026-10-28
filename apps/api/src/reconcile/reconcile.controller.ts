@@ -1,6 +1,7 @@
 import { Controller, Post } from '@nestjs/common';
 
-import { type ReconcileResult, ReconcilerService } from './reconciler.service.js';
+import type { ReconcileResult } from './reconcile.dto.js';
+import { ReconcilerService } from './reconciler.service.js';
 
 @Controller('/v1')
 export class ReconcileController {

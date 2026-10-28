@@ -23,6 +23,11 @@ const project = {
   id: 'p1', slug: 'shop', name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3,
   runTimeoutMinutes: 60, retryOnChangesRequested: true, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
 } as Project;
+/** What a PUT carries for the fixture project: every updatable field, nothing else. */
+const FULL = {
+  name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+  skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80,
+};
 const repos = [{ id: 'r1', fullName: 'o/api', stacks: [], testCommands: [], paused: false, maxConcurrentJobs: 1, defaultBranch: 'main' }] as unknown as Repo[];
 
 beforeEach(() => {
@@ -34,19 +39,38 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProjectSettingsView', () => {
-  it('saves general settings with PATCH and shows a saved state', async () => {
-    const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+  it('saves general settings with a full PUT body and shows a saved state', async () => {
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
     render(<ProjectSettingsView />);
     const name = await screen.findByLabelText('Name');
     fireEvent.change(name, { target: { value: 'Shop 2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
-    expect(update).toHaveBeenCalledWith('p1', { name: 'Shop 2', description: 'Webshop' });
+    expect(update).toHaveBeenCalledWith('p1', { ...FULL, name: 'Shop 2' });
+  });
+
+  it('sends the latest loaded values for the sections it did not edit, and keeps dirty inputs after the refresh', async () => {
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
+    render(<ProjectSettingsView />);
+    const name = await screen.findByLabelText('Name');
+    // Someone else changes the policies and budget before the next save.
+    vi.mocked(api.getProject).mockResolvedValue({ ...project, dailyRunLimit: 99, weeklyBudgetUsd: 0, skillsLibrary: 'folder' } as Project);
+    fireEvent.change(name, { target: { value: 'Shop 2' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Saved')).toBeInTheDocument();
+    expect(update).toHaveBeenLastCalledWith('p1', { ...FULL, name: 'Shop 2' });
+    // The refresh did not overwrite what is typed in the form...
+    expect(screen.getByLabelText('Name')).toHaveValue('Shop 2');
+    // ...and the next save carries the refreshed values of every other field, including a zero budget.
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(update).toHaveBeenCalledTimes(2));
+    expect(update).toHaveBeenLastCalledWith('p1', { ...FULL, name: 'Shop 2', description: null, dailyRunLimit: 99, weeklyBudgetUsd: 0, skillsLibrary: 'folder' });
   });
 
   it('saves policies and shows a zod issue next to its field', async () => {
     const update = vi
-      .spyOn(api, 'updateProject')
+      .spyOn(api, 'replaceProject')
       .mockRejectedValueOnce(
         new ApiError('bad', 400, 'bad', [{ path: 'dailyRunLimit', message: 'Number must be less than or equal to 500' }]),
       )
@@ -59,14 +83,14 @@ describe('ProjectSettingsView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Number must be less than or equal to 500')).toBeInTheDocument();
     expect(limit).toHaveAttribute('aria-invalid', 'true');
-    expect(update).toHaveBeenCalledWith('p1', { dailyRunLimit: 900, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: false });
+    expect(update).toHaveBeenCalledWith('p1', { ...FULL, dailyRunLimit: 900, retryOnChangesRequested: false });
     fireEvent.change(limit, { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
   });
 
   it('switches the skills library to repo with a repo select', async () => {
-    const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
     render(<ProjectSettingsView />);
     fireEvent.click(await screen.findByRole('tab', { name: 'Skills library' }));
     expect(screen.queryByLabelText('Library repo')).not.toBeInTheDocument();
@@ -74,7 +98,7 @@ describe('ProjectSettingsView', () => {
     expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Library repo'), { target: { value: 'r1' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { skillsLibrary: 'repo', skillsLibraryRepoId: 'r1' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { ...FULL, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1' }));
   });
 
   it('pauses the project from the danger zone', async () => {
@@ -117,28 +141,28 @@ describe('ProjectSettingsView', () => {
     });
 
     it('saves valid limits and refreshes spend and project data', async () => {
-      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
       await open();
       fireEvent.change(screen.getByLabelText('Daily budget (estimated USD)'), { target: { value: '12.5' } });
       fireEvent.change(screen.getByLabelText('Warn at (% of limit)'), { target: { value: '90' } });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Saved')).toBeInTheDocument();
-      expect(update).toHaveBeenCalledWith('p1', { dailyBudgetUsd: 12.5, weeklyBudgetUsd: 50, budgetSoftPct: 90 });
+      expect(update).toHaveBeenCalledWith('p1', { ...FULL, dailyBudgetUsd: 12.5, weeklyBudgetUsd: 50, budgetSoftPct: 90 });
       expect(api.getBudget).toHaveBeenCalledTimes(2);
       expect(api.getProject).toHaveBeenCalledTimes(2);
     });
 
     it('sends null for a blank field and keeps an intentional zero', async () => {
-      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
       await open();
       fireEvent.change(screen.getByLabelText('Weekly budget (estimated USD)'), { target: { value: '' } });
       fireEvent.change(screen.getByLabelText('Daily budget (estimated USD)'), { target: { value: '0' } });
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-      await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80 }));
+      await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { ...FULL, dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80 }));
     });
 
     it.each(['abc', '-1', '1e3', 'NaN', 'Infinity'])('blocks the invalid limit %s without sending it', async (bad) => {
-      const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project);
+      const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
       await open();
       const input = screen.getByLabelText('Daily budget (estimated USD)');
       fireEvent.change(input, { target: { value: bad } });
@@ -156,7 +180,7 @@ describe('ProjectSettingsView', () => {
     });
 
     it('shows a server issue next to its own field only', async () => {
-      vi.spyOn(api, 'updateProject').mockRejectedValue(new ApiError('bad', 400, 'bad', [{ path: 'weeklyBudgetUsd', message: 'Too large' }]));
+      vi.spyOn(api, 'replaceProject').mockRejectedValue(new ApiError('bad', 400, 'bad', [{ path: 'weeklyBudgetUsd', message: 'Too large' }]));
       await open();
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
       expect(await screen.findByText('Too large')).toBeInTheDocument();
@@ -165,7 +189,7 @@ describe('ProjectSettingsView', () => {
     });
 
     it('shows a general server error as an alert', async () => {
-      vi.spyOn(api, 'updateProject').mockRejectedValue(new ApiError('Server exploded', 500));
+      vi.spyOn(api, 'replaceProject').mockRejectedValue(new ApiError('Server exploded', 500));
       await open();
       fireEvent.click(screen.getByRole('button', { name: 'Save' }));
       expect(await screen.findByRole('alert')).toHaveTextContent('Server exploded');

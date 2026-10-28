@@ -1,11 +1,11 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import {
     CreateFeatureSchema,
     ListFeaturesQuerySchema,
-    UpdateFeatureSchema,
+    ReplaceFeatureSchema,
     type CreateFeatureDto,
     type FeatureCancelResponseDto,
     type FeatureDetailResponseDto,
@@ -13,7 +13,7 @@ import {
     type FeatureResponseDto,
     type FeatureStartResponseDto,
     type ListFeaturesQuery,
-    type UpdateFeatureDto,
+    type ReplaceFeatureDto,
 } from './feature.dto.js';
 import { FeatureService } from './feature.service.js';
 
@@ -43,10 +43,10 @@ export class FeatureController {
         return this.featureService.getDetail(id);
     }
 
-    @Patch('features/:id')
+    @Put('features/:id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body(new ZodValidationPipe(UpdateFeatureSchema)) dto: UpdateFeatureDto,
+        @Body(new ZodValidationPipe(ReplaceFeatureSchema)) dto: ReplaceFeatureDto,
     ): Promise<FeatureResponseDto> {
         return this.featureService.update(id, dto);
     }

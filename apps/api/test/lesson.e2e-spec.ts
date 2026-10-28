@@ -23,7 +23,7 @@ describe('Lessons (e2e)', () => {
     await app.close();
   });
 
-  it('collects, lists, patches, approves and merges', async () => {
+  it('collects, lists, replaces, approves and merges', async () => {
     const agent = await authedAgent(app);
     const http = () => agent;
     const slug = `lessons-${randomUUID().slice(0, 8)}`;
@@ -51,7 +51,7 @@ describe('Lessons (e2e)', () => {
     const [a, b] = list;
 
     await http().post(`/api/v1/lessons/${a.id}/approve`).expect(400);
-    const patched = (await http().patch(`/api/v1/lessons/${a.id}`).send({ text: 'Edited', targetKind: 'agents_md', targetRepoId: repo.id, note: 'n' }).expect(200)).body;
+    const patched = (await http().put(`/api/v1/lessons/${a.id}`).send({ text: 'Edited', targetKind: 'agents_md', targetRepoId: repo.id, note: 'n' }).expect(200)).body;
     expect(patched).toMatchObject({ text: 'Edited', targetKind: 'agents_md', targetRepoId: repo.id, note: 'n' });
     expect((await http().post(`/api/v1/lessons/${a.id}/approve`).expect(200)).body.status).toBe('approved');
     await http().post(`/api/v1/lessons/${a.id}/approve`).expect(409);

@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
-import { api, SKILLS_LIBRARY_KINDS, type ApiError, type BudgetPeriodStatus, type BudgetStatus, type Project, type SkillsLibraryKind, type UpdateProjectInput } from '@/lib/api';
+import { api, SKILLS_LIBRARY_KINDS, type ApiError, type BudgetPeriodStatus, type BudgetStatus, type Project, type ReplaceProjectInput, type SkillsLibraryKind, projectReplacement } from '@/lib/api';
 import { periodSummary } from '@/lib/budget';
 import { errorText } from '@/lib/job-actions';
 import { usePolling, type Polling } from '@/lib/use-polling';
@@ -27,7 +27,7 @@ const LIBRARY_LABEL: Record<SkillsLibraryKind, string> = {
   repo: 'Repo of this project',
 };
 
-/** A form that PATCHes the project, shows zod issues through its fields and a short saved state. */
+/** A form that PUTs the full project (the latest loaded values with this section's edits on top), shows zod issues through its fields and a short saved state. */
 function SettingsForm({
   project,
   build,
@@ -36,7 +36,8 @@ function SettingsForm({
   children,
 }: {
   project: Project;
-  build: () => UpdateProjectInput;
+  /** Only this section's fields; every other field comes from `project`, the latest loaded resource. */
+  build: () => Partial<ReplaceProjectInput>;
   onSaved: () => void | Promise<void>;
   disabled?: boolean;
   children: (error: unknown) => ReactNode;
@@ -57,7 +58,7 @@ function SettingsForm({
     setError(null);
     setSaved(false);
     try {
-      await api.updateProject(project.id, build());
+      await api.replaceProject(project.id, projectReplacement(project, build()));
       await onSaved();
       setSaved(true);
     } catch (err) {

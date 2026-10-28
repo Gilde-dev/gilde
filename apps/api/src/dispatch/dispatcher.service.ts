@@ -16,6 +16,7 @@ import { Project } from '../project/project.entity.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { BudgetAlertService } from '../budget/budget-alert.service.js';
 import type { BudgetBlocker, BudgetStatusDto } from '../budget/budget.dto.js';
+import type { DispatchBudgetEvidence, DispatchReason, DispatchResult, DispatchStatus, RepoDispatchReport } from './dispatch.dto.js';
 import { BudgetService } from '../budget/budget.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
@@ -328,19 +329,6 @@ export class DispatcherService {
 
 }
 
-export type DispatchReason =
-    | 'repo_paused' | 'project_paused' | 'no_routine' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
-
-/** Why the estimated-spend guard stopped a repo: every hard period at once, not only the first one found. */
-export interface DispatchBudgetEvidence {
-    /** Each hard project/global day/week period with scope, period, limit, spend and reset. */
-    blockers: BudgetBlocker[];
-    /** `reset`: the latest blocker reset is the earliest automatic recovery; `manual`: a limit/config change is needed; `unknown`: evaluation failed. */
-    recovery: 'reset' | 'manual' | 'unknown';
-    /** True when the budget could not be evaluated; new automatic dispatch stays stopped. */
-    error: boolean;
-}
-
 interface BudgetGate { detail: string; resetsAt: string | null; evidence: DispatchBudgetEvidence }
 
 function applyBudget(report: RepoDispatchReport, gate: BudgetGate): void {
@@ -355,36 +343,6 @@ function describeBlocker(b: BudgetBlocker): string {
     if (b.kind === 'configError') return `${name}: ${b.variable ?? 'budget variable'} is invalid`;
     const usd = (n: number) => `$${n.toFixed(2)}`;
     return `${name}: ${usd(b.spent)} of ${b.limit === null ? '–' : usd(b.limit)} estimated, resets ${b.resetsAt}`;
-}
-
-export interface RepoDispatchReport {
-    repoId: string;
-    fullName: string;
-    queued: number;
-    fired: number;
-    reason: DispatchReason;
-    /** pausedReason, manifestError, `active/max`, `used/limit` or the budget blockers; null otherwise. */
-    detail: string | null;
-    /**
-     * Next UTC midnight (ISO) when the reason is daily_limit. For budget, the LATEST reset of all blockers (the earliest
-     * automatic full recovery); null when a limit or configuration change is needed or the evaluation failed.
-     */
-    resetsAt: string | null;
-    waitingOnDependencies: number;
-    waitingOnRevisions: number;
-    /** Set when the reason is budget. */
-    budget: DispatchBudgetEvidence | null;
-}
-
-export interface DispatchResult {
-    fired: number;
-    failed: number;
-    repos: RepoDispatchReport[];
-}
-
-export interface DispatchStatus {
-    at: string | null;
-    result: DispatchResult | null;
 }
 
 /** One log line per repo state change; nothing while the state stays the same. */

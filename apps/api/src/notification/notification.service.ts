@@ -7,6 +7,7 @@ import {
     DEFAULT_RETRY_DELAY_SECONDS,
     MAX_ERROR_LENGTH,
     type FailNotificationDto,
+    DEFAULT_NOTIFICATION_BATCH,
     type ListNotificationsQuery,
     type NotificationResponseDto,
     type RecordNotificationInput,
@@ -77,7 +78,7 @@ export class NotificationService {
                 .orWhere('(n.status = :failed AND n.nextRetryAt IS NOT NULL AND n.nextRetryAt <= :now)', { failed: 'failed', now })))
             .orderBy('n.createdAt', 'ASC')
             .addOrderBy('n.id', 'ASC')
-            .limit(q.limit);
+            .limit(q.limit ?? DEFAULT_NOTIFICATION_BATCH);
         if (q.kinds) qb.andWhere('n.kind IN (:...kinds)', { kinds: q.kinds });
         return (await qb.getMany()).map((n) => this.mapper.toDTO(n));
     }

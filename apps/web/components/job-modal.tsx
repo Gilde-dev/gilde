@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
-import { api, type Job, type JobStatus, type Run } from '@/lib/api';
+import { api, jobReplacement, type Job, type JobStatus, type Run } from '@/lib/api';
 import { usePolling } from '@/lib/use-polling';
 import { JobActions } from './job-actions';
 import { errorText } from '@/lib/job-actions';
@@ -64,11 +64,11 @@ function TriageEditor({ job, onChanged }: { job: Job; onChanged: () => void | Pr
     setSaving(true);
     setError(null);
     try {
-      await api.updateJob(job.id, {
+      await api.replaceJob(job.id, jobReplacement(job, {
         title,
         task,
         acceptanceCriteria: criteria.split('\n').map((c) => c.trim()).filter(Boolean),
-      });
+      }));
       await onChanged();
     } catch (err) {
       setError(errorText(err));

@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { NOTIFICATION_KINDS, NOTIFICATION_STATUSES } from './notification.entity.js';
 
 export const MAX_NOTIFICATION_BATCH = 100;
+/** Batch size when `limit` is omitted; applied by NotificationService.listDue. */
+export const DEFAULT_NOTIFICATION_BATCH = 20;
 export const DEFAULT_RETRY_DELAY_SECONDS = 60;
 export const MAX_RETRY_DELAY_SECONDS = 24 * 60 * 60;
 export const MAX_ERROR_LENGTH = 500;
@@ -42,7 +44,7 @@ export const RecordNotificationSchema = z.object({
 export const ListNotificationsQuerySchema = z.object({
     kinds: z.string().optional().transform((v) => (v ? v.split(',').map((k) => k.trim()).filter(Boolean) : undefined))
         .pipe(z.array(z.enum(NOTIFICATION_KINDS)).optional()),
-    limit: z.coerce.number().int().min(1).max(MAX_NOTIFICATION_BATCH).default(20),
+    limit: z.coerce.number().int().min(1).max(MAX_NOTIFICATION_BATCH).optional(),
 });
 
 export const FailNotificationSchema = z.object({

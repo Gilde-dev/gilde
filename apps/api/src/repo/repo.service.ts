@@ -6,7 +6,7 @@ import { Repository } from 'typeorm';
 import { isUniqueViolation } from '../common/db-errors.js';
 
 import { ProjectService } from '../project/project.service.js';
-import type { CreateRepoDto, RepoResponseDto, UpdateRepoDto } from './repo.dto.js';
+import type { CreateRepoDto, RepoResponseDto, ReplaceRepoDto } from './repo.dto.js';
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
 import { RepoManifestService } from './repo-manifest.service.js';
@@ -44,7 +44,8 @@ export class RepoService {
         }
     }
 
-    async update(id: string, dto: UpdateRepoDto): Promise<RepoResponseDto> {
+    /** Replaces the updatable settings; fullName and the manifest fields are not part of it. */
+    async update(id: string, dto: ReplaceRepoDto): Promise<RepoResponseDto> {
         const entity = await this.getOrFail(id);
         const saved = await this.repoRepository.save(this.repoRepository.merge(entity, dto));
         return this.repoMapper.toDTO(saved);

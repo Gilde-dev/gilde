@@ -3,10 +3,13 @@ import { z } from 'zod';
 import { JOB_STATUSES } from '../job/job-state.js';
 
 /** Query string for GET /v1/metrics — values arrive as strings, hence z.coerce. */
+/** Window in days when `days` is omitted; applied by MetricsService.get. */
+export const DEFAULT_METRICS_DAYS = 30;
+
 export const MetricsQuerySchema = z.object({
     projectId: z.string().uuid().optional(),
     repoId: z.string().uuid().optional(),
-    days: z.coerce.number().int().min(1).max(365).default(30),
+    days: z.coerce.number().int().min(1).max(365).optional(),
 });
 
 const rate = z.number().nullable();

@@ -94,16 +94,23 @@ describe('Budget (e2e)', () => {
     expect(res.body.hardBlocked).toBe(false);
   });
 
-  it('PATCH clears with null, preserves when omitted and rejects invalid limits', async () => {
+  it('PUT clears with null, replaces what is sent and rejects invalid limits', async () => {
     const { project } = await makeProject({ dailyBudgetUsd: 10, weeklyBudgetUsd: 0 });
     const url = `/api/v1/projects/${project.id}`;
-    expect((await http.patch(url).send({ name: 'X' }).expect(200)).body).toMatchObject({ dailyBudgetUsd: 10, weeklyBudgetUsd: 0 });
-    expect((await http.patch(url).send({ dailyBudgetUsd: null }).expect(200)).body).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: 0 });
+    const full = {
+      name: project.name, description: project.description, dailyRunLimit: project.dailyRunLimit, maxAttempts: project.maxAttempts,
+      runTimeoutMinutes: project.runTimeoutMinutes, retryOnChangesRequested: project.retryOnChangesRequested,
+      skillsLibrary: project.skillsLibrary, skillsLibraryRepoId: project.skillsLibraryRepoId,
+      dailyBudgetUsd: project.dailyBudgetUsd, weeklyBudgetUsd: project.weeklyBudgetUsd, budgetSoftPct: project.budgetSoftPct,
+    };
+    expect((await http.put(url).send({ ...full, name: 'X' }).expect(200)).body).toMatchObject({ name: 'X', dailyBudgetUsd: 10, weeklyBudgetUsd: 0 });
+    expect((await http.put(url).send({ ...full, dailyBudgetUsd: null }).expect(200)).body).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: 0 });
     expect((await http.get(url).expect(200)).body).toMatchObject({ dailyBudgetUsd: null, weeklyBudgetUsd: 0, budgetSoftPct: 80 });
     expect((await http.get('/api/v1/projects').expect(200)).body.find((p: { id: string }) => p.id === project.id)).toMatchObject({ weeklyBudgetUsd: 0 });
     for (const bad of [{ dailyBudgetUsd: -1 }, { dailyBudgetUsd: 'abc' }, { budgetSoftPct: 0 }, { budgetSoftPct: 101 }, { budgetSoftPct: null }]) {
-      await http.patch(url).send(bad).expect(400);
+      await http.put(url).send({ ...full, ...bad }).expect(400);
     }
+    await http.patch(url).send({ name: 'X' }).expect(404);
     await http.post('/api/v1/projects').send({ slug: 'bad-limit', name: 'B', weeklyBudgetUsd: -5 }).expect(400);
   });
 

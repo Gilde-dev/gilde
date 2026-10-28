@@ -9,12 +9,13 @@ export const ListLessonsQuerySchema = z.object({
     status: z.enum(LESSON_STATUSES).optional(),
 });
 
-export const UpdateLessonSchema = z.object({
+/** Full replacement of a lesson's editable fields (PUT); null clears targetKind, targetRepoId and note. */
+export const ReplaceLessonSchema = z.object({
     text: z.string().trim().min(1).max(10_000),
     targetKind: z.enum(SETTABLE_LESSON_TARGET_KINDS).nullable(),
     targetRepoId: z.string().uuid().nullable(),
     note: z.string().max(10_000).nullable(),
-}).partial();
+});
 
 export const MergeLessonsSchema = z.object({
     targetId: z.string().uuid(),
@@ -53,8 +54,9 @@ export const LessonResponseSchema = z.object({
 });
 
 export type ListLessonsQuery = z.infer<typeof ListLessonsQuerySchema>;
-export type UpdateLessonDto = z.infer<typeof UpdateLessonSchema>;
+export type ReplaceLessonDto = z.infer<typeof ReplaceLessonSchema>;
 export type MergeLessonsDto = z.infer<typeof MergeLessonsSchema>;
 export type LessonSourceResponseDto = z.infer<typeof LessonSourceResponseSchema>;
 export type LessonResponseDto = z.infer<typeof LessonResponseSchema>;
-export interface CollectResultDto { created: number }
+export const CollectResultSchema = z.object({ created: z.number().int() });
+export type CollectResultDto = z.infer<typeof CollectResultSchema>;

@@ -8,6 +8,7 @@ import { User } from '../user/user.entity.js';
 import type { JobStatus } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
 import { JobMapper } from '../job/job.mapper.js';
+import type { ReplaceJobDto } from '../job/job.dto.js';
 import { JobService } from '../job/job.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
 import { Project } from '../project/project.entity.js';
@@ -62,6 +63,9 @@ const mkFeature = (status: FeatureStatus = 'draft', over: Partial<Feature> = {})
 const seed = (repo: Repo, featureId: string | null, status: JobStatus, attempts = 0) =>
     jobs.save(jobs.create({ projectId: repo.projectId, repoId: repo.id, featureId, title: `J-${status}`, task: 't', status, attempts, queuedAt: new Date() }));
 
+const replaceJob = (job: Job, over: Partial<ReplaceJobDto> = {}) =>
+    jobService.update(job.id, { title: job.title, task: job.task, acceptanceCriteria: job.acceptanceCriteria ?? [], featureId: job.featureId, ...over });
+
 describe('jobs and features', () => {
     it('defaults to triage in a draft feature and rejects queued with 409', async () => {
         const f = await mkFeature('draft');
@@ -89,15 +93,34 @@ describe('jobs and features', () => {
         const triage = await seed(repoA, null, 'triage');
         const queued = await seed(repoA, null, 'queued');
         const running = await seed(repoA, null, 'dispatched');
-        expect((await jobService.update(triage.id, { featureId: f.id })).featureId).toBe(f.id);
-        expect((await jobService.update(queued.id, { featureId: f.id })).featureId).toBe(f.id);
-        expect((await jobService.update(queued.id, { featureId: null })).featureId).toBeNull();
-        await expect(jobService.update(running.id, { featureId: f.id })).rejects.toThrow(ConflictException);
-        await expect(jobService.update(queued.id, { title: 'new title' })).rejects.toThrow(ConflictException);
+        expect((await replaceJob(triage, { featureId: f.id })).featureId).toBe(f.id);
+        expect((await replaceJob(queued, { featureId: f.id })).featureId).toBe(f.id);
+        expect((await replaceJob(queued, { featureId: null })).featureId).toBeNull();
+        await expect(replaceJob(running, { featureId: f.id })).rejects.toThrow(ConflictException);
+        await expect(replaceJob(running, {})).rejects.toThrow(ConflictException);
+        await expect(replaceJob(queued, { title: 'new title' })).rejects.toThrow(ConflictException);
         const foreignJob = await seed(foreign, null, 'triage');
-        await expect(jobService.update(foreignJob.id, { featureId: f.id })).rejects.toThrow(BadRequestException);
+        await expect(replaceJob(foreignJob, { featureId: f.id })).rejects.toThrow(BadRequestException);
         const draft = await mkFeature('draft');
-        await expect(jobService.update(queued.id, { featureId: draft.id })).rejects.toThrow(ConflictException);
+        await expect(replaceJob(queued, { featureId: draft.id })).rejects.toThrow(ConflictException);
+    });
+
+    it('keeps an unchanged feature link when only the content changes, even if the feature has closed since', async () => {
+        const f = await mkFeature('active');
+        const triage = await seed(repoA, f.id, 'triage');
+        await features.update({ id: f.id }, { status: 'done' });
+        expect(await replaceJob(triage, { title: 'edited title' })).toMatchObject({ title: 'edited title', featureId: f.id });
+        await expect(replaceJob(triage, { featureId: f.id, title: 'again a title' })).resolves.toMatchObject({ title: 'again a title' });
+        const other = await mkFeature('done');
+        await expect(replaceJob(triage, { featureId: other.id })).rejects.toThrow(ConflictException);
+    });
+
+    it('allows a queued job to change feature when the content is resent unchanged, and rejects changed content', async () => {
+        const f = await mkFeature('active');
+        const queued = await seed(repoA, null, 'queued');
+        expect((await replaceJob(queued, { featureId: f.id })).featureId).toBe(f.id);
+        await expect(replaceJob(queued, { featureId: f.id, acceptanceCriteria: ['a different criterion'] })).rejects.toThrow(ConflictException);
+        await expect(replaceJob(queued, { featureId: f.id, task: `${queued.task} extra` })).rejects.toThrow(ConflictException);
     });
 });
 
@@ -147,7 +170,7 @@ describe('FeatureService', () => {
         await expect(service.start(draft.id)).rejects.toThrow(ConflictException);
         await service.done(draft.id);
         await expect(service.cancel(draft.id)).rejects.toThrow(ConflictException);
-        await expect(service.update(draft.id, { title: 'nope nope' })).rejects.toThrow(ConflictException);
+        await expect(service.update(draft.id, { title: 'nope nope', spec: 'spec', acceptanceCriteria: [] })).rejects.toThrow(ConflictException);
         const cancelled = await mkFeature('cancelled');
         await expect(service.reopen(cancelled.id)).rejects.toThrow(ConflictException);
     });
@@ -182,7 +205,7 @@ describe('FeatureService', () => {
 
     it('update edits draft and active features', async () => {
         const f = await mkFeature('draft');
-        const res = await service.update(f.id, { title: 'Renamed', acceptanceCriteria: ['one more'] });
+        const res = await service.update(f.id, { title: 'Renamed', spec: 'a new spec', acceptanceCriteria: ['one more'] });
         expect(res.title).toBe('Renamed');
         expect(res.acceptanceCriteria).toEqual(['one more']);
     });
@@ -308,7 +331,7 @@ describe('feature.ready_to_close notifications', () => {
         const g = await mkFeature('active');
         await seed(repoA, f.id, 'merged');
         const open = await seed(repoA, f.id, 'queued');
-        await jobService.update(open.id, { featureId: g.id });
+        await replaceJob(open, { featureId: g.id });
         const all = await rows();
         expect(all.map((n) => n.featureId)).toEqual([f.id]);
     });

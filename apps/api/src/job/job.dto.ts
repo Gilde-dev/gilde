@@ -17,12 +17,13 @@ export const CreateJobSchema = z.object({
 /** The text limits of a job, shared by every creator of jobs (HTTP, the co-pilot's validateJob, the scout's suggestJob). */
 export const JobContentSchema = CreateJobSchema.pick({ title: true, task: true, acceptanceCriteria: true });
 
-export const UpdateJobSchema = z.object({
-    title: z.string().trim().min(3).max(200).optional(),
-    task: z.string().trim().min(10).optional(),
-    acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
-    featureId: z.string().uuid().nullable().optional(),
-}).refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update' });
+/** Full replacement of a job's updatable fields (PUT); `featureId: null` unlinks the feature. */
+export const ReplaceJobSchema = z.object({
+    title: z.string().trim().min(3).max(200),
+    task: z.string().trim().min(10),
+    acceptanceCriteria: z.array(z.string().trim().min(3)).max(20),
+    featureId: z.string().uuid().nullable(),
+});
 
 export const SendBackSchema = z.object({
     reason: z.string().trim().min(1).max(4000),
@@ -37,6 +38,9 @@ export const SetDependenciesSchema = z.object({
     dependsOn: z.array(z.string().uuid()).max(20),
 });
 
+/** Page size when `limit` is omitted; applied by JobService.list. */
+export const DEFAULT_JOB_LIST_LIMIT = 50;
+
 /** Query string for GET /v1/jobs — values arrive as strings, hence z.coerce. */
 export const ListJobsQuerySchema = z.object({
     projectId: z.string().uuid().optional(),
@@ -44,7 +48,7 @@ export const ListJobsQuerySchema = z.object({
     featureId: z.string().uuid().optional(),
     status: z.enum(JOB_STATUSES).optional(),
     createdBy: z.union([z.literal('me'), z.string().uuid()]).optional(),
-    limit: z.coerce.number().int().min(1).max(200).default(50),
+    limit: z.coerce.number().int().min(1).max(200).optional(),
 });
 
 export const BlockingJobSchema = z.object({
@@ -101,12 +105,13 @@ export const EnqueueResponseSchema = JobResponseSchema.extend({
     warnings: z.array(EnqueueWarningSchema),
 });
 
-export interface JobPromptResponseDto {
-    text: string;
-    instructionsVersion: string | null;
-}
+export const JobPromptResponseSchema = z.object({
+    text: z.string(),
+    instructionsVersion: z.string().nullable(),
+});
+export type JobPromptResponseDto = z.infer<typeof JobPromptResponseSchema>;
 
-export type UpdateJobDto = z.infer<typeof UpdateJobSchema>;
+export type ReplaceJobDto = z.infer<typeof ReplaceJobSchema>;
 export type BulkEnqueueDto = z.infer<typeof BulkEnqueueSchema>;
 export type EnqueueWarningDto = z.infer<typeof EnqueueWarningSchema>;
 export type EnqueueResponseDto = z.infer<typeof EnqueueResponseSchema>;

@@ -431,11 +431,25 @@ In the UI, **Metrics** shows *Co-pilot usage* (always all projects, not filtered
 
 Cost is always labelled *estimated*: it is Claude Code's own figure, and under a subscription it is notional, not billing. An unknown cost is shown as `unavailable`, never `$0`; a partly known one as `$x+ (n requests unknown)`. "No telemetry received" (no rows) is shown differently from loading, an error, and real zero values.
 
+## Updating resources (PUT)
+
+Jobs, features, projects, repos and lessons are updated with `PUT` on the resource, which replaces its updatable fields as a whole. There are no `PATCH` routes, and a body that omits a key is answered with 400 and a zod issue for that key. A nullable field is a required key too: send `null` to clear it. Fields that are not listed (ids, `slug`, `fullName`, `paused`, status, manifest fields) cannot be changed this way and are ignored when sent.
+
+| Route | Required keys |
+|-------|---------------|
+| `PUT /api/v1/jobs/:id` | `title`, `task`, `acceptanceCriteria`, `featureId` (`null` unlinks) |
+| `PUT /api/v1/features/:id` | `title`, `spec`, `acceptanceCriteria` (`""` and `[]` are real values) |
+| `PUT /api/v1/projects/:id` | `name`, `description` (nullable), `dailyRunLimit`, `maxAttempts`, `runTimeoutMinutes`, `retryOnChangesRequested`, `skillsLibrary`, `skillsLibraryRepoId` (nullable), `dailyBudgetUsd` and `weeklyBudgetUsd` (nullable, `0` is a limit), `budgetSoftPct` |
+| `PUT /api/v1/repos/:id` | `defaultBranch`, `routineFireUrl` (nullable), `routineTokenEnv` (nullable), `maxConcurrentJobs` |
+| `PUT /api/v1/lessons/:id` | `text`, `targetKind` (nullable), `targetRepoId` (nullable), `note` (nullable) |
+
+State rules still apply to a full body: a job's content can only differ from the stored one in `triage` (a queued job accepts a new `featureId` with its content resent unchanged), and a feature can only be replaced while it is draft or active. Two people editing the same resource at the same time is last write wins: a complete body carries the values the client loaded, with no version check. Job dependencies keep their own `PUT /api/v1/jobs/:id/dependencies`. See [ADR 0008](docs/adr/0008-full-replacement-put-controllers-use-services-and-dtos.md).
+
 ## Budgets
 
 Estimated-USD budgets per UTC day and ISO week (Monday start). They **measure** recorded spend, **warn** through the notification outbox and **stop new automatic dispatch** at the hard limit (see "Enforcement" and "Budget notifications" below). Human use of Gilde is never blocked.
 
-**Settings.** Each project has nullable `dailyBudgetUsd` and `weeklyBudgetUsd` (finite, `>= 0`; `null` clears a limit, an omitted field in `PATCH /api/v1/projects/:id` keeps it; `0` means hard immediately, even at zero spend) and `budgetSoftPct` (default 80, `> 0` and `<= 100`). Global limits come from the environment: `GLOBAL_DAILY_BUDGET_USD` and `GLOBAL_WEEKLY_BUDGET_USD` (unset or blank = unlimited; the global soft threshold is 80%). The environment is re-read on every evaluation, so a corrected value takes effect on the next pass without a restart.
+**Settings.** Each project has nullable `dailyBudgetUsd` and `weeklyBudgetUsd` (finite, `>= 0`; `null` clears a limit; `PUT /api/v1/projects/:id` replaces all settings, so the body always carries both limits and `budgetSoftPct`; `0` means hard immediately, even at zero spend) and `budgetSoftPct` (default 80, `> 0` and `<= 100`). Global limits come from the environment: `GLOBAL_DAILY_BUDGET_USD` and `GLOBAL_WEEKLY_BUDGET_USD` (unset or blank = unlimited; the global soft threshold is 80%). The environment is re-read on every evaluation, so a corrected value takes effect on the next pass without a restart.
 
 **API.** `GET /api/v1/budget?projectId=<uuid>` (ordinary login or API key; read-only; `projectId` optional, 400 for a bad UUID, 404 for an unknown project) returns the global day/week status, the project's when `projectId` is given, every effective hard blocker (`blockers`, `hardBlocked`) and the recovery information. Each period has `startsAt` (inclusive) and `resetsAt` (exclusive), `spent` (sum of the known estimates), `pricedRows`/`totalRows`/`unpricedRows`, `pricing` (`empty`, `complete`, `partial`, `unknown`) and `incomplete`, `limit` and `percent` (both `null` without a limit; `percent` is also `null` for a limit of 0), `softPct`, `state` (`ok`, `soft`, `hard`) and a `reason`. Reaching a threshold exactly counts (`>=`); hard wins over soft. Costs are compared unrounded; round only for display. One clock reading is used per request.
 

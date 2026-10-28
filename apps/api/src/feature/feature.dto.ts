@@ -11,11 +11,12 @@ export const CreateFeatureSchema = z.object({
     acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
 });
 
-export const UpdateFeatureSchema = z.object({
-    title: z.string().trim().min(3).max(200).optional(),
-    spec: z.string().max(20000).optional(),
-    acceptanceCriteria: z.array(z.string().trim().min(3)).max(20).optional(),
-}).refine((v) => Object.keys(v).length > 0, { message: 'Provide at least one field to update' });
+/** Full replacement of a feature's updatable fields (PUT); an empty spec or criteria list is a real value. */
+export const ReplaceFeatureSchema = z.object({
+    title: z.string().trim().min(3).max(200),
+    spec: z.string().max(20000),
+    acceptanceCriteria: z.array(z.string().trim().min(3)).max(20),
+});
 
 export const ListFeaturesQuerySchema = z.object({
     status: z.enum(FEATURE_STATUSES).optional(),
@@ -68,7 +69,7 @@ export const FeatureCancelResponseSchema = FeatureResponseSchema.extend({
 });
 
 export type CreateFeatureDto = z.infer<typeof CreateFeatureSchema>;
-export type UpdateFeatureDto = z.infer<typeof UpdateFeatureSchema>;
+export type ReplaceFeatureDto = z.infer<typeof ReplaceFeatureSchema>;
 export type ListFeaturesQuery = z.infer<typeof ListFeaturesQuerySchema>;
 export type FeatureProgressDto = z.infer<typeof FeatureProgressSchema>;
 export type FeatureResponseDto = z.infer<typeof FeatureResponseSchema>;

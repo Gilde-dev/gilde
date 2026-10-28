@@ -11,36 +11,14 @@ import type { MemoryInfrastructure } from '../memory.infrastructure.js';
 import { UsageService } from '../../usage/usage.service.js';
 import { HistoryEmbedder } from './history-embedder.js';
 import { HistorySourceService } from './history-source.service.js';
+import type { HistoryRunSummary, HistoryStatus } from './history.dto.js';
 import { HistoryEntry, HistoryState, type HistoryPassStats } from './history.entity.js';
 import { chunkId, historyKey, HISTORY_OPTIONS, SCAN_KINDS, type HistoryDocument, type HistoryOptions, type HistoryRecord, type ScanKind } from './history.types.js';
 
 const STATE_ID = 'history';
+const isoOrNull = (d: Date | null | undefined): string | null => (d ? d.toISOString() : null);
 const emptyStats = (): HistoryPassStats => ({ indexed: 0, unchanged: 0, removed: 0, embeddedChunks: 0 });
 const errorMessage = (e: unknown) => (e instanceof Error ? e.message : String(e));
-
-export interface HistoryRunSummary {
-    /** idle: nothing due; partial: the run budget ended mid-pass (resumes next tick); complete: the pass finished. */
-    outcome: 'disabled' | 'idle' | 'partial' | 'complete' | 'failed';
-    batches: number;
-    stats: HistoryPassStats;
-    error?: string;
-}
-
-export interface HistoryStatus {
-    enabled: boolean;
-    embeddings: boolean;
-    reason: string | null;
-    indexName: string;
-    indexedSources: number;
-    passInProgress: boolean;
-    progress: { scanKind: string | null; phase: string | null; cursor: string | null };
-    passStartedAt: Date | null;
-    lastCompletedAt: Date | null;
-    lastError: string | null;
-    lastErrorAt: Date | null;
-    consecutiveFailures: number;
-    stats: HistoryPassStats | null;
-}
 
 /**
  * Keeps the history vector index in step with the source records. A pass walks every source kind in id order in bounded
@@ -103,10 +81,10 @@ export class HistoryIndexService implements OnApplicationBootstrap {
             indexedSources: await this.entries.count(),
             passInProgress: !!state?.passId,
             progress: { scanKind: state?.scanKind ?? null, phase: state?.passId ? state.phase : null, cursor: state?.cursor ?? null },
-            passStartedAt: state?.passStartedAt ?? null,
-            lastCompletedAt: state?.lastCompletedAt ?? null,
+            passStartedAt: isoOrNull(state?.passStartedAt),
+            lastCompletedAt: isoOrNull(state?.lastCompletedAt),
             lastError: state?.lastError ?? null,
-            lastErrorAt: state?.lastErrorAt ?? null,
+            lastErrorAt: isoOrNull(state?.lastErrorAt),
             consecutiveFailures: state?.consecutiveFailures ?? 0,
             stats: state?.stats ?? null,
         };

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   SKILLS_LIBRARY_KINDS,
   api,
+  projectReplacement,
   type Project,
   type Repo,
   type RepoSkills,
@@ -135,7 +136,7 @@ function LibrarySettings({ project, repos, onSaved }: { project: Project; repos:
     setBusy(true);
     setError(null);
     try {
-      await api.updateProject(project.id, { skillsLibrary: kind, skillsLibraryRepoId: kind === 'repo' ? repoId : null });
+      await api.replaceProject(project.id, projectReplacement(project, { skillsLibrary: kind, skillsLibraryRepoId: kind === 'repo' ? repoId : null }));
       await onSaved();
     } catch (e) {
       setError(errorText(e));

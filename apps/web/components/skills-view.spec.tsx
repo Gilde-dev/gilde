@@ -18,7 +18,10 @@ vi.mock('next/link', () => ({
   ),
 }));
 
-const project = (over: Partial<Project> = {}) => ({ id: 'p1', name: 'Proj', skillsLibrary: 'folder', skillsLibraryRepoId: null, ...over }) as Project;
+const project = (over: Partial<Project> = {}) => ({
+  id: 'p1', slug: 'proj', name: 'Proj', description: 'D', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+  paused: false, skillsLibrary: 'folder', skillsLibraryRepoId: null, dailyBudgetUsd: 5, weeklyBudgetUsd: null, budgetSoftPct: 80, ...over,
+}) as Project;
 
 const catalog: SkillCatalog = {
   library: { kind: 'folder', repoFullName: null },
@@ -69,7 +72,7 @@ describe('SkillsView', () => {
   });
 
   it('saves a repo library with the chosen repo', async () => {
-    const update = vi.spyOn(api, 'updateProject').mockResolvedValue(project());
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project());
     render(<SkillsView />);
     await screen.findByLabelText('Library skill alpha');
     fireEvent.change(screen.getByLabelText('Skills library'), { target: { value: 'repo' } });
@@ -77,7 +80,12 @@ describe('SkillsView', () => {
     expect(save).toBeDisabled();
     fireEvent.change(screen.getByLabelText('Library repo'), { target: { value: 'r1' } });
     fireEvent.click(save);
-    await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { skillsLibrary: 'repo', skillsLibraryRepoId: 'r1' }));
+    await waitFor(() =>
+      expect(update).toHaveBeenCalledWith('p1', {
+        name: 'Proj', description: 'D', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+        skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 5, weeklyBudgetUsd: null, budgetSoftPct: 80,
+      }),
+    );
   });
 
   it('offers Promote on repo-owned skills only, and shows the created jobs after promoting', async () => {

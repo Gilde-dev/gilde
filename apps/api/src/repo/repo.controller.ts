@@ -1,17 +1,18 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import {
     CreateRepoSchema,
-    UpdateRepoSchema,
+    ReplaceRepoSchema,
     type CreateRepoDto,
     type RepoResponseDto,
-    type UpdateRepoDto,
+    type WorkspaceStatus,
+    type ReplaceRepoDto,
 } from './repo.dto.js';
 import { RepoManifestService } from './repo-manifest.service.js';
 import { RepoService } from './repo.service.js';
-import { RepoWorkspaceService, type WorkspaceStatus } from '../workspace/repo-workspace.service.js';
+import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 
 @Controller('/v1')
 export class RepoController {
@@ -47,10 +48,10 @@ export class RepoController {
         return this.workspace.describe(await this.repoService.getById(id));
     }
 
-    @Patch('repos/:id')
+    @Put('repos/:id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body(new ZodValidationPipe(UpdateRepoSchema)) dto: UpdateRepoDto,
+        @Body(new ZodValidationPipe(ReplaceRepoSchema)) dto: ReplaceRepoDto,
     ): Promise<RepoResponseDto> {
         return this.repoService.update(id, dto);
     }

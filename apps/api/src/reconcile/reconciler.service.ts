@@ -7,12 +7,9 @@ import { GITHUB_PORT, type GitHubPort, type GitHubPull } from '../github/github.
 import { JobEventsService } from '../job/job-events.service.js';
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
+import type { ReconcileResult } from './reconcile.dto.js';
 import { parsePrBody } from '../webhook/pr-body.js';
 
-export interface ReconcileResult {
-    checked: number;
-    corrected: number;
-}
 
 const WATCHED: Job['status'][] = ['dispatched', 'pr_open', 'awaiting_review'];
 
