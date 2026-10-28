@@ -245,8 +245,14 @@ export interface Job {
   revision: number;
   /** Who created the job; null for system-created jobs. */
   createdBy: { id: string; name: string } | null;
-  /** Present (true) when any dependency is rejected, parked or cancelled. */
+  /** Present (true) when any dependency is rejected, parked, cancelled or merged without work. */
   failedDependency?: boolean;
+  /** Merged on GitHub, but the latest run reported blocked: no work was done and it does not satisfy dependencies. */
+  mergedBlocked: boolean;
+  /** The job created by "Recreate job" to replace this one. */
+  replacedById: string | null;
+  /** The merged-without-work job this one was recreated from. */
+  recreatedFromId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -313,6 +319,8 @@ export interface BlockingJob {
   id: string;
   title: string;
   status: JobStatus;
+  /** Merged without work: still blocks the job. */
+  mergedBlocked?: boolean;
 }
 
 export interface RunResult {
@@ -783,6 +791,7 @@ export const api = {
   triageJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/triage`, 'POST'),
   enqueueJobs: (ids: string[]) => request<EnqueueResult[]>('/v1/jobs/enqueue', 'POST', { ids }),
   cancelJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/cancel`, 'POST'),
+  recreateJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/recreate`, 'POST'),
   retryJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/retry`, 'POST'),
   sendBackJob: (jobId: string, reason: string) => request<Job>(`/v1/jobs/${id(jobId)}/send-back`, 'POST', { reason }),
   setRepoPaused: (repoId: string, paused: boolean) =>

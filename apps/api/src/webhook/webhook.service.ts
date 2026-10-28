@@ -201,6 +201,8 @@ export class WebhookService {
         const run = await this.events.findRun(job.id, null);
         if (!run) return `ignored: job has no run`;
         const parsed = parsePrBody(pr.body);
+        // A body replayed from an older attempt must not overwrite the current run's result.
+        if (parsed.runId && parsed.runId !== run.id) return `ignored: body belongs to run ${parsed.runId}, not the current run of the job`;
         await this.runs.update(
             { id: run.id },
             { result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },

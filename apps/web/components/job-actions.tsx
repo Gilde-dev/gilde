@@ -1,8 +1,10 @@
 'use client';
 
+import Link from 'next/link';
 import { useState } from 'react';
 import { api, type EnqueueResult, type Job } from '@/lib/api';
-import { canCancel, canEnqueue, canRetry, canSendBack, canTriage, errorText, warningLines } from '@/lib/job-actions';
+import { withProject } from '@/lib/use-project';
+import { canCancel, canEnqueue, canRecreate, canRetry, canSendBack, canTriage, errorText, warningLines } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -20,10 +22,14 @@ export function JobActions({
   const [confirming, setConfirming] = useState(false);
   const [sendingBack, setSendingBack] = useState(false);
   const [reason, setReason] = useState('');
+  const [recreating, setRecreating] = useState(false);
+  const [replacement, setReplacement] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (!canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
+  const replacementId = replacement?.id ?? job.replacedById;
+  const showRecreate = canRecreate(job) && !replacement;
+  if (!showRecreate && !replacementId && !canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
@@ -71,6 +77,16 @@ export function JobActions({
             Send back to agent
           </Button>
         )}
+        {showRecreate && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => setRecreating(true)}>
+            Recreate job
+          </Button>
+        )}
+        {job.status === 'merged' && replacementId && (
+          <Link href={withProject(`/jobs/${replacementId}`, job.projectId)} className="text-sm underline">
+            View replacement job
+          </Link>
+        )}
         {canCancel(job.status) &&
           (confirming ? (
             <>
@@ -88,6 +104,37 @@ export function JobActions({
             </Button>
           ))}
       </div>
+      <Dialog open={recreating} onOpenChange={(o) => !o && !busy && setRecreating(false)}>
+        <DialogContent>
+          <DialogTitle className="text-lg font-semibold">Recreate job</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            This creates a new job in triage with the same task, acceptance criteria, feature and prerequisites. Jobs that depend on this one
+            will wait for the new job instead. Nothing is queued or started, and this merged job and its PR stay as they are.
+          </DialogDescription>
+          {error && (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {error}
+            </p>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" disabled={busy} onClick={() => setRecreating(false)}>
+              Cancel
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  const created = await api.recreateJob(job.id);
+                  setReplacement(created);
+                  setRecreating(false);
+                })
+              }
+            >
+              Recreate job
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={sendingBack} onOpenChange={(o) => !o && !busy && setSendingBack(false)}>
         <DialogContent>
           <DialogTitle className="text-lg font-semibold">Send back to agent</DialogTitle>
@@ -129,7 +176,7 @@ export function JobActions({
           </div>
         </DialogContent>
       </Dialog>
-      {error && !sendingBack && (
+      {error && !sendingBack && !recreating && (
         <p role="alert" className="text-xs text-danger">
           {error}
         </p>

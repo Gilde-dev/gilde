@@ -24,7 +24,7 @@ export interface ScoutSignalDeps {
     threads: ScoutThreads;
     receipts: Repository<ScoutSignalReceipt>;
     budget: ScoutWakeBudgetService;
-    jobs: { statusSnapshot(projectId: string, parkedLimit?: number): Promise<{ counts: Record<string, number>; parkedIds: string[] }> };
+    jobs: { statusSnapshot(projectId: string, parkedLimit?: number): Promise<{ counts: Record<string, number>; parkedIds: string[]; mergedWithoutWork: { count: number; ids: string[] } }> };
     features: { list(projectId: string, q: { status?: (typeof FEATURE_STATUSES)[number] }): Promise<Array<{ id: string; status: string }>> };
     repos: { getById(id: string): Promise<{ fullName: string }> };
     /** The native notification store; used to see whether backlog waits. */
@@ -146,12 +146,12 @@ export class ScoutSignalService {
     }
 
     /**
-     * Sends the project's board (exact status counts, parked job ids, open feature ids) as a native state signal. The
+     * Sends the project's board (exact status counts, parked job ids, merged-without-work count and ids, open feature ids) as a native state signal. The
      * cacheKey is derived from the content, so an unchanged board is skipped by Mastra. Called before an actual wake only.
      */
     async sendBoardState(projectId: string): Promise<{ sent: boolean }> {
         const target = await this.deps.threads.ensureThread(projectId);
-        const [{ counts, parkedIds }, features] = await Promise.all([
+        const [{ counts, parkedIds, mergedWithoutWork }, features] = await Promise.all([
             this.deps.jobs.statusSnapshot(projectId, BOARD_LIST_LIMIT),
             this.deps.features.list(projectId, {}),
         ]);
@@ -160,6 +160,7 @@ export class ScoutSignalService {
             projectId,
             jobCounts: counts,
             parkedJobIds: parkedIds,
+            mergedWithoutWork,
             openFeatures: open.slice(0, BOARD_LIST_LIMIT).map((f) => ({ id: f.id, status: f.status })),
             openFeatureCount: open.length,
         };
@@ -168,6 +169,7 @@ export class ScoutSignalService {
             `Board of project ${projectId}.`,
             `Jobs by status: ${Object.entries(counts).map(([s, n]) => `${s} ${n}`).join(', ')}.`,
             `Parked job ids${parkedIds.length >= BOARD_LIST_LIMIT ? ` (first ${BOARD_LIST_LIMIT})` : ''}: ${parkedIds.join(', ') || 'none'}.`,
+            `Merged without work (merged on GitHub but the latest run was blocked; they do not satisfy dependencies; count ${mergedWithoutWork.count}${mergedWithoutWork.count > mergedWithoutWork.ids.length ? `, first ${mergedWithoutWork.ids.length} listed` : ''}): ${mergedWithoutWork.ids.join(', ') || 'none'}.`,
             `Open features (${open.length}${open.length > BOARD_LIST_LIMIT ? `, first ${BOARD_LIST_LIMIT} listed` : ''}): ${value.openFeatures.map((f) => `${f.id} ${f.status}`).join(', ') || 'none'}.`,
         ].join('\n');
         const agent = this.deps.mastra.getAgent(SCOUT_AGENT_ID);

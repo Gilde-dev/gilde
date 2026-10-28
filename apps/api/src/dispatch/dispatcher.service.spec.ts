@@ -138,6 +138,26 @@ describe('DispatcherService', () => {
             expect((await reload(job.id)).status).toBe('dispatched');
         });
 
+        it('never fires a job behind a merged-without-work prerequisite, takes no slot, and lets unrelated jobs through', async () => {
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
+            const blockedMerge = await seedJob(repo, 'merged', { mergedBlocked: true });
+            const goodMerge = await seedJob(repo, 'merged');
+            const behindBlocked = await seedJob(repo, 'queued', { queuedAt: new Date(Date.UTC(2025, 0, 1)) });
+            const behindGood = await seedJob(repo);
+            const free = await seedJob(repo);
+            await link(behindBlocked, blockedMerge);
+            await link(behindGood, goodMerge);
+
+            const result = await dispatcher.dispatch();
+            expect(result).toMatchObject({ fired: 1, failed: 0 });
+            expect((await reload(behindBlocked.id)).status).toBe('queued');
+            expect(await runs.countBy({ jobId: behindBlocked.id })).toBe(0);
+            expect(fire).toHaveBeenCalledTimes(1);
+            expect((await reload(behindBlocked.id)).attempts).toBe(0);
+            const report = dispatcher.status().result!.repos.find((r) => r.repoId === repo.id)!;
+            expect(report.waitingOnDependencies).toBe(1);
+        });
+
         it('lets a newer unblocked job fire past an older blocked one, and reports the waiting count', async () => {
             const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 1 });
             const dep = await seedJob(repo, 'pr_open', { queuedAt: new Date(Date.UTC(2025, 0, 1)) });

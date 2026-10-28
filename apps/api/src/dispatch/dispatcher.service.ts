@@ -95,13 +95,13 @@ export class DispatcherService {
             if (!repo) continue;
             const project = await this.projectRepository.findOneBy({ id: repo.projectId });
 
-            // Jobs with an unmerged dependency are excluded in the query, so they take no slot and block nobody.
+            // Jobs with an unmerged or merged-without-work dependency are excluded in the query, so they take no slot and block nobody.
             const unmerged = (qb: SelectQueryBuilder<Job>) => qb.subQuery()
                 .select('1')
                 .from(JobDependency, 'd')
                 .innerJoin(Job, 'dep', 'dep.id = d.dependsOnJobId')
                 .where('d.jobId = job.id')
-                .andWhere("dep.status <> 'merged'")
+                .andWhere("(dep.status <> 'merged' OR dep.mergedBlocked = :mergedBlocked)", { mergedBlocked: true })
                 .getQuery();
             // A job with a proposed revision waits for a human to accept or reject it.
             const revised = (qb: SelectQueryBuilder<Job>) => qb.subQuery()

@@ -113,7 +113,7 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
         ds = await new DataSource({ type: 'better-sqlite3', database: join(dir, 'app.db'), entities: [ScoutSignalReceipt, ScoutWakeDay], synchronize: true }).initialize();
         clock = new Date('2030-03-10T05:00:00Z');
         globalHard = false;
-        statusSnapshot.mockReset().mockResolvedValue({ counts: { queued: 2, parked: 1 }, parkedIds: [JOB] });
+        statusSnapshot.mockReset().mockResolvedValue({ counts: { queued: 2, parked: 1 }, parkedIds: [JOB], mergedWithoutWork: { count: 0, ids: [] } });
         featuresList.mockReset().mockResolvedValue([{ id: 'f1', status: 'active' }, { id: 'f2', status: 'done' }]);
         await boot();
     });
@@ -340,9 +340,21 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
     it('sends the board state only when it changed (cacheKey), and counts come from the full-project snapshot', async () => {
         expect((await service.sendBoardState(P1)).sent).toBe(true);
         expect((await service.sendBoardState(P1)).sent).toBe(false);
-        statusSnapshot.mockResolvedValue({ counts: { queued: 3, parked: 1 }, parkedIds: [JOB] });
+        statusSnapshot.mockResolvedValue({ counts: { queued: 3, parked: 1 }, parkedIds: [JOB], mergedWithoutWork: { count: 0, ids: [] } });
         expect((await service.sendBoardState(P1)).sent).toBe(true);
         expect(statusSnapshot).toHaveBeenCalledWith(P1, 20);
+    });
+
+    it('reports merged-without-work separately with exact count and bounded ids, and the cache key changes with it', async () => {
+        const ids = Array.from({ length: 20 }, (_, i) => `mw-${i}`);
+        statusSnapshot.mockResolvedValue({ counts: { merged: 25, parked: 1 }, parkedIds: [JOB], mergedWithoutWork: { count: 23, ids } });
+        expect((await service.sendBoardState(P1)).sent).toBe(true);
+        expect((await service.sendBoardState(P1)).sent).toBe(false);
+        // the same factual merged count, one more merged-without-work job: the board state must be sent again
+        statusSnapshot.mockResolvedValue({ counts: { merged: 25, parked: 1 }, parkedIds: [JOB], mergedWithoutWork: { count: 24, ids } });
+        expect((await service.sendBoardState(P1)).sent).toBe(true);
+        const text = (await inbox.listNotifications({ threadId: `verkenner:${P1}` })).length; // the state signal is not a notification
+        expect(text).toBe(0);
     });
 
     it('does not claim a wake that could not be handed over: a pre-send failure refunds it and a retry works', async () => {

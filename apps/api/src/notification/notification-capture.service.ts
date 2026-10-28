@@ -16,7 +16,7 @@ import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js'
 import { NotificationService, sanitizeReason } from './notification.service.js';
 
 /** Why a job was parked; part of the occurrence key so different causes are different events. */
-export type ParkCause = 'failure' | 'sent_back' | 'dispatch';
+export type ParkCause = 'failure' | 'sent_back' | 'dispatch' | 'blocked';
 
 /**
  * Builds the envelopes for the factory events and records them best effort. Every method runs after the domain
