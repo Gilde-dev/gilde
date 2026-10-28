@@ -56,10 +56,10 @@ describe('MCP server (e2e)', () => {
     expect(res.body.result.serverInfo.name).toBe('gilde');
   });
 
-  it('lists exactly the 23 tools without any prior session', async () => {
+  it('lists exactly the 24 tools without any prior session', async () => {
     const res = await rpc({ jsonrpc: '2.0', id: 2, method: 'tools/list' });
     expect(res.status).toBe(200);
-    expect((res.body.result.tools as { name: string }[]).map((t) => t.name).sort()).toHaveLength(23);
+    expect((res.body.result.tools as { name: string }[]).map((t) => t.name).sort()).toHaveLength(24);
   });
 
   it('requires an Accept header that allows JSON and event streams', async () => {
