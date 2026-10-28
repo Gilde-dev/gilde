@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { IntakeModule } from '../intake/intake.module.js';
 import { JobEventsModule } from '../job/job-events.module.js';
 import { Job } from '../job/job.entity.js';
 import { FeedbackModule } from '../feedback/feedback.module.js';
@@ -18,6 +19,7 @@ import { WebhookService } from './webhook.service.js';
         RepoModule,
         FeedbackModule,
         JobEventsModule,
+        IntakeModule,
     ],
     controllers: [WebhookController],
     providers: [WebhookService],
