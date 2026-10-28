@@ -26,6 +26,10 @@ import { scoutDeliveryDecider, type ScoutDispatchGate } from './scout-delivery-p
 import { scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
 import { VERKENNER_INSTRUCTIONS } from './verkenner.instructions.js';
 import { createScoutTools } from './verkenner.tools.js';
+import { REFINE_AGENT_ID, type RefineConfig } from './verfijner.config.js';
+import { VERFIJNER_INSTRUCTIONS } from './verfijner.instructions.js';
+import type { RefinedSpecWriter } from './verfijner.save.js';
+import { createRefineTools } from './verfijner.tools.js';
 import type { ScoutSuggestionService } from './scout-suggestion.service.js';
 
 /** Where Mastra is mounted: the global prefix plus the route of the copilot module. */
@@ -111,6 +115,15 @@ export interface ScoutSetup {
     suggestions?: ScoutSuggestionService;
 }
 
+/** An enabled Verfijner: its configuration and the existing bot user it acts as. `model` replaces the configured one in tests. */
+export interface RefineSetup {
+    config: Extract<RefineConfig, { enabled: true }>;
+    user: CopilotUser;
+    model?: unknown;
+    /** Saves the draft specs (the saveRefinedSpec tool). Without it (unit tests of the agent) every save is refused. */
+    writer?: Pick<RefinedSpecWriter, 'save'>;
+}
+
 interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
 
 interface RunFinish {
@@ -173,14 +186,15 @@ export function copilotDefaultOptions(
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null): Mastra {
-    // The scout is configured independently of the co-pilot: either one alone gets an instance, neither gets an empty one.
-    if (!config.enabled && !scout) return new Mastra({});
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null, refine?: RefineSetup | null): Mastra {
+    // The scout and the Verfijner are configured independently of the co-pilot: any one alone gets an instance, none gets an empty one.
+    if (!config.enabled && !scout && !refine) return new Mastra({});
 
     const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
     const agents: Record<string, Agent> = {};
     if (config.enabled) agents[COPILOT_AGENT_ID] = createCopilotAgent(config, services, memoryInfra, repoContext, usage);
     if (scout) agents[SCOUT_AGENT_ID] = createScoutAgent(scout, services, memoryInfra, usage);
+    if (refine) agents[REFINE_AGENT_ID] = createRefineAgent(refine, services, memoryInfra, usage);
 
     return new Mastra({
         agents,
@@ -196,6 +210,24 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
 const REFUSING_SUGGESTIONS: Pick<ScoutSuggestionService, 'suggest'> = {
     suggest: async () => ({ created: false, stop: true, refusal: { reason: 'scout_off', message: 'Suggestions are not available.' } }),
 };
+
+const REFUSING_WRITER: Pick<RefinedSpecWriter, 'save'> = {
+    save: async () => ({ saved: false, errors: ['Saving specs is not available.'] }),
+};
+
+function createRefineAgent(refine: RefineSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+    return new Agent({
+        id: REFINE_AGENT_ID,
+        name: REFINE_AGENT_ID,
+        description: 'Verfijner, the refiner: turns one labelled GitHub issue into a draft spec. Runs unattended, bound to one intake item; not reachable over HTTP.',
+        instructions: VERFIJNER_INSTRUCTIONS,
+        model: (refine.model ?? refine.config.model) as `openai/${string}`,
+        tools: createRefineTools(services, refine.writer ?? REFUSING_WRITER),
+        // One thread per attempt; thread-scoped memory like the scout's.
+        memory: createScoutMemory(memoryInfra, usage),
+        defaultOptions: copilotDefaultOptions(refine.config.maxSteps, undefined, usage && { service: usage, model: refine.config.model }, REFINE_AGENT_ID) as never,
+    });
+}
 
 function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
     return new Agent({
@@ -241,7 +273,7 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
 }
 
 /**
- * The Mastra instance as the CopilotKit route sees it: without the scout. The route turns every registered agent into
+ * The Mastra instance as the CopilotKit route sees it: without the scout and the Verfijner. The route turns every registered agent into
  * a CopilotKit agent for the calling user; the scout is internal (unattended, bound to a project and the bot user) and
  * must be neither listed nor runnable there.
  */
@@ -249,7 +281,7 @@ export function withoutScout(mastra: Mastra): Mastra {
     return new Proxy(mastra, {
         get(target, prop) {
             if (prop === 'listAgents') {
-                return () => Object.fromEntries(Object.entries(target.listAgents() ?? {}).filter(([id]) => id !== SCOUT_AGENT_ID));
+                return () => Object.fromEntries(Object.entries(target.listAgents() ?? {}).filter(([id]) => id !== SCOUT_AGENT_ID && id !== REFINE_AGENT_ID));
             }
             const value = Reflect.get(target, prop, target) as unknown;
             return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;

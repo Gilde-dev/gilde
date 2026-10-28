@@ -14,6 +14,7 @@ import { COPILOT_USER_KEY, agentReferences, copilotResourceId, memoryReferences 
 import { COPILOT_CONFIG, COPILOT_MASTRA } from './copilot.tokens.js';
 import { MASTRA_PREFIX } from './copilot.mastra.js';
 import { SCOUT_AGENT_ID } from './verkenner.config.js';
+import { REFINE_AGENT_ID } from './verfijner.config.js';
 
 /**
  * Runs for every request, acts only on /api/v1/mastra/*. It runs after the global JwtAuthGuard, so
@@ -22,7 +23,7 @@ import { SCOUT_AGENT_ID } from './verkenner.config.js';
  * - answers 401 when there is no authenticated account (memory is never shared or anonymous),
  * - puts the user and the memory resourceId (the user id) into the Mastra request context, overriding
  *   anything a client sent in the request body, so tools and memory are scoped per user on every Mastra route,
- * - rejects (403) any request that names the scout agent or an internal Mastra workflow: the scout runs only unattended,
+ * - rejects (403) any request that names the scout or the Verfijner agent or an internal Mastra workflow: they run only unattended,
  *   with a server-issued context, and is never reachable (or its bot memory readable) through these routes,
  * - rejects requests that name another resource (403) or a thread/message of another user (404), and pins the
  *   resourceId query parameter of memory routes to the user.
@@ -55,7 +56,7 @@ export class CopilotContextInterceptor implements NestInterceptor {
         }
         const user = { id: req.user.id, name: req.user.name, email: req.user.email, credential: req.user.credential };
 
-        if (agentReferences(req.path, req.query, req.body).some((a) => a.toLowerCase() === SCOUT_AGENT_ID) || req.path.includes('/__mastra')) {
+        if (agentReferences(req.path, req.query, req.body).some((a) => [SCOUT_AGENT_ID, REFINE_AGENT_ID].includes(a.toLowerCase())) || req.path.includes('/__mastra')) {
             return this.reject(context, HttpStatus.FORBIDDEN, 'Forbidden', 'This agent cannot be used through the API');
         }
 

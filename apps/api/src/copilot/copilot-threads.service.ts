@@ -5,8 +5,10 @@ import type { MastraDBMessage } from '@mastra/core/agent';
 import type { CopilotThreadDto, CopilotThreadMessageDto, CopilotThreadMessagesDto } from './copilot.dto.js';
 import { COPILOT_MASTRA } from './copilot.tokens.js';
 import { SCOUT_AGENT_ID } from './verkenner.config.js';
+import { REFINE_AGENT_ID } from './verfijner.config.js';
 
-const SCOUT_THREAD_PREFIX = `${SCOUT_AGENT_ID}:`;
+/** Threads of the unattended agents belong to their bot users and are never shown as conversations. */
+const isUnattendedThread = (id: string) => id.startsWith(`${SCOUT_AGENT_ID}:`) || id.startsWith(`${REFINE_AGENT_ID}:`);
 export const UNTITLED_THREAD = 'Untitled conversation';
 const TITLE_LENGTH = 60;
 /** Mastra's placeholder title for a thread nobody has named. */
@@ -69,7 +71,7 @@ export class CopilotThreadsService {
     async list(userId: string): Promise<CopilotThreadDto[]> {
         const store = await this.store();
         const { threads } = await store.listThreads({ filter: { resourceId: userId }, perPage: false });
-        const own = threads.filter((t) => t.resourceId === userId && !t.id.startsWith(SCOUT_THREAD_PREFIX));
+        const own = threads.filter((t) => t.resourceId === userId && !isUnattendedThread(t.id));
         own.sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
         return Promise.all(own.map((t) => this.summarize(store, t)));
     }
@@ -77,7 +79,7 @@ export class CopilotThreadsService {
     async messages(userId: string, threadId: string): Promise<CopilotThreadMessagesDto> {
         const store = await this.store();
         const thread = await store.getThreadById({ threadId });
-        if (!thread || thread.resourceId !== userId || thread.id.startsWith(SCOUT_THREAD_PREFIX)) throw new NotFoundException('Conversation not found');
+        if (!thread || thread.resourceId !== userId || isUnattendedThread(thread.id)) throw new NotFoundException('Conversation not found');
         const { messages } = await store.listMessages({ threadId, resourceId: userId, perPage: false });
         messages.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
         const title = await this.titleOf(store, thread);

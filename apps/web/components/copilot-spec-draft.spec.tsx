@@ -25,7 +25,7 @@ const version = (n: number, body: string, approvalId: string | null = null) => (
 });
 const spec = (over: Partial<SpecDetail> = {}): SpecDetail => ({
   id: 's1', projectId: 'p1', repoId: 'r1', slug: 'dark-mode', title: 'Dark mode', status: 'draft', currentVersion: 2, approvedVersion: 1,
-  createdById: null, updatedById: null, approvedById: null, approvedAt: null, createdAt: '', updatedAt: '',
+  createdById: null, updatedById: null, approvedById: null, approvedAt: null, createdAt: '', updatedAt: '', source: null,
   mayApprove: true, mayApproveReasons: [], eligibility: { eligible: true, reasons: [] },
   versions: [version(2, '## Goal\n\nold'), version(1, '## Goal\n\nfirst', 'ap1')], ...over,
 });

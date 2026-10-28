@@ -47,8 +47,8 @@ import { UsageService } from '../usage/usage.service.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { CopilotThreadsService } from './copilot-threads.service.js';
-import { createMastra, MASTRA_PREFIX, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
+import { createMastra, MASTRA_PREFIX, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
@@ -64,6 +64,11 @@ import { ScoutWakeBudgetService } from './scout-wake-budget.service.js';
 import { ScoutWakeReader } from './scout-wake.reader.js';
 import { resolveScoutSetup } from './verkenner.setup.js';
 import { ScoutThreads } from './verkenner.threads.js';
+import { IntakeModule } from '../intake/intake.module.js';
+import { IntakeRefineService } from '../intake/intake-refine.service.js';
+import { resolveRefineSetup } from './verfijner.setup.js';
+import { RefinedSpecWriter } from './verfijner.save.js';
+import { VerfijnerWorker } from './verfijner.worker.js';
 import { RepoContextService } from './repo-context.service.js';
 import type { CopilotServices } from './copilot.tools.js';
 
@@ -90,7 +95,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule, IntakeModule],
     providers: [
         RepoContextService,
         FeaturePlanService,
@@ -109,6 +114,13 @@ export class ScoutLifecycle implements OnModuleDestroy {
             // (without secrets) and the API starts without the scout.
             provide: SCOUT_SETUP,
             useFactory: (users: UserService): Promise<ScoutSetup | null> => resolveScoutSetup(users),
+            inject: [UserService],
+        },
+        {
+            // The Verfijner is off unless REFINE_ENABLED=true and everything it needs exists (a bot user among it). Never
+            // throws: a problem is logged (without secrets) and the API starts, with intake items staying `new`.
+            provide: REFINE_SETUP,
+            useFactory: (users: UserService): Promise<RefineSetup | null> => resolveRefineSetup(users),
             inject: [UserService],
         },
         {
@@ -150,11 +162,13 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 suggestions: ScoutSuggestionService,
                 specs: SpecService,
                 plans: FeaturePlanService,
+                refine: RefineSetup | null,
+                refineItems: IntakeRefineService,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions });
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService],
         },
         {
             provide: SCOUT_THREADS,
@@ -195,11 +209,18 @@ export class ScoutLifecycle implements OnModuleDestroy {
             },
             inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService, BudgetService],
         },
+        {
+            // Null (and nothing scheduled) while the Verfijner is off.
+            provide: REFINE_WORKER,
+            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService): VerfijnerWorker | null =>
+                (refine ? new VerfijnerWorker(refine, mastra, items, budget) : null),
+            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService],
+        },
         CopilotThreadsService,
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

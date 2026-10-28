@@ -10,12 +10,14 @@ import { UserModule } from '../user/user.module.js';
 
 import { IntakeController } from './intake.controller.js';
 import { IntakeItem } from './intake-item.entity.js';
+import { IntakeRefineRun } from './intake-refine-run.entity.js';
+import { IntakeRefineService } from './intake-refine.service.js';
 import { IntakeMapper } from './intake.mapper.js';
 import { IntakeService } from './intake.service.js';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([IntakeItem, Repo]),
+        TypeOrmModule.forFeature([IntakeItem, IntakeRefineRun, Repo]),
         PassportModule.register({}),
         GitHubModule,
         ProjectModule,
@@ -23,7 +25,7 @@ import { IntakeService } from './intake.service.js';
         UserModule,
     ],
     controllers: [IntakeController],
-    providers: [IntakeMapper, IntakeService],
-    exports: [IntakeService],
+    providers: [IntakeMapper, IntakeService, IntakeRefineService],
+    exports: [IntakeService, IntakeRefineService],
 })
 export class IntakeModule { }

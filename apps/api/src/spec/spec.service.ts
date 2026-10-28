@@ -4,6 +4,7 @@ import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
+import { IntakeItem } from '../intake/intake-item.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobService } from '../job/job.service.js';
@@ -19,6 +20,7 @@ import type {
     SpecDetailResponseDto,
     SpecRecordingDto,
     SpecRecordingState,
+    SpecSourceDto,
     SpecResponseDto,
     SpecVersionResponseDto,
 } from './spec.dto.js';
@@ -58,6 +60,7 @@ export class SpecService {
         @InjectRepository(SpecApproval) private readonly approvalRepository: Repository<SpecApproval>,
         @InjectRepository(SpecRecording) private readonly recordingRepository: Repository<SpecRecording>,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
+        @InjectRepository(IntakeItem) private readonly intakeRepository: Repository<IntakeItem>,
     ) { }
 
     async create(projectId: string, dto: CreateSpecDto, actor: { id: string } | null): Promise<SpecDetailResponseDto> {
@@ -96,7 +99,8 @@ export class SpecService {
     async list(projectId: string): Promise<SpecResponseDto[]> {
         await this.projectService.getById(projectId);
         const specs = await this.specRepository.find({ where: { projectId }, order: { updatedAt: 'DESC', id: 'ASC' } });
-        return specs.map((s) => this.mapper.toDTO(s));
+        const sources = await this.sourcesOf(specs.map((s) => s.id));
+        return specs.map((s) => this.mapper.toDTO(s, sources.get(s.id) ?? null));
     }
 
     async getDetail(id: string, caller: AuthUser | null): Promise<SpecDetailResponseDto> {
@@ -357,6 +361,13 @@ export class SpecService {
         }));
     }
 
+    /** The intake item each spec was drafted from, by spec id. */
+    private async sourcesOf(specIds: string[]): Promise<Map<string, SpecSourceDto>> {
+        if (!specIds.length) return new Map();
+        const items = await this.intakeRepository.find({ where: { specId: In(specIds) }, select: { specId: true, source: true, url: true, number: true } });
+        return new Map(items.flatMap((i) => (i.specId ? [[i.specId, { kind: i.source, url: i.url, number: i.number }] as const] : [])));
+    }
+
     private async detail(spec: Spec, caller: AuthUser | null): Promise<SpecDetailResponseDto> {
         const [versions, approvals, recordings] = await Promise.all([
             this.versionRepository.find({ where: { specId: spec.id }, order: { version: 'DESC' } }),
@@ -392,7 +403,7 @@ export class SpecService {
         const current = dtoVersions.find((v) => v.version === spec.currentVersion);
         const may = await this.mayApprove(caller);
         return {
-            ...this.mapper.toDTO(spec),
+            ...this.mapper.toDTO(spec, (await this.sourcesOf([spec.id])).get(spec.id) ?? null),
             mayApprove: may.allowed,
             mayApproveReasons: may.reasons,
             eligibility: current?.eligibility ?? { eligible: false, reasons: ['No current version'] },

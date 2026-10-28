@@ -8,3 +8,7 @@ export const SCOUT_THREADS = Symbol('SCOUT_THREADS');
 export const SCOUT_GATE = Symbol('SCOUT_GATE');
 /** ScoutSignalService, or null when the scout is off. */
 export const SCOUT_SIGNALS = Symbol('SCOUT_SIGNALS');
+/** The enabled Verfijner (config + bot user) or null when it is off. */
+export const REFINE_SETUP = Symbol('REFINE_SETUP');
+/** VerfijnerWorker, or null when the Verfijner is off. */
+export const REFINE_WORKER = Symbol('REFINE_WORKER');
