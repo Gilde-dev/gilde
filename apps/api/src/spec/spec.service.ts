@@ -5,17 +5,20 @@ import { EntityManager, In, IsNull, Repository } from 'typeorm';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 import { Job } from '../job/job.entity.js';
+import { Repo } from '../repo/repo.entity.js';
 import { JobService } from '../job/job.service.js';
 import { ProjectService } from '../project/project.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { UserService } from '../user/user.service.js';
 import { KeyedMutex } from './keyed-mutex.js';
 import type {
+    ApprovedVersionToken,
     ApproveSpecDto,
     CreateSpecDto,
     SaveSpecVersionDto,
     SpecDetailResponseDto,
     SpecRecordingDto,
+    SpecRecordingState,
     SpecResponseDto,
     SpecVersionResponseDto,
 } from './spec.dto.js';
@@ -26,6 +29,17 @@ import { SpecRecording } from './spec-recording.entity.js';
 import { recordingJobContent, recordingState, sha256 } from './spec-recording.js';
 import { SpecVersion } from './spec-version.entity.js';
 import { approvalBlockers, checkCriteriaHistory, parseSpec, type ParseIssue } from './spec-parser.js';
+
+/** An approved version with everything a plan pins: its approval, its recording and that recording's job. */
+export interface ApprovedSpecTarget {
+    spec: Spec;
+    version: SpecVersion;
+    approval: SpecApproval;
+    recording: SpecRecording;
+    job: Job;
+    state: SpecRecordingState;
+    repo: Repo;
+}
 
 @Injectable()
 export class SpecService {
@@ -46,7 +60,7 @@ export class SpecService {
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
     ) { }
 
-    async create(projectId: string, dto: CreateSpecDto, actor: AuthUser | null): Promise<SpecDetailResponseDto> {
+    async create(projectId: string, dto: CreateSpecDto, actor: { id: string } | null): Promise<SpecDetailResponseDto> {
         await this.projectService.getById(projectId); // 404 if unknown
         const repo = await this.repoService.getById(dto.repoId); // 404 if unknown
         if (repo.projectId !== projectId) throw new BadRequestException(`Repo ${dto.repoId} is not in project ${projectId}`);
@@ -76,7 +90,7 @@ export class SpecService {
             if (isUniqueViolation(e)) throw new ConflictException(`A spec with slug "${dto.slug}" already exists in this repo`);
             throw e;
         }
-        return this.getDetail(created.id, actor);
+        return this.getDetail(created.id, actor as AuthUser | null);
     }
 
     async list(projectId: string): Promise<SpecResponseDto[]> {
@@ -91,7 +105,7 @@ export class SpecService {
     }
 
     /** Saves a new immutable version; the spec goes back to draft. Earlier approvals and recordings stay as evidence. */
-    async saveVersion(id: string, dto: SaveSpecVersionDto, actor: AuthUser | null): Promise<SpecDetailResponseDto> {
+    async saveVersion(id: string, dto: SaveSpecVersionDto, actor: { id: string } | null): Promise<SpecDetailResponseDto> {
         const parsed = parseSpec(dto.body);
         this.assertSaveable(parsed.issues);
         await this.locked(id, async (m) => {
@@ -113,7 +127,7 @@ export class SpecService {
             });
             if (!result.affected) throw new ConflictException('The spec changed in the meantime, reload and try again');
         });
-        return this.getDetail(id, actor);
+        return this.getDetail(id, actor as AuthUser | null);
     }
 
     /**
@@ -135,14 +149,64 @@ export class SpecService {
         return this.getDetail(id, user ?? null);
     }
 
-    /** Marks a version's recording as pinned by a feature, so it is never replaced or cancelled. Idempotent per feature. */
+    /**
+     * Marks a version's recording as pinned by a feature, so it is never replaced or cancelled. Idempotent: a recording that
+     * another feature already pinned stays pinned by that one, which protects it just the same.
+     */
     async pinRecording(specId: string, version: number, featureId: string, manager?: EntityManager): Promise<void> {
         const recordings = manager?.getRepository(SpecRecording) ?? this.recordingRepository;
         const recording = await recordings.findOneBy({ specId, version });
         if (!recording) throw new NotFoundException(`Spec ${specId} version ${version} has no recording`);
-        if (recording.pinnedByFeatureId === featureId) return;
+        if (recording.pinnedByFeatureId) return;
         const result = await recordings.update({ id: recording.id, pinnedByFeatureId: IsNull() }, { pinnedByFeatureId: featureId });
         if (!result.affected) throw new ConflictException('This recording is already pinned by another feature');
+    }
+
+    /**
+     * Runs `fn` in a transaction while holding the spec's write slot, the one saving and approving use, so a plan cannot
+     * interleave with an approval or a new draft of the same spec.
+     */
+    withSpecLock<T>(specId: string, fn: (m: EntityManager) => Promise<T>): Promise<T> {
+        return this.locked(specId, fn);
+    }
+
+    /**
+     * Checks that `token` names the version of `specId` that is approved right now in `projectId`, and returns it with its
+     * approval and recording, or every reason it cannot be planned from. Reads through `manager` when given, so a caller
+     * holding the spec lock sees one consistent state. A newer draft does not make the approved version stale.
+     */
+    async inspectApprovedVersion(specId: string, token: ApprovedVersionToken, projectId: string, manager?: EntityManager): Promise<{ ok: true; target: ApprovedSpecTarget } | { ok: false; problems: string[] }> {
+        const m = manager ?? this.specRepository.manager;
+        const spec = await m.findOneBy(Spec, { id: specId });
+        if (!spec) return { ok: false, problems: [`Unknown spec ${specId}`] };
+        const label = `Spec "${spec.slug}"`;
+        if (spec.projectId !== projectId) return { ok: false, problems: [`${label} is in another project than the plan`] };
+        if (spec.approvedVersion === null) return { ok: false, problems: [`${label} has no approved version; a verified human must approve it before it can be planned`] };
+        if (token.version > spec.currentVersion) return { ok: false, problems: [`${label} has no version ${token.version}`] };
+        if (token.version < spec.approvedVersion) {
+            return { ok: false, problems: [`${label} version ${token.version} is superseded by approved version ${spec.approvedVersion}; plan again from that one`] };
+        }
+        if (token.version > spec.approvedVersion) {
+            return { ok: false, problems: [`${label} version ${token.version} is not approved (approved version is ${spec.approvedVersion}); a verified human must approve it first`] };
+        }
+        const approval = await m.findOneBy(SpecApproval, { specId, version: token.version });
+        if (!approval || approval.id !== token.approvalId) {
+            return { ok: false, problems: [`${label} version ${token.version} was approved by another approval than the one planned from; reload the spec and plan again`] };
+        }
+        const version = await m.findOneBy(SpecVersion, { specId, version: token.version });
+        if (!version) return { ok: false, problems: [`${label} version ${token.version} does not exist`] };
+        const recording = await m.findOneBy(SpecRecording, { specId, version: token.version });
+        if (!recording) return { ok: false, problems: [`${label} version ${token.version} has no recording job yet; approve it again or ask an operator`] };
+        const job = await m.findOneBy(Job, { id: recording.jobId });
+        const state = recordingState(recording, job ?? undefined);
+        if (state === 'superseded') return { ok: false, problems: [`The recording of ${label} version ${token.version} was superseded by a newer approval; plan again from the approved version`] };
+        if (state === 'failed') {
+            const why = !job ? 'is missing' : job.status === 'merged' ? 'merged without writing the spec' : `is ${job.status}`;
+            return { ok: false, problems: [`The recording job of ${label} version ${token.version} ${why}, so the spec file will not exist; fix or replace the recording before planning`] };
+        }
+        const repo = await m.findOneBy(Repo, { id: spec.repoId });
+        if (!repo || !job) return { ok: false, problems: [`${label} lost its repo or recording job`] };
+        return { ok: true, target: { spec, version, approval, recording, job, state, repo } };
     }
 
     // --- approval -----------------------------------------------------------------------------------------------
@@ -261,7 +325,7 @@ export class SpecService {
         });
     }
 
-    private versionRow(specId: string, version: number, title: string, body: string, criteriaNumbers: number[], actor: AuthUser | null) {
+    private versionRow(specId: string, version: number, title: string, body: string, criteriaNumbers: number[], actor: { id: string } | null) {
         return { specId, version, title, body, bodySha256: sha256(body), criteriaNumbers, createdById: actor?.id ?? null };
     }
 

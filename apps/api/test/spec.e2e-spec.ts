@@ -409,7 +409,8 @@ describe('Specs (e2e)', () => {
       const v3 = await approveNext(spec.id, body({ Goal: 'Third' }), 2);
       expect((await jobs().findOneByOrFail({ id: pinned })).status).toBe('queued');
       expect(v3.versions[2].recording.state).toBe('queued');
-      await expect(app.get(SpecService).pinRecording(spec.id, 1, randomUUID())).rejects.toMatchObject({ status: 409 });
+      // a second feature may pin the same version: it stays pinned by the first, which protects it for both
+      await expect(app.get(SpecService).pinRecording(spec.id, 1, randomUUID())).resolves.toBeUndefined();
     });
 
     it('treats a dispatcher that claims the queued job first as in flight', async () => {

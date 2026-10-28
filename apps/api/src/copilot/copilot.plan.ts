@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { CreateFeatureSchema } from '../feature/feature.dto.js';
 import { CreateJobSchema } from '../job/job.dto.js';
 import { taskContentProblem } from '../job/task-size.js';
+import { PlannedSpecVersionSchema } from '../spec/spec.dto.js';
 
 /** A job in a draft; `key` is local to the draft and `dependsOn` lists keys of other jobs in it. */
 export const PlanJobSchema = z.object({
@@ -16,10 +17,16 @@ export const PlanJobSchema = z.object({
 
 export const FeaturePlanSchema = z.object({
     projectId: z.string().uuid(),
+    /** Plan from an approved spec version: both fields together, or neither. */
+    specId: z.string().uuid().optional(),
+    specApproval: PlannedSpecVersionSchema.optional(),
     title: CreateFeatureSchema.shape.title,
     spec: z.string().trim().min(1).max(20000),
     acceptanceCriteria: z.array(z.string().trim().min(3)).min(1).max(20),
     jobs: z.array(PlanJobSchema).min(1).max(30),
+}).refine((p) => (p.specId === undefined) === (p.specApproval === undefined), {
+    message: 'specId and specApproval (the approved version and its approval id) go together',
+    path: ['specApproval'],
 });
 
 export type FeaturePlan = z.infer<typeof FeaturePlanSchema>;

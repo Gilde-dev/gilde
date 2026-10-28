@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 vi.mock('@copilotkit/react-core/v2/headless', () => ({ useInterrupt: vi.fn() }));
-vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn(), getRepo: vi.fn(), getFeature: vi.fn(), getJob: vi.fn() } }));
+vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn(), getRepo: vi.fn(), getFeature: vi.fn(), getJob: vi.fn(), getSpec: vi.fn() } }));
 
 import { api } from '@/lib/api';
 import { useInterrupt } from '@copilotkit/react-core/v2/headless';

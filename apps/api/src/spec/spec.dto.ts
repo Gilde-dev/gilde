@@ -31,6 +31,13 @@ export const ApproveSpecSchema = z.strictObject({
     expectedVersion: z.number().int().min(1),
 });
 
+/** The exact approved version a plan was made from: the version number and the id of its approval record. */
+export const PlannedSpecVersionSchema = z.strictObject({
+    version: z.number().int().min(1),
+    approvalId: z.string().uuid(),
+});
+
+export type ApprovedVersionToken = z.infer<typeof PlannedSpecVersionSchema>;
 export type CreateSpecDto = z.infer<typeof CreateSpecSchema>;
 export type SaveSpecVersionDto = z.infer<typeof SaveSpecVersionSchema>;
 export type ApproveSpecDto = z.infer<typeof ApproveSpecSchema>;

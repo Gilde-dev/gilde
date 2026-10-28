@@ -27,6 +27,9 @@ import { DataSource } from 'typeorm';
 import { RevisionModule } from '../revision/revision.module.js';
 import { RevisionService } from '../revision/revision.service.js';
 import { UserModule } from '../user/user.module.js';
+import { SpecModule } from '../spec/spec.module.js';
+import { SpecService } from '../spec/spec.service.js';
+import { FeaturePlanService } from './feature-plan.service.js';
 import { UserService } from '../user/user.service.js';
 import { SkillModule } from '../skill/skill.module.js';
 import { SkillService } from '../skill/skill.service.js';
@@ -85,9 +88,10 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule],
     providers: [
         RepoContextService,
+        FeaturePlanService,
         {
             provide: COPILOT_CONFIG,
             useFactory: (): CopilotConfig => {
@@ -141,11 +145,13 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 scout: ScoutSetup | null,
                 gate: ScoutDispatchGate,
                 suggestions: ScoutSuggestionService,
+                specs: SpecService,
+                plans: FeaturePlanService,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history, specs, plans };
                 return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService],
         },
         {
             provide: SCOUT_THREADS,
