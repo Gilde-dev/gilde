@@ -8,6 +8,8 @@ import { authedAgent } from './helpers/auth.js';
 import { AppModule } from './../src/app.module.js';
 import { Feedback } from './../src/feedback/feedback.entity.js';
 import { JobRun } from './../src/run/run.entity.js';
+import { LessonSource } from './../src/lesson/lesson-source.entity.js';
+import { Lesson } from './../src/lesson/lesson.entity.js';
 
 describe('Lessons (e2e)', () => {
   let app: INestApplication<App>;
@@ -68,5 +70,31 @@ describe('Lessons (e2e)', () => {
 
     await http().post(`/api/v1/lessons/${a.id}/reject`).expect(200);
     await http().post(`/api/v1/lessons/${a.id}/reopen`).expect(200);
+  });
+  it('groups a project\'s lessons into patterns without changing them', async () => {
+    const agent = await authedAgent(app);
+    const slug = `patterns-${randomUUID().slice(0, 8)}`;
+    const project = (await agent.post('/api/v1/projects').send({ slug, name: 'Patterns' }).expect(201)).body;
+    const other = (await agent.post('/api/v1/projects').send({ slug: `${slug}-o`, name: 'Other' }).expect(201)).body;
+    const repo = (await agent.post(`/api/v1/projects/${project.id}/repos`).send({ fullName: `o/${slug}` }).expect(201)).body;
+    const job = (await agent.post(`/api/v1/repos/${repo.id}/jobs`).send({ title: 'P job', task: 'Do the pattern thing' }).expect(201)).body;
+    const ds = app.get(DataSource);
+    const lessons = ds.getRepository(Lesson);
+    const texts = ['Run pnpm install first in a fresh session', 'Always run `pnpm install` first in a fresh session', 'The e2e database is shared'];
+    const saved = [];
+    for (const text of texts) saved.push(await lessons.save({ projectId: project.id, text }));
+    await lessons.save({ projectId: other.id, text: texts[0] });
+    await ds.getRepository(LessonSource).save({ lessonId: saved[0].id, sourceKey: `suggested_lesson:${randomUUID()}`, kind: 'suggested_lesson', jobId: job.id, excerpt: 'x' });
+
+    const res = (await agent.get(`/api/v1/projects/${project.id}/lessons/patterns`).expect(200)).body;
+    expect(res.method).toBe('text');
+    expect(res.patterns).toHaveLength(1);
+    expect(res.patterns[0]).toMatchObject({ size: 2, jobIds: [job.id], repoIds: [repo.id] });
+    expect(res.patterns[0].members.map((m: { lessonId: string }) => m.lessonId).sort()).toEqual([saved[0].id, saved[1].id].sort());
+    expect((await agent.get(`/api/v1/projects/${project.id}/lessons/patterns?minSize=3`).expect(200)).body.patterns).toEqual([]);
+    await agent.get(`/api/v1/projects/${project.id}/lessons/patterns?minSize=1`).expect(400);
+    await agent.get(`/api/v1/projects/${randomUUID()}/lessons/patterns`).expect(404);
+    await agent.get('/api/v1/projects/not-a-uuid/lessons/patterns').expect(400);
+    expect((await lessons.findBy({ projectId: project.id })).every((l) => l.status === 'candidate')).toBe(true);
   });
 });

@@ -11,6 +11,7 @@ import { FeatureService } from '../feature/feature.service.js';
 import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
 import { JobService } from '../job/job.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
+import { LessonPatternService } from '../lesson/lesson-pattern.service.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { MetricsService } from '../metrics/metrics.service.js';
 import { ProjectService } from '../project/project.service.js';
@@ -51,6 +52,7 @@ export class McpService {
         dispatcher: DispatcherService,
         metrics: MetricsService,
         lessons: LessonService,
+        lessonPatterns: LessonPatternService,
         skills: SkillService,
         projects: ProjectService,
         repos: RepoService,
@@ -60,7 +62,7 @@ export class McpService {
         workspace: RepoWorkspaceService,
         @Inject(GITHUB_PORT) github: GitHubPort,
     ) {
-        this.services = { jobs, features, revisions, dispatcher, metrics, lessons, skills, projects, repos, github, workspace, history, specs, plans };
+        this.services = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans };
     }
 
     /** Handles one MCP JSON-RPC POST for the request's authenticated user (undefined when auth is disabled). */

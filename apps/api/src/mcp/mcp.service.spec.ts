@@ -44,7 +44,7 @@ function setup() {
     const repos = { getById: vi.fn().mockResolvedValue({ id: REPO, projectId: PROJECT, fullName: 'o/r' }), listForProject: vi.fn() };
     const skills = { impact: vi.fn().mockResolvedValue({ days: 30, minRuns: 10, skills: [] }) };
     const noop = {} as never;
-    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, skills as never, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
+    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, skills as never, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
     const connect = async (user: AuthUser | undefined) => {
         const server = service.buildServer(user);
         const [a, b] = InMemoryTransport.createLinkedPair();
@@ -66,7 +66,7 @@ describe('MCP tool registry', () => {
         const client = await connect(as(ME));
         const { tools } = await client.listTools();
         expect(tools.map((t) => t.name).sort()).toEqual([...MCP_TOOL_NAMES].sort());
-        expect(tools).toHaveLength(23);
+        expect(tools).toHaveLength(24);
         expect(tools.map((t) => t.name)).toContain('getSkillImpact');
     });
 

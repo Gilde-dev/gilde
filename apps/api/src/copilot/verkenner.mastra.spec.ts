@@ -87,7 +87,7 @@ describe('createMastra with the scout', () => {
     it('leaves the human co-pilot as it was: same tools, same single CopilotKit route', async () => {
         const mastra = createMastra(copilotOn, {} as never, new LibSQLStore({ id: 't', url: 'file::memory:' }), undefined, undefined, undefined, scoutOn());
         const tools = Object.keys(await mastra.getAgent(COPILOT_AGENT_ID).listTools());
-        expect(tools).toHaveLength(23);
+        expect(tools).toHaveLength(24);
         expect(tools).toEqual(expect.arrayContaining(['createJob', 'createPlannedFeature']));
         expect(tools).not.toContain('suggestJob');
         expect(mastra.getServer()?.apiRoutes?.map((r) => r.path)).toEqual([COPILOTKIT_PATH]);
