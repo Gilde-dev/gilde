@@ -197,8 +197,9 @@ describe('Budget section', () => {
   it('shows project and global day and week bars, labelled estimated, with no limit as text', async () => {
     render(<MetricsView />);
     const s = await section();
+    await within(s).findAllByRole('listitem');
     for (const name of ['Project day (estimated)', 'Project week (estimated)', 'Global day (estimated)', 'Global week (estimated)']) {
-      expect(within(s).getByRole('listitem', { name })).toBeInTheDocument();
+      expect(await within(s).findByRole('listitem', { name })).toBeInTheDocument();
     }
     expect(within(s).queryByRole('progressbar')).toBeNull();
     expect(s).toHaveTextContent('No limit');
@@ -211,7 +212,7 @@ describe('Budget section', () => {
     );
     render(<MetricsView />);
     const s = await section();
-    const day = within(s).getByRole('listitem', { name: 'Project day (estimated)' });
+    const day = await within(s).findByRole('listitem', { name: 'Project day (estimated)' });
     expect(day).toHaveTextContent('120%');
     expect(day).toHaveTextContent('Limit reached');
     expect(within(day).getByRole('progressbar')).toHaveAttribute('aria-valuenow', '100');
