@@ -52,6 +52,8 @@ export const BlockingJobSchema = z.object({
     id: z.string().uuid(),
     title: z.string(),
     status: z.enum(JOB_STATUSES),
+    /** Merged on GitHub, but its latest run reported blocked: it does not satisfy the dependency. */
+    mergedBlocked: z.boolean().optional(),
 });
 
 export const JobCreatorSchema = z.object({
@@ -81,6 +83,12 @@ export const JobResponseSchema = z.object({
     pendingRevisions: z.number().int(),
     revision: z.number().int(),
     failedDependency: z.boolean().optional(),
+    /** Merged without work: status merged and the latest run's result is blocked. */
+    mergedBlocked: z.boolean(),
+    /** The job made by "Recreate job" to replace this one, if any. */
+    replacedById: z.string().uuid().nullable(),
+    /** The merged-without-work job this one was recreated from, if any. */
+    recreatedFromId: z.string().uuid().nullable(),
     createdBy: JobCreatorSchema.nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),

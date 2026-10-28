@@ -20,7 +20,7 @@ const base: Job = {
     needsApproval: false,
     approvalReason: null,
     dependsOn: [],
-    blockedBy: [], pendingRevisions: 0, revision: 0, createdBy: null,
+    blockedBy: [], pendingRevisions: 0, revision: 0, createdBy: null, mergedBlocked: false, replacedById: null, recreatedFromId: null,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
 };
@@ -82,5 +82,16 @@ describe('JobModal', () => {
   it('renders nothing when no job is selected', () => {
     render(<JobModal job={null} onClose={() => {}} />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('JobModal merged without work', () => {
+  it('shows the label, the PR link and the Recreate job action', async () => {
+    const merged: Job = { ...base, status: 'merged', mergedBlocked: true };
+    vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, ...merged });
+    render(<JobModal job={merged} onClose={() => {}} />);
+    expect(await screen.findByText('Merged without work (blocked)')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'PR #5' })).toHaveAttribute('href', 'https://github.com/o/r/pull/5');
+    expect(screen.getByRole('button', { name: 'Recreate job' })).toBeInTheDocument();
   });
 });

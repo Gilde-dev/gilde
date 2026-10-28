@@ -12,7 +12,7 @@ import { Button } from './ui/button';
 function JobRow({ job, repoName, titles, projectId }: { job: Job; repoName: string; titles: Map<string, string>; projectId: string | null }) {
   return (
     <li className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-md border border-border bg-card px-3 py-2 text-sm">
-      <StatusBadge status={job.status} />
+      <StatusBadge status={job.status} mergedBlocked={job.mergedBlocked} />
       <span className="font-mono text-xs text-muted-foreground">{repoName}</span>
       <Link href={withProject(`/jobs/${job.id}`, projectId)} className="font-medium underline-offset-2 hover:underline">
         {job.title}

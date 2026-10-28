@@ -1,4 +1,4 @@
-import type { JobStatus } from './api';
+import type { Job, JobStatus } from './api';
 
 export function canCancel(status: JobStatus): boolean {
   return status === 'triage' || status === 'queued' || status === 'dispatched' || status === 'parked';
@@ -6,6 +6,11 @@ export function canCancel(status: JobStatus): boolean {
 
 export function canRetry(status: JobStatus): boolean {
   return status === 'parked';
+}
+
+/** Merged on GitHub without work (blocked) and not replaced yet. */
+export function canRecreate(job: Pick<Job, 'status' | 'mergedBlocked' | 'replacedById'>): boolean {
+  return job.status === 'merged' && job.mergedBlocked === true && !job.replacedById;
 }
 
 export function canSendBack(status: JobStatus): boolean {

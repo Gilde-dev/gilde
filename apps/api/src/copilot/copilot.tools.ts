@@ -39,6 +39,8 @@ export const compactJob = (j: JobResponseDto) => ({
     attempts: j.attempts,
     lastReason: j.lastReason,
     blockedBy: j.blockedBy,
+    mergedBlocked: j.mergedBlocked,
+    failedDependency: j.failedDependency,
 });
 
 /** A feature without its spec and criteria, for list results. */

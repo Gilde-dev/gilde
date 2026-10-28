@@ -129,6 +129,16 @@ recall and history search report errors; job dispatch does not depend on the co-
 `PGVECTOR_SMOKE_URL=postgres://gilde:gilde@localhost:5432/gilde pnpm --filter @gilde/api test -- memory.pgvector`
 (creates and drops a `gilde_smoke_*` index and checks insert/query with the fake embedder).
 
+## Blocked results and merged-without-work
+
+An agent reports `blocked` in its `gilde-result` block when it could not do the task. Gilde treats that as follows:
+
+- **Park.** When the *current* run's stored result is `blocked` (the latest attempt, re-read after the result was written; an older attempt's body or a write that did not land never counts), the job is parked through the state machine with the reason `Blocked: <run summary>. Close the PR, fix the cause, then retry.` This does not use up attempts and does not requeue. The park happens when the PR is linked, when the PR body is edited, and when the reconciler finds the PR; it is a conditional transition, so redeliveries and concurrent calls park and notify (`job.parked`, cause `blocked`) once. CI, review and new-commit events do not pull a parked job back; you retry it yourself. A later run with a non-blocked result follows the normal path. `partial` results are unchanged.
+- **Merged without work.** If the blocked PR is merged on GitHub anyway, the job still becomes `merged` (the status counts stay factual), but `mergedBlocked` is true on the job, in lists and details. It is kept in `jobs.merged_blocked`, set from the stored result of the job's latest run when the job is merged or its body is edited later, and backfilled by the migration (SQLite, which synchronizes its schema, has no backfill). Done, partial and results-less merges are unaffected.
+- **Dependencies.** A merged-without-work job does not satisfy a dependency: it stays in the dependents' `blockedBy` (with `mergedBlocked: true`), `failedDependency` is true, and the dispatcher neither claims nor fires those dependents, so they take no slot or daily allowance. Unrelated jobs still run.
+- **Verkenner.** The board state reports `mergedWithoutWork` (exact count, at most 20 ids) next to the factual status counts.
+- **Recreate job.** `POST /api/v1/jobs/:id/recreate` (also on the board, the job modal and the job page, with a confirmation) is the recovery for a merged-without-work job. It creates a new job in triage for the acting user with the same repo, title, task, acceptance criteria, feature and its own prerequisites, and points every dependency edge that targeted the original at the new job, whatever the dependents' status; the dependents are not reset or started. The original and its PR stay untouched, nothing is queued, and repeated or concurrent requests return the same replacement (`replacedById` on the original). Only merged-without-work jobs qualify (409 otherwise). Queue the new job when you are ready.
+
 ## Verkenner (scout agent)
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory

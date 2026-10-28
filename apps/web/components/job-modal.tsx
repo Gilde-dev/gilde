@@ -147,7 +147,7 @@ function Dependencies({
           return (
             <li key={depId} className="flex items-center gap-2">
               <span>{dep?.title ?? depId}</span>
-              <StatusBadge status={dep?.status ?? 'merged'} />
+              <StatusBadge status={dep?.status ?? 'merged'} mergedBlocked={(dep as { mergedBlocked?: boolean } | undefined)?.mergedBlocked} />
             </li>
           );
         })}
@@ -259,7 +259,7 @@ export function JobModal({
               <DialogTitle className="pr-6 text-lg font-semibold">{shown.title}</DialogTitle>
               <DialogDescription asChild>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-                  <StatusBadge status={shown.status} />
+                  <StatusBadge status={shown.status} mergedBlocked={shown.mergedBlocked} />
                   {shown.prUrl && (
                     <a href={shown.prUrl} target="_blank" rel="noreferrer" className="underline">
                       PR #{shown.prNumber}

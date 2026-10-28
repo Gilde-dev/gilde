@@ -77,11 +77,11 @@ export function JobCard({
         'cursor-pointer rounded-lg border border-l-4 border-border bg-card p-3 text-left text-sm text-card-foreground shadow-sm',
         'transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-md motion-reduce:transition-none motion-reduce:hover:translate-y-0',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-        STATUS_EDGE[job.status],
+        job.status === 'merged' && job.mergedBlocked ? 'border-l-warning-solid' : STATUS_EDGE[job.status],
       )}
     >
       <div className="flex flex-wrap items-center gap-1.5">
-        <StatusBadge status={job.status} />
+        <StatusBadge status={job.status} mergedBlocked={job.mergedBlocked} />
         {scoutUserId && job.createdBy?.id === scoutUserId && (
           <Badge variant="pr" icon={Sparkles} title="Suggested by Verkenner, the scout">
             Suggested

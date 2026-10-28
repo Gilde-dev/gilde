@@ -120,14 +120,13 @@ describe('run outcome events (JobEventsService.recordProposals, the shared post-
         await expect(ev.recordProposals(job, run, p)).resolves.toBeUndefined();
     });
 
-    it('does nothing while the scout is off (no sink registered): no run is even re-read', async () => {
+    it('publishes nothing while the scout is off (no sink registered)', async () => {
         const off = new ScoutSignalPublisher();
-        const runs = ds.getRepository(JobRun);
-        const spy = vi.spyOn(runs, 'findOneBy');
-        const ev = new JobEventsService(ds.getRepository(Job), runs, ds.getRepository(Project), undefined, undefined, undefined, undefined, off);
+        const publish = vi.spyOn(off, 'publish');
+        const ev = new JobEventsService(ds.getRepository(Job), ds.getRepository(JobRun), ds.getRepository(Project), undefined, undefined, undefined, undefined, off);
         const run = await freshRun();
         await ev.recordProposals(job, run, parsed('blocked'));
-        expect(spy).not.toHaveBeenCalled();
+        expect(publish).not.toHaveBeenCalled();
     });
 
     it('a merged PR publishes job_merged; a closed one does not', async () => {
