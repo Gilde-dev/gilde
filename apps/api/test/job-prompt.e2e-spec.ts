@@ -102,8 +102,10 @@ describe('Job prompt preview with lessons (e2e)', () => {
     expect(rejected.body.message).toMatch(/40001 characters together.*over the 40000 limit/);
 
     const created = await create(100, 100).expect(201);
-    await http().patch(`/api/v1/jobs/${created.body.id}`).set(headers).send({ task: 't'.repeat(40_000) }).expect(400);
-    await http().patch(`/api/v1/jobs/${created.body.id}`).set(headers).send({ task: 't'.repeat(39_900) }).expect(200);
+    const replace = (task: number) => http().put(`/api/v1/jobs/${created.body.id}`).set(headers)
+      .send({ title: 'Sized job', task: 't'.repeat(task), acceptanceCriteria: ['c'.repeat(100)], featureId: null });
+    await replace(40_000).expect(400);
+    await replace(39_900).expect(200);
     const after = await http().get(`/api/v1/jobs/${created.body.id}`).set(headers).expect(200);
     expect(after.body.task).toHaveLength(39_900);
   });

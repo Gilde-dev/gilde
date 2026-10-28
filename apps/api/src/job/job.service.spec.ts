@@ -46,6 +46,9 @@ async function seed(repo: Repo, status: JobStatus = 'queued') {
     return jobs.save(jobs.create({ projectId: repo.projectId, repoId: repo.id, title: `J-${status}`, task: 't', status, queuedAt: new Date() }));
 }
 
+/** A full replacement body that resends the stored job unchanged. */
+const full = (j: Job) => ({ title: j.title, task: j.task, acceptanceCriteria: j.acceptanceCriteria ?? [], featureId: j.featureId ?? null });
+
 describe('job dependencies', () => {
     it('allows cross-repo dependencies in the same project', async () => {
         const dep = await seed(repoB);
@@ -159,6 +162,39 @@ describe('triage', () => {
         await expect(service.update(d.id, { title: d.title, task: d.task, acceptanceCriteria: d.acceptanceCriteria ?? [], featureId: null })).rejects.toThrow(ConflictException);
     });
 
+    describe('feature link on update', () => {
+        const mkFeature = (status: Feature['status'] = 'active') => ds.getRepository(Feature).save(
+            ds.getRepository(Feature).create({ projectId: repoA.projectId, title: 'F', spec: 's', status }),
+        );
+
+        it('looks nothing up for an unchanged link, even when the feature has since closed', async () => {
+            const f = await mkFeature();
+            const t = await seed(repoA, 'triage');
+            await service.update(t.id, { ...full(t), featureId: f.id });
+            await ds.getRepository(Feature).update({ id: f.id }, { status: 'done' });
+            const stored = await jobs.findOneByOrFail({ id: t.id });
+            await expect(service.update(t.id, { ...full(stored), title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed', featureId: f.id });
+        });
+
+        it('clears the link on null and leaves it on absent', async () => {
+            const f = await mkFeature();
+            const t = await seed(repoA, 'triage');
+            await service.update(t.id, { ...full(t), featureId: f.id });
+            const stored = await jobs.findOneByOrFail({ id: t.id });
+            await expect(service.update(t.id, { ...full(stored), featureId: undefined } as never)).resolves.toMatchObject({ featureId: f.id });
+            await expect(service.update(t.id, { ...full(stored), featureId: null })).resolves.toMatchObject({ featureId: null });
+        });
+
+        it('validates a changed link and lets a queued job change only its feature', async () => {
+            const f = await mkFeature();
+            const t = await seed(repoA, 'queued');
+            const unknown = '00000000-0000-4000-8000-000000000000';
+            await expect(service.update(t.id, { ...full(t), featureId: unknown })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { ...full(t), featureId: f.id })).resolves.toMatchObject({ featureId: f.id });
+            await expect(service.update(t.id, { ...full(t), title: 'Edit' })).rejects.toThrow(ConflictException);
+        });
+    });
+
     describe('task and criteria size', () => {
         const size = (task: number, ...criteria: number[]) => ({ task: 't'.repeat(task), acceptanceCriteria: criteria.map((n) => 'c'.repeat(n)) });
 
@@ -175,19 +211,19 @@ describe('triage', () => {
 
         it('checks the effective content of a partial update and leaves the job untouched when rejected', async () => {
             const t = await jobs.save(jobs.create({ projectId: repoA.projectId, repoId: repoA.id, title: 'T', task: 't'.repeat(30_000), acceptanceCriteria: ['c'.repeat(9_999)], status: 'triage' }));
-            await expect(service.update(t.id, { title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
-            await expect(service.update(t.id, { acceptanceCriteria: ['c'.repeat(10_001)] })).rejects.toThrow(BadRequestException);
-            await expect(service.update(t.id, { task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
-            await expect(service.update(t.id, { title: 'No write', task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { ...full(t), title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
+            await expect(service.update(t.id, { ...full(t), acceptanceCriteria: ['c'.repeat(10_001)] })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { ...full(t), task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { ...full(t), title: 'No write', task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
             expect(await jobs.findOneByOrFail({ id: t.id })).toMatchObject({ title: 'Renamed', task: 't'.repeat(30_000) });
-            await expect(service.update(t.id, { task: 't'.repeat(30_001) })).resolves.toMatchObject({ task: 't'.repeat(30_001) });
+            await expect(service.update(t.id, { ...full(t), task: 't'.repeat(30_001) })).resolves.toMatchObject({ task: 't'.repeat(30_001) });
         });
 
         it('does not block unrelated edits of a legacy oversized job, nor change who may edit', async () => {
             const legacy = await jobs.save(jobs.create({ projectId: repoA.projectId, repoId: repoA.id, title: 'L', task: 't'.repeat(50_000), status: 'triage' }));
-            await expect(service.update(legacy.id, { title: 'Still editable' })).resolves.toMatchObject({ title: 'Still editable' });
+            await expect(service.update(legacy.id, { ...full(legacy), title: 'Still editable' })).resolves.toMatchObject({ title: 'Still editable' });
             const queued = await seed(repoA, 'queued');
-            await expect(service.update(queued.id, { task: 't'.repeat(50_000) })).rejects.toThrow(ConflictException);
+            await expect(service.update(queued.id, { ...full(queued), task: 't'.repeat(50_000) })).rejects.toThrow(ConflictException);
         });
     });
 

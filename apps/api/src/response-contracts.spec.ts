@@ -90,7 +90,7 @@ describe('response contracts', () => {
 
     it('small DTOs keep their keys', () => {
         expect(CollectResultSchema.parse({ created: 2 })).toEqual({ created: 2 });
-        expect(JobPromptResponseSchema.parse({ text: 't', instructionsVersion: null })).toEqual({ text: 't', instructionsVersion: null });
+        expect(JobPromptResponseSchema.parse({ text: 't', instructionsVersion: null, length: 1, limit: 2, trimmed: null })).toEqual({ text: 't', instructionsVersion: null, length: 1, limit: 2, trimmed: null });
         expect(PromoteSkillResponseSchema.parse({ libraryJobId: null, cleanupJobId: 'j' })).toEqual({ libraryJobId: null, cleanupJobId: 'j' });
         const key = { id: 'i', name: 'n', prefix: 'p', createdAt: 'c', lastUsedAt: null, expiresAt: null };
         expect(ApiKeyResponseSchema.parse(key)).toEqual(key);

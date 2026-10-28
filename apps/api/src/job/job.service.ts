@@ -95,12 +95,17 @@ export class JobService {
         const contentChanged = content.title !== job.title
             || content.task !== job.task
             || !sameList(content.acceptanceCriteria, job.acceptanceCriteria);
-        const featureChanged = featureId !== job.featureId;
+        // undefined (absent) leaves the link alone; null clears it; a different id is validated.
+        const featureChanged = featureId !== undefined && featureId !== job.featureId;
         if (contentChanged && job.status !== 'triage') {
             throw new ConflictException(`Cannot edit a job that is ${job.status}`);
         }
         if (job.status !== 'triage' && job.status !== 'queued') {
             throw new ConflictException(`Cannot change the feature of a job that is ${job.status}`);
+        }
+        // Only a changed task or criteria is size-checked, so legacy oversized jobs keep their metadata edits.
+        if (content.task !== job.task || !sameList(content.acceptanceCriteria, job.acceptanceCriteria)) {
+            this.assertTaskContent(content.task, content.acceptanceCriteria);
         }
         const changes: Partial<Job> = contentChanged ? { ...content } : {};
         if (featureChanged) {
