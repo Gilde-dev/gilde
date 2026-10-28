@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { CreateFeatureSchema } from '../feature/feature.dto.js';
 import { CreateJobSchema } from '../job/job.dto.js';
+import { taskContentProblem } from '../job/task-size.js';
 
 /** A job in a draft; `key` is local to the draft and `dependsOn` lists keys of other jobs in it. */
 export const PlanJobSchema = z.object({
@@ -23,6 +24,14 @@ export const FeaturePlanSchema = z.object({
 
 export type FeaturePlan = z.infer<typeof FeaturePlanSchema>;
 export type PlanJob = FeaturePlan['jobs'][number];
+
+/** One problem per job whose task and criteria together are over the limit, naming the job by its key. */
+export function sizeProblems(jobs: Pick<PlanJob, 'key' | 'task' | 'acceptanceCriteria'>[]): string[] {
+    return jobs.flatMap((j) => {
+        const problem = taskContentProblem(j.task, j.acceptanceCriteria, `Job "${j.key}": the task and acceptance criteria`);
+        return problem ? [problem] : [];
+    });
+}
 
 /** Problems of the draft that do not need the database: duplicate keys, unknown keys, self-dependencies, cycles. */
 export function graphProblems(jobs: Pick<PlanJob, 'key' | 'dependsOn'>[]): string[] {

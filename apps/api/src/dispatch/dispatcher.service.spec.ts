@@ -6,6 +6,7 @@ import { ExecutionError } from '../execution/execution.error.js';
 import { User } from '../user/user.entity.js';
 import { Feature } from '../feature/feature.entity.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
+import { prepareJobPrompt } from '../execution/job-prompt.js';
 import type { JobStatus } from '../job/job-state.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
@@ -38,6 +39,8 @@ let budget: { status: ReturnType<typeof vi.fn> };
 let budgetAlerts: { capture: ReturnType<typeof vi.fn> };
 
 beforeEach(async () => {
+    instructionsText = null;
+    prepareFailure = null;
     ds = await new DataSource({
         type: 'better-sqlite3',
         database: ':memory:',
@@ -52,7 +55,7 @@ beforeEach(async () => {
     budgetAlerts = { capture: vi.fn().mockResolvedValue(0) };
     searchLessons = vi.fn().mockResolvedValue({ status: 'ok', lessons: [] });
     fire = vi.fn().mockResolvedValue({ sessionId: 's1', sessionUrl: 'https://x/s1' });
-    const execution: ExecutionPort = { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) };
+    const execution = fakeExecution();
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
@@ -60,6 +63,19 @@ beforeEach(async () => {
 });
 
 afterEach(() => ds.destroy());
+
+/** The real renderer with the instructions in `instructionsText`; `fire` sees the final payload, as before. */
+let instructionsText: string | null = null;
+let prepareFailure: Error | null = null;
+function fakeExecution(): ExecutionPort {
+    return {
+        prepare: (p, c) => {
+            if (prepareFailure) throw prepareFailure;
+            return prepareJobPrompt(p, { text: instructionsText, version: null }, c);
+        },
+        fire: (r, input) => fire(r, 'prepared' in input ? input.payload : input) as ReturnType<ExecutionPort['fire']>,
+    };
+}
 
 let seq = 0;
 async function seedProject(over: Partial<Project> = {}) {
@@ -201,7 +217,7 @@ describe('DispatcherService', () => {
         await seedJob(repo);
         fire.mockImplementation(() => new Promise((r) => setTimeout(() => r({ sessionId: 's', sessionUrl: 'u' }), 10)));
 
-        const other = new DispatcherService(new RunService(new RunMapper(), runs), { fire: (r, p) => fire(r, p) as ReturnType<ExecutionPort['fire']>, preview: () => ({ text: '', instructionsVersion: null }) }, jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
+        const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
         const [a, b] = await Promise.all([dispatcher.dispatch(), other.dispatch()]);
 
         expect(a.fired + b.fired).toBe(2);
@@ -768,6 +784,93 @@ describe('DispatcherService report', () => {
             await seedJob(repo);
             const result = await new DispatchController(dispatcher).dispatch();
             expect(result).toMatchObject({ fired: 0, repos: [{ reason: 'budget' }] });
+            expect(fire).not.toHaveBeenCalled();
+        });
+    });
+    describe('prompts that cannot fit', () => {
+        const huge = 'T'.repeat(61_000);
+
+        it('parks only that job, creates no run and spends no attempt, then fires the next job of the same repo', async () => {
+            const repo = await seedRepo(await seedProject({ dailyRunLimit: 1 }), { maxConcurrentJobs: 1 });
+            const big = await seedJob(repo, 'queued', { task: huge });
+            const next = await seedJob(repo);
+
+            const result = await dispatcher.dispatch();
+
+            expect(result).toMatchObject({ fired: 1, failed: 0 });
+            const parked = await reload(big.id);
+            expect(parked.status).toBe('parked');
+            expect(parked.attempts).toBe(0);
+            expect(parked.lastReason).toMatch(/^Prompt for job .* is 6\d \d{3} characters after trimming, over the 60 000 limit; the task and criteria alone are 61 001: shorten the task/);
+            expect(await runs.count({ where: { jobId: big.id } })).toBe(0);
+            expect(fire).toHaveBeenCalledTimes(1);
+            expect((fire.mock.calls[0][1] as { jobId: string }).jobId).toBe(next.id);
+            expect((await reload(next.id)).status).toBe('dispatched');
+            expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(false);
+            expect(await runs.count()).toBe(1);
+        });
+
+        it('uses neither the daily allowance nor a slot when nothing else can fire', async () => {
+            const repo = await seedRepo(await seedProject({ dailyRunLimit: 1 }), { maxConcurrentJobs: 1 });
+            const big = await seedJob(repo, 'queued', { task: huge });
+            const result = await dispatcher.dispatch();
+            expect(result).toMatchObject({ fired: 0, failed: 0 });
+            expect(fire).not.toHaveBeenCalled();
+            expect(await runs.count()).toBe(0);
+            expect((await reload(big.id)).status).toBe('parked');
+            // The slot and the allowance are still free for the next job.
+            const later = await seedJob(repo);
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1 });
+            expect((await reload(later.id)).status).toBe('dispatched');
+        });
+
+        it('sizes the prompt with the id of the run that is created, and keeps the reserved id of an earlier failed run', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            await dispatcher.dispatch();
+            const run = await runs.findOneByOrFail({ jobId: job.id });
+            expect((fire.mock.calls[0][1] as { runId: string }).runId).toBe(run.id);
+        });
+
+        it('a repo configuration error from preparing still pauses the repo and gives the attempt back', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            prepareFailure = new ExecutionError('Agent instructions file /x is missing or unreadable', 'config');
+            // Counted as a failed fire attempt, like any other repo configuration error.
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
+            const after = await repos.findOneByOrFail({ id: repo.id });
+            expect(after.paused).toBe(true);
+            expect(after.pausedReason).toContain('missing or unreadable');
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect(await runs.count()).toBe(0);
+        });
+
+        it('leaves an already paused repo paused and its queued oversized job untouched', async () => {
+            const repo = await seedRepo(await seedProject(), { paused: true, pausedReason: 'bad token' });
+            const big = await seedJob(repo, 'queued', { task: huge });
+            await dispatcher.dispatch();
+            expect((await repos.findOneByOrFail({ id: repo.id })).paused).toBe(true);
+            expect((await reload(big.id)).status).toBe('queued');
+        });
+
+        it('two concurrent dispatchers park the job once and fire nothing', async () => {
+            const repo = await seedRepo(await seedProject(), { maxConcurrentJobs: 5 });
+            const big = await seedJob(repo, 'queued', { task: huge });
+            const other = new DispatcherService(new RunService(new RunMapper(), runs), fakeExecution(), jobs, repos, projects, runs, undefined as never, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never);
+            await Promise.all([dispatcher.dispatch(), other.dispatch()]);
+            expect(await reload(big.id)).toMatchObject({ status: 'parked', attempts: 0 });
+            expect(fire).not.toHaveBeenCalled();
+            expect(await runs.count()).toBe(0);
+        });
+
+        it('an oversize caused by the instructions parks the job and never sends the text', async () => {
+            instructionsText = 'I'.repeat(60_000);
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            await dispatcher.dispatch();
+            const parked = await reload(job.id);
+            expect(parked.status).toBe('parked');
+            expect(parked.lastReason).toContain('the agent instructions take 60 000');
             expect(fire).not.toHaveBeenCalled();
         });
     });

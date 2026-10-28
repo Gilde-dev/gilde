@@ -44,7 +44,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r', fullName: 'o/repo' } as Repo]);
   vi.spyOn(api, 'listJobs').mockResolvedValue([{ ...base, id: 'x1', title: 'Downstream', dependsOn: ['j1'], status: 'queued' }]);
   vi.spyOn(api, 'getFeature').mockResolvedValue({ id: 'f1', title: 'Checkout flow' } as never);
-  vi.spyOn(api, 'getJobPrompt').mockResolvedValue({ text: 'the prompt', instructionsVersion: 'v1' });
+  vi.spyOn(api, 'getJobPrompt').mockResolvedValue({ text: 'the prompt', instructionsVersion: 'v1', length: 10, limit: 60_000, trimmed: null });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -100,6 +100,54 @@ describe('JobDetailView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy' }));
     await waitFor(() => expect(writeText).toHaveBeenCalledWith('the prompt'));
     expect(await screen.findByRole('button', { name: 'Copied' })).toBeInTheDocument();
+  });
+
+  describe('prompt tab', () => {
+    const open = async () => {
+      render(<JobDetailView />);
+      fireEvent.click(await screen.findByRole('tab', { name: 'Prompt' }));
+    };
+
+    it('shows size against the limit and that nothing was trimmed', async () => {
+      await open();
+      expect(await screen.findByText('10 of 60,000 characters')).toBeInTheDocument();
+      expect(screen.getByText('Nothing trimmed.')).toBeInTheDocument();
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('lists what was trimmed', async () => {
+      vi.mocked(api.getJobPrompt).mockResolvedValue({
+        text: 'p', instructionsVersion: null, length: 59_900, limit: 60_000,
+        trimmed: { lessonsRemoved: ['l1', 'l2'], downstreamTaskCap: 'title-only', downstreamRemoved: ['d1'], downstreamOmitted: 3, featureSpecCap: 4000 },
+      });
+      await open();
+      expect(await screen.findByText('Trimmed to fit the limit')).toBeInTheDocument();
+      for (const line of ['2 lessons left out', 'Downstream task text left out (titles, criteria and dependencies kept)', '1 downstream job removed to fit', '3 downstream jobs beyond the first 20 left out', 'Feature spec cut to 4,000 characters']) {
+        expect(screen.getByText(line)).toBeInTheDocument();
+      }
+      expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    });
+
+    it('warns when the prompt is over the limit after trimming, and still offers the text', async () => {
+      vi.mocked(api.getJobPrompt).mockResolvedValue({ text: 'huge prompt', instructionsVersion: null, length: 61_000, limit: 60_000, trimmed: { downstreamTaskCap: 400 } });
+      await open();
+      expect(await screen.findByRole('alert')).toHaveTextContent('1,000 characters over the limit');
+      expect(screen.getByText('Downstream tasks cut to 400 characters')).toBeInTheDocument();
+      expect(screen.getByText('huge prompt')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Copy' })).toBeInTheDocument();
+    });
+
+    it('shows loading and error states', async () => {
+      vi.mocked(api.getJobPrompt).mockReturnValue(new Promise(() => undefined));
+      await open();
+      expect(await screen.findByText('Loading…')).toBeInTheDocument();
+    });
+
+    it('shows the error when the prompt cannot be loaded', async () => {
+      vi.mocked(api.getJobPrompt).mockRejectedValue(new ApiError('Agent instructions file is unreadable', 400));
+      await open();
+      expect(await screen.findByRole('alert')).toHaveTextContent('Agent instructions file is unreadable');
+    });
   });
 
   it('shows an empty state for an unknown job', async () => {

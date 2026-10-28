@@ -107,6 +107,29 @@ describe('validateJob', () => {
     });
 });
 
+describe('task and criteria size', () => {
+    const sized = (task: number, ...criteria: number[]) => draft({ task: 't'.repeat(task), acceptanceCriteria: criteria.map((n) => 'c'.repeat(n)) });
+
+    it('validateJob accepts exactly 40000 characters (criteria included) and rejects 40001', async () => {
+        const { run } = setup();
+        expect((await run('validateJob', sized(39_999))).valid).toBe(true);
+        expect((await run('validateJob', sized(40_000))).valid).toBe(true);
+        expect((await run('validateJob', sized(39_000, 500, 500))).valid).toBe(true);
+        const over = await run('validateJob', sized(39_000, 500, 501));
+        expect(over.valid).toBe(false);
+        expect(over.problems).toEqual([expect.stringMatching(/40001 characters together.*over the 40000 limit.*shorten/)]);
+        expect((await run('validateJob', sized(40_001))).valid).toBe(false);
+    });
+
+    it('createJob revalidates and writes nothing when the content is too large', async () => {
+        const { s, run } = setup();
+        const result = await run('createJob', sized(39_000, 500, 501));
+        expect(result).toMatchObject({ created: false, problems: [expect.stringContaining('40001 characters')] });
+        expect(s.jobs.create).not.toHaveBeenCalled();
+        expect((await run('createJob', sized(39_000, 500, 500))).created).toBe(true);
+    });
+});
+
 describe('createJob', () => {
     it('requires approval and has no status input', () => {
         const { tools } = setup();

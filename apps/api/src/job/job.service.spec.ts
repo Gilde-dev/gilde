@@ -155,6 +155,38 @@ describe('triage', () => {
         await expect(service.update(q.id, { title: 'New title' })).rejects.toThrow(ConflictException);
     });
 
+    describe('task and criteria size', () => {
+        const size = (task: number, ...criteria: number[]) => ({ task: 't'.repeat(task), acceptanceCriteria: criteria.map((n) => 'c'.repeat(n)) });
+
+        it('accepts exactly 40000 characters and rejects 40001, counting every criterion, on create', async () => {
+            await expect(service.create(repoA.id, body(size(39_999)))).resolves.toBeDefined();
+            await expect(service.create(repoA.id, body(size(40_000)))).resolves.toBeDefined();
+            await expect(service.create(repoA.id, body(size(30_000, 5_000, 5_000)))).resolves.toBeDefined();
+            const before = await jobs.count();
+            await expect(service.create(repoA.id, body(size(40_001)))).rejects.toThrow(BadRequestException);
+            await expect(service.create(repoA.id, body(size(30_000, 5_000, 5_001)))).rejects.toThrow(/40001 characters together.*over the 40000 limit.*shorten/);
+            expect(await jobs.count()).toBe(before);
+            expect(await ds.getRepository(JobDependency).count()).toBe(0);
+        });
+
+        it('checks the effective content of a partial update and leaves the job untouched when rejected', async () => {
+            const t = await jobs.save(jobs.create({ projectId: repoA.projectId, repoId: repoA.id, title: 'T', task: 't'.repeat(30_000), acceptanceCriteria: ['c'.repeat(9_999)], status: 'triage' }));
+            await expect(service.update(t.id, { title: 'Renamed' })).resolves.toMatchObject({ title: 'Renamed' });
+            await expect(service.update(t.id, { acceptanceCriteria: ['c'.repeat(10_001)] })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
+            await expect(service.update(t.id, { title: 'No write', task: 't'.repeat(30_002) })).rejects.toThrow(BadRequestException);
+            expect(await jobs.findOneByOrFail({ id: t.id })).toMatchObject({ title: 'Renamed', task: 't'.repeat(30_000) });
+            await expect(service.update(t.id, { task: 't'.repeat(30_001) })).resolves.toMatchObject({ task: 't'.repeat(30_001) });
+        });
+
+        it('does not block unrelated edits of a legacy oversized job, nor change who may edit', async () => {
+            const legacy = await jobs.save(jobs.create({ projectId: repoA.projectId, repoId: repoA.id, title: 'L', task: 't'.repeat(50_000), status: 'triage' }));
+            await expect(service.update(legacy.id, { title: 'Still editable' })).resolves.toMatchObject({ title: 'Still editable' });
+            const queued = await seed(repoA, 'queued');
+            await expect(service.update(queued.id, { task: 't'.repeat(50_000) })).rejects.toThrow(ConflictException);
+        });
+    });
+
     it('edits dependencies in triage as well as queued', async () => {
         const dep = await seed(repoA, 'merged');
         const t = await seed(repoA, 'triage');

@@ -4,9 +4,9 @@ import { Repository } from 'typeorm';
 
 import { ExecutionError } from '../execution/execution.error.js';
 import { EXECUTION_PORT, type ExecutionPort } from '../execution/execution.port.js';
-import { loadDownstream } from '../execution/downstream.js';
+import { loadDownstreamContext } from '../execution/downstream.js';
 import { selectJobLessons } from '../execution/job-lessons.js';
-import { buildJobPayload } from '../execution/job-payload.js';
+import { buildJobPromptInput } from '../execution/job-payload.js';
 import { Feature } from '../feature/feature.entity.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -27,7 +27,7 @@ export class JobPromptService {
         private readonly history: HistorySearchService,
     ) { }
 
-    /** The exact text the next fire of this job would send. Reads only. */
+    /** The exact text the next fire of this job would send, with its size and trimming. Reads only; an oversized result is returned for inspection. */
     async get(id: string): Promise<JobPromptResponseDto> {
         const job = await this.jobRepository.findOneBy({ id });
         if (!job) throw new NotFoundException(`Job ${id} not found`);
@@ -35,10 +35,9 @@ export class JobPromptService {
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
         const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
         try {
-            const { text, instructionsVersion } = this.execution.preview(
-                buildJobPayload(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstream(this.jobRepository.manager, job), lessons),
-            );
-            return { text, instructionsVersion };
+            const { payload, context } = buildJobPromptInput(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstreamContext(this.jobRepository.manager, job), lessons);
+            const { text, instructionsVersion, length, limit, trimmed } = this.execution.prepare(payload, context);
+            return { text, instructionsVersion, length, limit, trimmed };
         } catch (e) {
             if (e instanceof ExecutionError) throw new BadRequestException(e.message);
             throw e;

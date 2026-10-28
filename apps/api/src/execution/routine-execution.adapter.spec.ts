@@ -85,7 +85,9 @@ describe('RoutineExecutionAdapter', () => {
             'Be good.\n\n---\n\nGilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n' +
             JSON.stringify(payload),
         );
-        expect(adapter.preview(payload)).toEqual({ text: sent, instructionsVersion: 'abc123def456' });
+        const prepared = adapter.prepare(payload);
+        expect(prepared).toMatchObject({ text: sent, instructionsVersion: 'abc123def456', length: sent.length, limit: PROMPT_LIMIT, fits: true, trimmed: null });
+        expect(prepared.payload).toEqual(payload);
     });
 
     it('sends the payload only, version null, without instructions', async () => {
@@ -95,12 +97,25 @@ describe('RoutineExecutionAdapter', () => {
         expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toMatch(/^Gilde job job-1/);
     });
 
-    it('fails as a config error instead of truncating an oversized prompt', async () => {
+    it('refuses an oversized prompt with a job-scoped, non-retryable error instead of truncating it', async () => {
         instructions = { text: 'x'.repeat(PROMPT_LIMIT), version: 'v' };
         const err = await failure(adapter.fire(repo, payload));
-        expect(err.kind).toBe('config');
-        expect(err.message).toContain('limit');
+        expect(err.kind).toBe('prompt_too_large');
+        expect(err.retryable).toBe(false);
+        expect(err.message).toMatch(/^Prompt for job job-1 is 60 \d{3} characters after trimming, over the 60 000 limit; the task and criteria alone are \d+, the agent instructions take 60 000: shorten the task/);
         expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it('fires a prepared prompt exactly as prepared, and still refuses an oversized prepared one', async () => {
+        fetchMock.mockResolvedValue(jsonResponse(okBody));
+        const prepared = adapter.prepare(payload);
+        await adapter.fire(repo, prepared);
+        expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toBe(prepared.text);
+
+        instructions = { text: 'x'.repeat(PROMPT_LIMIT), version: 'v' };
+        const err = await failure(adapter.fire(repo, adapter.prepare(payload)));
+        expect(err.kind).toBe('prompt_too_large');
+        expect(fetchMock).toHaveBeenCalledTimes(1);
     });
 
     describe('lessons', () => {
@@ -110,15 +125,15 @@ describe('RoutineExecutionAdapter', () => {
             fetchMock.mockResolvedValue(jsonResponse(okBody));
             await adapter.fire(repo, { ...payload, lessons: [lesson(1)] });
             expect(JSON.parse(fetchMock.mock.calls[0][1].body).text).toContain('"lessons":[{"id":"l1"');
-            expect(adapter.preview(payload).text).not.toContain('lessons');
-            expect(adapter.preview(payload).text).toBe(`Gilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n${JSON.stringify(payload)}`);
+            expect(adapter.prepare(payload).text).not.toContain('lessons');
+            expect(adapter.prepare(payload).text).toBe(`Gilde job job-1 (attempt 2). Execute it as described in your routine instructions.\n\n${JSON.stringify(payload)}`);
         });
 
         it('drops the least relevant lessons first to fit near the limit, never touching task or instructions', () => {
-            const base = adapter.preview(payload).text.length;
+            const base = adapter.prepare(payload).text.length;
             instructions = { text: 'x'.repeat(PROMPT_LIMIT - base - 1520), version: 'v' };
             const lessons = [lesson(1, 400), lesson(2, 400), lesson(3, 400), lesson(4, 400)];
-            const { text } = adapter.preview({ ...payload, lessons });
+            const { text } = adapter.prepare({ ...payload, lessons });
             expect(text.length).toBeLessThanOrEqual(PROMPT_LIMIT);
             expect(text).toContain('"id":"l1"');
             expect(text).not.toContain('"id":"l4"');
@@ -126,17 +141,21 @@ describe('RoutineExecutionAdapter', () => {
             expect(text.startsWith('x'.repeat(100))).toBe(true);
         });
 
-        it('omits the lessons key entirely when none fit, and a prompt that is valid without lessons is never a config error', () => {
-            const base = adapter.preview(payload).text.length;
-            instructions = { text: 'x'.repeat(PROMPT_LIMIT - base - 20), version: 'v' };
-            const { text } = adapter.preview({ ...payload, lessons: [lesson(1, 800)] });
-            expect(text).not.toContain('lessons');
+        it('omits the lessons key entirely when none fit, recording them in promptTrimmed', () => {
+            const base = adapter.prepare(payload).text.length;
+            instructions = { text: 'x'.repeat(PROMPT_LIMIT - base - 100), version: 'v' };
+            const { text } = adapter.prepare({ ...payload, lessons: [lesson(1, 800)] });
+            expect(text).not.toContain('"lessons"');
+            expect(text).toContain('"promptTrimmed":{"lessonsRemoved":["l1"]}');
             expect(text.length).toBeLessThanOrEqual(PROMPT_LIMIT);
         });
 
-        it('still fails as a config error when the required content alone is too long', () => {
+        it('returns an oversized result for inspection when the required content alone is too long', () => {
             instructions = { text: 'x'.repeat(PROMPT_LIMIT), version: 'v' };
-            expect(() => adapter.preview({ ...payload, lessons: [lesson(1)] })).toThrow(ExecutionError);
+            const prepared = adapter.prepare({ ...payload, lessons: [lesson(1)] });
+            expect(prepared.fits).toBe(false);
+            expect(prepared.length).toBeGreaterThan(PROMPT_LIMIT);
+            expect(prepared.trimmed).toEqual({ lessonsRemoved: ['l1'] });
         });
 
         it('keeps feature, downstream and continuation context next to lessons', () => {
@@ -146,7 +165,7 @@ describe('RoutineExecutionAdapter', () => {
                 downstream: [{ jobId: 'd', title: 'D', task: 't', acceptanceCriteria: [], dependsOn: ['job-1'] }],
                 continueOn: { branch: 'b', prNumber: 3, reason: 'fix ci' },
             };
-            const { text } = adapter.preview(full);
+            const { text } = adapter.prepare(full);
             for (const key of ['"feature"', '"downstream"', '"continueOn"', '"lessons"']) expect(text).toContain(key);
         });
     });

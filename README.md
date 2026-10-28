@@ -522,10 +522,27 @@ advisory: they never override the task, acceptance criteria, repo instructions o
 - **Fail-open.** A timeout, rate limit, missing `OPENAI_API_KEY` or index, vector error or no match gives no lessons and one bounded (200 characters)
   warning in the API log. The job still fires: no failed run, no parked job, no repo pause and no extra attempt. Dispatch never embeds or indexes
   inline; it only reads what the history reconciliation already indexed.
-- **Prompt size.** The prompt limit (60000 characters) still applies to the whole text. If lessons would push it over, the least relevant ones are dropped
-  until it fits; instructions, task and criteria are never shortened.
-- **Preview.** `GET /api/v1/jobs/:id/prompt` uses the same selection and shows the lessons a fire would send. It fires nothing and changes no state.
-  Continued PRs get lessons too.
+- **Prompt size.** The limit is 60000 characters of the exact final text sent to the routine (instructions, separator, job line, JSON escaping and the
+  `promptTrimmed` metadata included). While it is over, optional context is reduced in this order, re-rendering and stopping as soon as it fits:
+  1. lessons, from the least relevant end;
+  2. every downstream task capped at 1500 characters, then 400 (a cut task ends in `… (truncated; read the full job with its id if needed)`, within the cap);
+  3. downstream task text left out (`task` key omitted; `jobId`, `title`, `acceptanceCriteria` and `dependsOn` stay);
+  4. downstream jobs removed one at a time: unrelated feature siblings first, then transitive dependents, oldest first each;
+  5. the feature spec capped at 4000, then 2000 characters.
+
+  The agent instructions and the job's own task and criteria are never shortened. The payload gets a `promptTrimmed` field describing the real
+  reductions (`lessonsRemoved`, `downstreamTaskCap` as a number or `title-only`, `downstreamRemoved`, `featureSpecCap`, and `downstreamOmitted` /
+  the 8000-character spec and 4000-character task caps and 20-job cutoff that already applied when the context was built); unchanged fields are
+  omitted, and so is `promptTrimmed` when nothing was trimmed.
+- **Planning guard and parking.** A job's task plus all its criteria (`task.length + sum(criterion.length)`) may be at most 40000 characters, checked
+  when a job is created or its task or criteria are edited, and by the co-pilot's `validateJob` and `planFeature` (naming the plan job). Exactly
+  40000 is accepted. If a prompt is still over 60000 after every reduction, only that job is parked (reason: final size, size of task and criteria,
+  limit); no run is created, nothing is sent, the attempt is given back and it uses no daily-run allowance or slot, so the repo's other queued jobs
+  fire in the same pass. Repo configuration errors (missing routine URL or token variable, unreadable instructions file) still pause the repo, and a
+  paused repo is never unpaused automatically.
+- **Preview.** `GET /api/v1/jobs/:id/prompt` returns `text`, `instructionsVersion`, `length`, `limit` and `trimmed` from the same prepared prompt a
+  fire sends, with the same selection of lessons. It fires nothing and changes no state, and it still returns an over-limit text so it can be inspected
+  (a fire refuses it). The job detail Prompt tab shows the size against the limit, an over-limit warning and what was trimmed. Continued PRs get lessons too.
 
 ## Agent instructions
 
