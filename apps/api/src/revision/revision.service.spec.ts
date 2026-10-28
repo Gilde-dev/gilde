@@ -296,6 +296,24 @@ describe('loadDownstream', () => {
         expect(down.find((d) => d.jobId === sibling.id)?.task).toHaveLength(4000);
     });
 
+    it('is empty for a job without dependents and without a feature, whatever else is in the database', async () => {
+        const lone = await seedJob('dispatched');
+        await seedJob('queued');
+        await seedJob('triage', { task: 't'.repeat(5000) });
+        await seedJob('merged');
+        expect(await loadDownstream(ds.manager, lone)).toEqual([]);
+    });
+
+    it('only includes the feature siblings when the job has no dependents', async () => {
+        const feature = await ds.getRepository(Feature).save(ds.getRepository(Feature).create({
+            projectId: project.id, title: 'F', spec: 's', status: 'active',
+        } as never));
+        const root = await seedJob('dispatched', { featureId: feature.id });
+        const sibling = await seedJob('queued', { featureId: feature.id });
+        await seedJob('queued'); // unrelated
+        expect((await loadDownstream(ds.manager, root)).map((d) => d.jobId)).toEqual([sibling.id]);
+    });
+
     it('caps the list at 20', async () => {
         const root = await seedJob('dispatched');
         for (let i = 0; i < 25; i++) {

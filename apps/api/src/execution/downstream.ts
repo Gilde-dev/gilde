@@ -33,13 +33,14 @@ export async function loadDownstream(manager: EntityManager, job: Job): Promise<
         }
     }
 
-    const candidates = await manager.find(Job, {
-        where: [
-            ...(ids.size ? [{ id: In([...ids]), status: In(['triage', 'queued']) }] : []),
-            ...(job.featureId ? [{ featureId: job.featureId, status: In(['triage', 'queued']) }] : []),
-        ],
-        order: { createdAt: 'ASC' },
-    });
+    const where = [
+        ...(ids.size ? [{ id: In([...ids]), status: In(['triage' as const, 'queued' as const]) }] : []),
+        ...(job.featureId ? [{ featureId: job.featureId, status: In(['triage' as const, 'queued' as const]) }] : []),
+    ];
+    // TypeORM treats `where: []` as no filter at all, which returned the 20 oldest jobs of the whole database
+    // (any status) for a job without dependents and without a feature.
+    if (!where.length) return [];
+    const candidates = await manager.find(Job, { where, order: { createdAt: 'ASC' } });
     const downstream = candidates.filter((j) => j.id !== job.id).slice(0, DOWNSTREAM_LIMIT);
     if (!downstream.length) return [];
 
