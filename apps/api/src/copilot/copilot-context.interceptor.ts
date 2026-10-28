@@ -53,7 +53,7 @@ export class CopilotContextInterceptor implements NestInterceptor {
         if (!req.user?.id) {
             return this.reject(context, HttpStatus.UNAUTHORIZED, 'Unauthorized', 'The co-pilot needs an authenticated Gilde account');
         }
-        const user = { id: req.user.id, name: req.user.name, email: req.user.email };
+        const user = { id: req.user.id, name: req.user.name, email: req.user.email, credential: req.user.credential };
 
         if (agentReferences(req.path, req.query, req.body).some((a) => a.toLowerCase() === SCOUT_AGENT_ID) || req.path.includes('/__mastra')) {
             return this.reject(context, HttpStatus.FORBIDDEN, 'Forbidden', 'This agent cannot be used through the API');

@@ -16,7 +16,7 @@ import { promptHidden } from './prompt.js';
 class CliModule { }
 
 async function main() {
-    const { email, name } = parseUserCreateArgs(process.argv.slice(2));
+    const { email, name, bot } = parseUserCreateArgs(process.argv.slice(2));
 
     const password = await promptHidden('Password: ');
     if (password.length < MIN_PASSWORD_LENGTH) {
@@ -33,8 +33,8 @@ async function main() {
 
     const app = await NestFactory.createApplicationContext(CliModule, { logger: ['error'] });
     try {
-        const user = await app.get(UserService).create(parsed.data);
-        console.log(`Created user ${user.email} (${user.id})`);
+        const user = await app.get(UserService).create(parsed.data, { isBot: bot });
+        console.log(`Created ${bot ? 'bot ' : ''}user ${user.email} (${user.id})`);
     } finally {
         await app.close();
     }

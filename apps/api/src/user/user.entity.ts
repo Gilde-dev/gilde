@@ -15,6 +15,10 @@ export class User {
     @Column({ unique: true })
     email: string;
 
+    /** Machine accounts (channels, Verkenner). Never eligible for human-only operations. */
+    @Column({ name: 'is_bot', type: 'boolean', default: false })
+    isBot: boolean;
+
     /** The argon2id hash. Only loaded when selected explicitly. */
     @Column({ select: false })
     password: string;

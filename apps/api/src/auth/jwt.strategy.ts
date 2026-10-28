@@ -17,6 +17,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     }
 
     validate(payload: JwtPayload): AuthUser {
-        return { id: payload.sub, name: payload.name, email: payload.email };
+        // Reached only for a token with a valid signature and expiry; credential claims in the payload are ignored.
+        return { id: payload.sub, name: payload.name, email: payload.email, credential: 'jwt' };
     }
 }

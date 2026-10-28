@@ -7,6 +7,8 @@ export interface CopilotUser {
     id: string;
     name?: string;
     email?: string;
+    /** Provenance of the authenticated request, copied from req.user by the interceptor only. */
+    credential?: 'jwt' | 'api_key';
 }
 
 export function copilotUser(requestContext: Pick<RequestContext, 'get'> | undefined): CopilotUser | null {
