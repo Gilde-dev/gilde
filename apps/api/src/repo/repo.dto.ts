@@ -43,6 +43,10 @@ export const RepoResponseSchema = z.object({
     manifestSha: z.string().nullable(),
     manifestSyncedAt: z.string().datetime().nullable(),
     manifestError: z.string().nullable(),
+    /** Whether the Gilde GitHub App is installed on the repo; null until an installation event was seen. */
+    githubAppInstalled: z.boolean().nullable(),
+    /** Set when app mode is active and the app lost its installation on this repo. */
+    githubAppWarning: z.string().nullable(),
     paused: z.boolean(),
     pausedReason: z.string().nullable(),
     createdAt: z.string().datetime(),

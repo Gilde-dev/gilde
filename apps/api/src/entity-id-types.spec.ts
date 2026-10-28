@@ -16,6 +16,7 @@ const EXTERNAL_IDS = new Set([
   'history_entries.source_id',
   'history_entries.project_id',
   'history_state.pass_id',
+  'webhook_deliveries.delivery_id',
 ]);
 
 const REFERENCE_COLUMN = /(_id|_by)$/;

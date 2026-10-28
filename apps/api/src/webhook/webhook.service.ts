@@ -6,6 +6,9 @@ import { JobEventsService, type PullInfo } from '../job/job-events.service.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
+import { GithubInstallationService } from '../repo/github-installation.service.js';
+import { isUniqueViolation } from '../common/db-errors.js';
+import { WebhookDelivery } from './webhook-delivery.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
 import { parsePrBody } from './pr-body.js';
@@ -44,6 +47,10 @@ interface WebhookPayload {
         original_line?: number | null;
     };
     issue?: { number: number; pull_request?: object };
+    installation?: { id?: number };
+    repositories?: { full_name?: string }[];
+    repositories_added?: { full_name?: string }[];
+    repositories_removed?: { full_name?: string }[];
     workflow_run?: {
         name?: string;
         conclusion: string | null;
@@ -56,6 +63,7 @@ interface WebhookPayload {
 const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const HANDLED_EVENTS = new Set([
     'pull_request', 'check_suite', 'workflow_run', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
+    'installation', 'installation_repositories',
 ]);
 
 @Injectable()
@@ -69,10 +77,33 @@ export class WebhookService {
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
         @InjectRepository(Project) projects: Repository<Project>,
         private readonly events: JobEventsService = new JobEventsService(jobs, runs, projects),
+        @InjectRepository(WebhookDelivery) private readonly deliveries?: Repository<WebhookDelivery>,
+        private readonly installations?: GithubInstallationService,
     ) { }
 
-    async handle(event: string | undefined, payload: WebhookPayload | undefined): Promise<string> {
+    /**
+     * Applies a delivery once per `x-github-delivery` id: the same delivery arriving through the per-repo webhook and the app
+     * webhook is answered `duplicate`. The id is claimed before handling and released again when handling throws, so GitHub's retry works.
+     */
+    async handle(event: string | undefined, payload: WebhookPayload | undefined, deliveryId?: string): Promise<string> {
         if (!HANDLED_EVENTS.has(event ?? '')) return `ignored: event ${event ?? '(none)'}`;
+        if (!deliveryId || !this.deliveries) return this.process(event, payload);
+        try {
+            await this.deliveries.insert({ deliveryId });
+        } catch (e) {
+            if (isUniqueViolation(e)) return `ignored: duplicate delivery ${deliveryId}`;
+            throw e;
+        }
+        try {
+            return await this.process(event, payload);
+        } catch (e) {
+            await this.deliveries.delete({ deliveryId });
+            throw e;
+        }
+    }
+
+    private async process(event: string | undefined, payload: WebhookPayload | undefined): Promise<string> {
+        if (event === 'installation' || event === 'installation_repositories') return this.onInstallation(event, payload ?? {});
 
         const fullName = payload?.repository?.full_name;
         if (!fullName) return 'ignored: no repository in payload';
@@ -85,6 +116,29 @@ export class WebhookService {
         if (event === 'pull_request_review_comment') return this.onReviewComment(repo.id, payload!);
         if (event === 'issue_comment') return this.onIssueComment(repo.id, payload!);
         return this.onPullRequest(repo.id, payload!);
+    }
+
+    /** Records per repo whether the app is installed. Never registers or removes Gilde repos. */
+    private async onInstallation(event: string, payload: WebhookPayload): Promise<string> {
+        const names = (list?: { full_name?: string }[]) => (list ?? []).map((r) => r.full_name).filter((n): n is string => !!n);
+        const action = payload.action;
+        if (event === 'installation') {
+            if (action === 'created' || action === 'unsuspend' || action === 'new_permissions_accepted') {
+                await this.installations?.record(names(payload.repositories), true);
+                return `recorded app installed on ${names(payload.repositories).length} repos`;
+            }
+            if (action === 'deleted' || action === 'suspend') {
+                await this.installations?.record(names(payload.repositories), false);
+                return `recorded app not installed on ${names(payload.repositories).length} repos`;
+            }
+            return `ignored: installation ${action ?? '(no action)'}`;
+        }
+        if (action !== 'added' && action !== 'removed') return `ignored: installation_repositories ${action ?? '(no action)'}`;
+        const added = names(payload.repositories_added);
+        const removed = names(payload.repositories_removed);
+        await this.installations?.record(added, true);
+        await this.installations?.record(removed, false);
+        return `recorded app installed on ${added.length} and removed from ${removed.length} repos`;
     }
 
     private async onReview(repoId: string, payload: WebhookPayload): Promise<string> {

@@ -1,6 +1,6 @@
 import { createHmac } from 'node:crypto';
 
-import { verifySignature } from './webhook-signature.js';
+import { verifyAnySignature, verifySignature, webhookSecrets } from './webhook-signature.js';
 
 const secret = 's3cret';
 const body = Buffer.from('{"zen":"Keep it logically awesome."}');
@@ -30,5 +30,25 @@ describe('verifySignature', () => {
     it('rejects when no secret is configured or no raw body is present', () => {
         expect(verifySignature(undefined, body, sign(secret, body))).toBe(false);
         expect(verifySignature(secret, undefined, sign(secret, body))).toBe(false);
+    });
+});
+
+describe('verifyAnySignature', () => {
+    const secrets = webhookSecrets({ GITHUB_APP_WEBHOOK_SECRET: 'app-secret', GITHUB_WEBHOOK_SECRET: 'repo-secret' });
+
+    it('accepts a delivery signed with either secret', () => {
+        expect(verifyAnySignature(secrets, body, sign('app-secret', body))).toBe(true);
+        expect(verifyAnySignature(secrets, body, sign('repo-secret', body))).toBe(true);
+        expect(verifyAnySignature(secrets, body, sign('other', body))).toBe(false);
+    });
+
+    it('works with only one secret set', () => {
+        expect(verifyAnySignature(webhookSecrets({ GITHUB_APP_WEBHOOK_SECRET: 'app-secret' }), body, sign('app-secret', body))).toBe(true);
+        expect(verifyAnySignature(webhookSecrets({ GITHUB_WEBHOOK_SECRET: 'repo-secret' }), body, sign('app-secret', body))).toBe(false);
+    });
+
+    it('rejects everything when neither secret is set', () => {
+        expect(webhookSecrets({})).toEqual([]);
+        expect(verifyAnySignature([], body, sign('', body))).toBe(false);
     });
 });

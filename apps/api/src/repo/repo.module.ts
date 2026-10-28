@@ -6,6 +6,8 @@ import { GitHubModule } from '../github/github.module.js';
 import { ProjectModule } from '../project/project.module.js';
 import { WorkspaceModule } from '../workspace/workspace.module.js';
 
+import { GithubInstallation } from './github-installation.entity.js';
+import { GithubInstallationService } from './github-installation.service.js';
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
 import { RepoController } from './repo.controller.js';
@@ -16,7 +18,8 @@ import { RepoService } from './repo.service.js';
 @Module({
     imports: [
         TypeOrmModule.forFeature([
-            Repo
+            Repo,
+            GithubInstallation
         ]),
         ProjectModule,
         GitHubModule,
@@ -27,10 +30,12 @@ import { RepoService } from './repo.service.js';
     ],
     providers: [
         RepoMapper,
+        GithubInstallationService,
         RepoManifestService,
         RepoService
     ],
     exports: [
+        GithubInstallationService,
         RepoManifestService,
         RepoService
     ]

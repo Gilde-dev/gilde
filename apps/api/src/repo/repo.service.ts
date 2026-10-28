@@ -9,6 +9,7 @@ import { ProjectService } from '../project/project.service.js';
 import type { CreateRepoDto, RepoResponseDto, ReplaceRepoDto } from './repo.dto.js';
 import { Repo } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
+import { GithubInstallationService } from './github-installation.service.js';
 import { RepoManifestService } from './repo-manifest.service.js';
 
 @Injectable()
@@ -18,16 +19,23 @@ export class RepoService {
         private readonly projectService: ProjectService,
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @Optional() private readonly manifests?: RepoManifestService,
+        @Optional() private readonly installations?: GithubInstallationService,
     ) { }
 
     async listForProject(projectId: string): Promise<RepoResponseDto[]> {
         await this.projectService.assertExists(projectId);
         const entities = await this.repoRepository.find({ where: { projectId }, order: { fullName: 'ASC' } });
-        return entities.map((e) => this.repoMapper.toDTO(e));
+        const status = await this.installations?.statusFor(entities.map((e) => e.fullName));
+        return entities.map((e) => this.repoMapper.toDTO(e, status?.get(e.fullName)));
     }
 
     async getById(id: string): Promise<RepoResponseDto> {
-        return this.repoMapper.toDTO(await this.getOrFail(id));
+        return this.withStatus(await this.getOrFail(id));
+    }
+
+    private async withStatus(entity: Repo): Promise<RepoResponseDto> {
+        const status = await this.installations?.statusFor([entity.fullName]);
+        return this.repoMapper.toDTO(entity, status?.get(entity.fullName));
     }
 
     async create(projectId: string, dto: CreateRepoDto): Promise<RepoResponseDto> {
@@ -37,7 +45,7 @@ export class RepoService {
         }
         try {
             const entity = await this.repoRepository.save(this.repoRepository.create({ ...dto, projectId }));
-            return (await this.manifests?.refresh(entity.id)) ?? this.repoMapper.toDTO(entity);
+            return (await this.manifests?.refresh(entity.id)) ?? await this.withStatus(entity);
         } catch (e) {
             if (isUniqueViolation(e)) throw new ConflictException(`Repository ${dto.fullName} is already registered`);
             throw e;
@@ -50,7 +58,7 @@ export class RepoService {
         // The repo-level routine settings are no longer used for firing; a PUT never changes them.
         const { routineFireUrl: _fireUrl, routineTokenEnv: _tokenEnv, ...settings } = dto;
         const saved = await this.repoRepository.save(this.repoRepository.merge(entity, settings));
-        return this.repoMapper.toDTO(saved);
+        return this.withStatus(saved);
     }
 
     pause(id: string): Promise<RepoResponseDto> {
@@ -84,7 +92,7 @@ export class RepoService {
         const entity = await this.getOrFail(id);
         entity.paused = paused;
         entity.pausedReason = paused ? reason : null;
-        return this.repoMapper.toDTO(await this.repoRepository.save(entity));
+        return this.withStatus(await this.repoRepository.save(entity));
     }
 
     private async getOrFail(id: string): Promise<Repo> {

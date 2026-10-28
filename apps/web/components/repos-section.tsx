@@ -37,6 +37,21 @@ function WorkspaceStatus({ repoId }: { repoId: string }) {
   );
 }
 
+/** Whether the Gilde GitHub App is installed on the repo, from installation webhooks; a warning when it was removed in app mode. */
+export function GithubAppStatus({ repo }: { repo: Pick<Repo, 'githubAppInstalled' | 'githubAppWarning'> }) {
+  if (repo.githubAppInstalled === null) return null;
+  return (
+    <div className="space-y-0.5 text-xs">
+      <p className="text-muted-foreground">{repo.githubAppInstalled ? 'GitHub App installed' : 'GitHub App not installed'}</p>
+      {repo.githubAppWarning && (
+        <p role="alert" className="rounded-md border border-warning/40 bg-warning-soft px-2 py-1 text-warning">
+          {repo.githubAppWarning}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /** The repos of a project: table with add/edit, pause, manifest refresh and workspace status. */
 export function ReposSection({ projectId }: { projectId: string }) {
   const fetchRepos = useCallback(() => api.listRepos(projectId), [projectId]);
@@ -81,6 +96,7 @@ export function ReposSection({ projectId }: { projectId: string }) {
                   <td className="px-3 py-2">{r.maxConcurrentJobs}</td>
                   <td className="space-y-2 px-3 py-2">
                     <RepoManifest repo={r} onChanged={repos.refresh} />
+                    <GithubAppStatus repo={r} />
                     <WorkspaceStatus repoId={r.id} />
                   </td>
                   <td className="px-3 py-2">
