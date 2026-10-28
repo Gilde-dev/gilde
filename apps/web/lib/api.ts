@@ -48,27 +48,59 @@ export interface Project {
   updatedAt: string;
 }
 
-/** Mirrors UpdateProjectSchema (slug can't change). */
-export interface UpdateProjectInput {
-  name?: string;
-  description?: string | null;
-  dailyRunLimit?: number;
-  maxAttempts?: number;
-  runTimeoutMinutes?: number;
-  retryOnChangesRequested?: boolean;
-  skillsLibrary?: SkillsLibraryKind;
-  skillsLibraryRepoId?: string | null;
-  /** Finite >= 0; null clears the limit, omitted keeps it. */
-  dailyBudgetUsd?: number | null;
-  weeklyBudgetUsd?: number | null;
+/**
+ * Mirrors ReplaceProjectSchema: PUT replaces every updatable field, so all keys are required (slug and paused are not
+ * part of it). Build it with `projectReplacement` from the latest loaded project.
+ */
+export interface ReplaceProjectInput {
+  name: string;
+  description: string | null;
+  dailyRunLimit: number;
+  maxAttempts: number;
+  runTimeoutMinutes: number;
+  retryOnChangesRequested: boolean;
+  skillsLibrary: SkillsLibraryKind;
+  skillsLibraryRepoId: string | null;
+  /** Finite >= 0; null clears the limit (no limit), 0 stops dispatch immediately. */
+  dailyBudgetUsd: number | null;
+  weeklyBudgetUsd: number | null;
   /** > 0 and <= 100. */
-  budgetSoftPct?: number;
+  budgetSoftPct: number;
 }
 
-/** Mirrors CreateProjectSchema. */
-export interface CreateProjectInput extends UpdateProjectInput {
+/** Mirrors CreateProjectSchema: everything but slug and name is optional. */
+export interface CreateProjectInput extends Partial<ReplaceProjectInput> {
   slug: string;
   name: string;
+}
+
+/** `base` with the keys of `edits` that are not undefined; undefined never reaches a request body. */
+function overlay<T extends object>(base: T, edits: Partial<T>): T {
+  const out = { ...base };
+  for (const key of Object.keys(edits) as (keyof T)[]) {
+    if (edits[key] !== undefined) out[key] = edits[key] as T[keyof T];
+  }
+  return out;
+}
+
+/** The updatable fields of a loaded project with the user's edits on top. */
+export function projectReplacement(p: Project, edits: Partial<ReplaceProjectInput> = {}): ReplaceProjectInput {
+  return overlay<ReplaceProjectInput>(
+    {
+      name: p.name,
+      description: p.description,
+      dailyRunLimit: p.dailyRunLimit,
+      maxAttempts: p.maxAttempts,
+      runTimeoutMinutes: p.runTimeoutMinutes,
+      retryOnChangesRequested: p.retryOnChangesRequested,
+      skillsLibrary: p.skillsLibrary,
+      skillsLibraryRepoId: p.skillsLibraryRepoId,
+      dailyBudgetUsd: p.dailyBudgetUsd,
+      weeklyBudgetUsd: p.weeklyBudgetUsd,
+      budgetSoftPct: p.budgetSoftPct,
+    },
+    edits,
+  );
 }
 
 export type BudgetScope = 'global' | 'project';
@@ -145,8 +177,21 @@ export interface CreateRepoInput {
   maxConcurrentJobs?: number;
 }
 
-/** Mirrors UpdateRepoSchema: the full name can't change. */
-export type UpdateRepoInput = Partial<Omit<CreateRepoInput, 'fullName'>>;
+/** Mirrors ReplaceRepoSchema: every key is required, null clears the nullable ones; the full name can't change. */
+export interface ReplaceRepoInput {
+  defaultBranch: string;
+  routineFireUrl: string | null;
+  routineTokenEnv: string | null;
+  maxConcurrentJobs: number;
+}
+
+/** The updatable fields of a loaded repo with the user's edits on top. */
+export function repoReplacement(r: Repo, edits: Partial<ReplaceRepoInput> = {}): ReplaceRepoInput {
+  return overlay<ReplaceRepoInput>(
+    { defaultBranch: r.defaultBranch, routineFireUrl: r.routineFireUrl, routineTokenEnv: r.routineTokenEnv, maxConcurrentJobs: r.maxConcurrentJobs },
+    edits,
+  );
+}
 
 /** GET /v1/repos/:id/workspace */
 export interface RepoWorkspace {
@@ -492,7 +537,7 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, method: 'GET' | 'POST' | 'PATCH' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
+async function request<T>(path: string, method: 'GET' | 'POST' | 'PUT' | 'DELETE' = 'GET', body?: unknown): Promise<T> {
   const headers: Record<string, string> = { Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
   let res: Response;
@@ -540,11 +585,20 @@ export interface CreateJobInput {
   featureId?: string;
 }
 
-export interface UpdateJobInput {
-  title?: string;
-  task?: string;
-  acceptanceCriteria?: string[];
-  featureId?: string | null;
+/** Mirrors ReplaceJobSchema: every key is required; featureId null unlinks the feature. */
+export interface ReplaceJobInput {
+  title: string;
+  task: string;
+  acceptanceCriteria: string[];
+  featureId: string | null;
+}
+
+/** The updatable fields of a loaded job with the user's edits on top. */
+export function jobReplacement(j: Job, edits: Partial<ReplaceJobInput> = {}): ReplaceJobInput {
+  return overlay<ReplaceJobInput>(
+    { title: j.title, task: j.task, acceptanceCriteria: j.acceptanceCriteria, featureId: j.featureId },
+    edits,
+  );
 }
 
 export interface CreateFeatureInput {
@@ -553,10 +607,16 @@ export interface CreateFeatureInput {
   acceptanceCriteria?: string[];
 }
 
-export interface UpdateFeatureInput {
-  title?: string;
-  spec?: string;
-  acceptanceCriteria?: string[];
+/** Mirrors ReplaceFeatureSchema: every key is required; an empty spec or list is a real value. */
+export interface ReplaceFeatureInput {
+  title: string;
+  spec: string;
+  acceptanceCriteria: string[];
+}
+
+/** The updatable fields of a loaded feature with the user's edits on top. */
+export function featureReplacement(f: Feature, edits: Partial<ReplaceFeatureInput> = {}): ReplaceFeatureInput {
+  return overlay<ReplaceFeatureInput>({ title: f.title, spec: f.spec, acceptanceCriteria: f.acceptanceCriteria }, edits);
 }
 
 export interface EnqueueWarning {
@@ -680,11 +740,23 @@ export interface Lesson {
   updatedAt: string;
 }
 
-export interface UpdateLessonInput {
-  text?: string;
-  targetKind?: Exclude<LessonTargetKind, 'skill'> | null;
-  targetRepoId?: string | null;
-  note?: string | null;
+/** Mirrors ReplaceLessonSchema: every key is required; null clears the target and the note. */
+export interface ReplaceLessonInput {
+  text: string;
+  targetKind: Exclude<LessonTargetKind, 'skill'> | null;
+  targetRepoId: string | null;
+  note: string | null;
+}
+
+/**
+ * The editable fields of a loaded lesson with the user's edits on top. A legacy `skill` target kind cannot be sent back
+ * (the API rejects it), so it is replaced by null unless the edits set another kind.
+ */
+export function lessonReplacement(l: Lesson, edits: Partial<ReplaceLessonInput> = {}): ReplaceLessonInput {
+  return overlay<ReplaceLessonInput>(
+    { text: l.text, targetKind: l.targetKind === 'skill' ? null : l.targetKind, targetRepoId: l.targetRepoId, note: l.note },
+    edits,
+  );
 }
 
 export type DispatchReason =
@@ -745,8 +817,8 @@ export const api = {
   getDispatchStatus: () => request<DispatchStatus>('/v1/dispatch/status'),
   listLessons: (projectId: string) => request<Lesson[]>(`/v1/lessons?projectId=${id(projectId)}`),
   collectLessons: () => request<{ created: number }>('/v1/lessons/collect', 'POST'),
-  updateLesson: (lessonId: string, input: UpdateLessonInput) =>
-    request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PATCH', input),
+  replaceLesson: (lessonId: string, input: ReplaceLessonInput) =>
+    request<Lesson>(`/v1/lessons/${id(lessonId)}`, 'PUT', input),
   setLessonStatus: (lessonId: string, action: 'approve' | 'reject' | 'reopen') =>
     request<Lesson>(`/v1/lessons/${id(lessonId)}/${action}`, 'POST'),
   applyLesson: (lessonId: string) => request<Lesson>(`/v1/lessons/${id(lessonId)}/apply`, 'POST'),
@@ -758,8 +830,8 @@ export const api = {
   createFeature: (projectId: string, input: CreateFeatureInput) =>
     request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
   getFeature: (featureId: string) => request<FeatureDetail>(`/v1/features/${id(featureId)}`),
-  updateFeature: (featureId: string, input: UpdateFeatureInput) =>
-    request<Feature>(`/v1/features/${id(featureId)}`, 'PATCH', input),
+  replaceFeature: (featureId: string, input: ReplaceFeatureInput) =>
+    request<Feature>(`/v1/features/${id(featureId)}`, 'PUT', input),
   startFeature: (featureId: string) => request<FeatureStartResult>(`/v1/features/${id(featureId)}/start`, 'POST'),
   doneFeature: (featureId: string) => request<FeatureDoneResult>(`/v1/features/${id(featureId)}/done`, 'POST'),
   cancelFeature: (featureId: string) => request<FeatureCancelResult>(`/v1/features/${id(featureId)}/cancel`, 'POST'),
@@ -778,7 +850,7 @@ export const api = {
   createJob: (repoId: string, input: CreateJobInput) => request<Job>(`/v1/repos/${id(repoId)}/jobs`, 'POST', input),
   setJobDependencies: (jobId: string, dependsOn: string[]) =>
     request<Job>(`/v1/jobs/${id(jobId)}/dependencies`, 'PUT', { dependsOn }),
-  updateJob: (jobId: string, input: UpdateJobInput) => request<Job>(`/v1/jobs/${id(jobId)}`, 'PATCH', input),
+  replaceJob: (jobId: string, input: ReplaceJobInput) => request<Job>(`/v1/jobs/${id(jobId)}`, 'PUT', input),
   enqueueJob: (jobId: string) => request<EnqueueResult>(`/v1/jobs/${id(jobId)}/enqueue`, 'POST'),
   triageJob: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/triage`, 'POST'),
   enqueueJobs: (ids: string[]) => request<EnqueueResult[]>('/v1/jobs/enqueue', 'POST', { ids }),
@@ -794,10 +866,10 @@ export const api = {
   createRepo: (projectId: string, input: CreateRepoInput) =>
     request<Repo>(`/v1/projects/${id(projectId)}/repos`, 'POST', input),
   getRepo: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}`),
-  updateRepo: (repoId: string, input: UpdateRepoInput) => request<Repo>(`/v1/repos/${id(repoId)}`, 'PATCH', input),
+  replaceRepo: (repoId: string, input: ReplaceRepoInput) => request<Repo>(`/v1/repos/${id(repoId)}`, 'PUT', input),
   getRepoWorkspace: (repoId: string) => request<RepoWorkspace>(`/v1/repos/${id(repoId)}/workspace`),
-  updateProject: (projectId: string, input: UpdateProjectInput) =>
-    request<Project>(`/v1/projects/${id(projectId)}`, 'PATCH', input),
+  replaceProject: (projectId: string, input: ReplaceProjectInput) =>
+    request<Project>(`/v1/projects/${id(projectId)}`, 'PUT', input),
   getSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills`),
   refreshSkillCatalog: (projectId: string) => request<SkillCatalog>(`/v1/projects/${id(projectId)}/skills/refresh`, 'POST'),
   getRepoSkills: (repoId: string) => request<RepoSkills>(`/v1/repos/${id(repoId)}/skills`),

@@ -1,6 +1,7 @@
 import { Controller, Get, Post } from '@nestjs/common';
 
-import { type DispatchResult, type DispatchStatus, DispatcherService } from './dispatcher.service.js';
+import type { DispatchResult, DispatchStatus } from './dispatch.dto.js';
+import { DispatcherService } from './dispatcher.service.js';
 
 @Controller('/v1')
 export class DispatchController {

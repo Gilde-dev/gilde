@@ -46,10 +46,11 @@ export const PromoteSkillSchema = z.object({
     }
 });
 
-export interface PromoteSkillResponseDto {
+export const PromoteSkillResponseSchema = z.object({
     /** The job that adds the skill to the library repo; null when the library is a folder. */
-    libraryJobId: string | null;
-    cleanupJobId: string;
-}
+    libraryJobId: z.string().nullable(),
+    cleanupJobId: z.string(),
+});
+export type PromoteSkillResponseDto = z.infer<typeof PromoteSkillResponseSchema>;
 
 export type PromoteSkillDto = z.infer<typeof PromoteSkillSchema>;

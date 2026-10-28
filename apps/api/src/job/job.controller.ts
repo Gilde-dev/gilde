@@ -1,10 +1,10 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { BulkEnqueueSchema, UpdateJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type UpdateJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery, type JobPromptResponseDto } from './job.dto.js';
+import { BulkEnqueueSchema, ReplaceJobSchema, type BulkEnqueueDto, type EnqueueResponseDto, type ReplaceJobDto, CreateJobSchema, ListJobsQuerySchema, SetDependenciesSchema, type SetDependenciesDto, type CreateJobDto, type JobDetailResponseDto, type JobResponseDto, type ListJobsQuery, type JobPromptResponseDto } from './job.dto.js';
 import { JobPromptService } from './job-prompt.service.js';
 import { JobService } from './job.service.js';
 
@@ -40,10 +40,10 @@ export class JobController {
         return this.jobPromptService.get(id);
     }
 
-    @Patch('jobs/:id')
+    @Put('jobs/:id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body(new ZodValidationPipe(UpdateJobSchema)) dto: UpdateJobDto,
+        @Body(new ZodValidationPipe(ReplaceJobSchema)) dto: ReplaceJobDto,
     ): Promise<JobResponseDto> {
         return this.jobService.update(id, dto);
     }

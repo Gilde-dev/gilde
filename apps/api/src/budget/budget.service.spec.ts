@@ -8,6 +8,7 @@ import { Job } from '../job/job.entity.js';
 import { AgentUsage } from '../otel/agent-usage.entity.js';
 import { Project } from '../project/project.entity.js';
 import { ProjectMapper } from '../project/project.mapper.js';
+import type { ReplaceProjectDto } from '../project/project.dto.js';
 import { ProjectService } from '../project/project.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
@@ -26,6 +27,17 @@ let ds: DataSource;
 let now: Date;
 let service: BudgetService;
 let projects: ProjectService;
+
+/** PUT-style replacement that keeps the stored values of everything but the budget fields in `over`. */
+async function setBudget(id: string, over: Partial<Pick<ReplaceProjectDto, 'dailyBudgetUsd' | 'weeklyBudgetUsd' | 'budgetSoftPct'>>) {
+    const p = await projects.getById(id);
+    await projects.update(id, {
+        name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
+        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested,
+        skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
+        dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct, ...over,
+    });
+}
 let seq = 0;
 let pa: string, pb: string, runA: string, runB: string;
 
@@ -135,7 +147,7 @@ describe('BudgetService.status', () => {
     });
 
     it('applies soft and hard on equality, hard wins, with unrounded costs', async () => {
-        await projects.update(pa, { dailyBudgetUsd: 10, weeklyBudgetUsd: 100, budgetSoftPct: 50 });
+        await setBudget(pa, { dailyBudgetUsd: 10, weeklyBudgetUsd: 100, budgetSoftPct: 50 });
         await agent('2026-03-10T01:00:00Z', 4.999999, runA);
         expect((await service.status(pa)).project!.day).toMatchObject({ state: 'ok', limit: 10 });
         await agent('2026-03-10T01:00:01Z', 0.000001, runA);
@@ -149,7 +161,7 @@ describe('BudgetService.status', () => {
     });
 
     it('treats a zero limit as hard immediately, without a non-finite percent', async () => {
-        await projects.update(pa, { dailyBudgetUsd: 0 });
+        await setBudget(pa, { dailyBudgetUsd: 0 });
         const s = await service.status(pa);
         expect(s.project!.day).toMatchObject({ limit: 0, percent: null, state: 'hard', spent: 0 });
         expect(s.project!.week.state).toBe('ok');
@@ -169,7 +181,7 @@ describe('BudgetService.status', () => {
     it('keeps a hard global period while the project is fine, and reports the latest reset', async () => {
         process.env[DAILY] = '5';
         process.env[WEEKLY] = '6';
-        await projects.update(pa, { dailyBudgetUsd: 100 });
+        await setBudget(pa, { dailyBudgetUsd: 100 });
         await llm('2026-03-10T01:00:00Z', 6);
         const s = await service.status(pa);
         expect(s.project!.day.state).toBe('ok');
@@ -244,7 +256,7 @@ describe('invalid global configuration', () => {
     it('reports both variables, and coexists with other hard blockers', async () => {
         process.env[DAILY] = 'nope';
         process.env[WEEKLY] = '-3';
-        await projects.update(pa, { dailyBudgetUsd: 1 });
+        await setBudget(pa, { dailyBudgetUsd: 1 });
         await agent('2026-03-10T01:00:00Z', 2, runA);
         const s = await service.status(pa);
         expect(s.blockers.map((b) => `${b.scope}/${b.period}/${b.kind}`)).toEqual(['global/day/configError', 'global/week/configError', 'project/day/limit']);

@@ -1,8 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { z } from 'zod';
 
+import type { ScoutActivityDto } from './copilot.dto.js';
 import { ProjectService } from '../project/project.service.js';
 import type { UserService } from '../user/user.service.js';
 
@@ -10,22 +10,6 @@ import { utcDayOf, utcWeekStartDay } from './scout-suggestion.service.js';
 import { ScoutSuggestion } from './scout-suggestion.entity.js';
 import type { ScoutWakeReader } from './scout-wake.reader.js';
 
-export const ScoutActivityQuerySchema = z.object({ projectId: z.string().uuid() });
-
-export const ScoutActivityResponseSchema = z.object({
-    projectId: z.string().uuid(),
-    enabled: z.boolean(),
-    model: z.string().nullable(),
-    /** Id of the configured scout user when it resolves (also while the scout is off), for comparing with a job's creator. Never the bot's email. */
-    scoutUserId: z.string().uuid().nullable(),
-    /** Suggestions of this project since Monday 00:00 UTC of the current week. */
-    suggestionsThisWeek: z.number().int(),
-    /** The UTC day (`YYYY-MM-DD`) of that Monday. */
-    weekStart: z.string(),
-    /** The actual most recent wake of the scout in this project, or null if it never woke. */
-    lastWakeAt: z.string().datetime().nullable(),
-});
-export type ScoutActivityDto = z.infer<typeof ScoutActivityResponseSchema>;
 
 /** Read side of the scout's activity. Works while the scout is off, so history stays visible. */
 @Injectable()

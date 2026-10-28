@@ -1,4 +1,4 @@
-import { ConflictException } from '@nestjs/common';
+import { ConflictException, NotFoundException } from '@nestjs/common';
 import { DataSource } from 'typeorm';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -48,5 +48,19 @@ describe('sendBack', () => {
 
     it('409 without a PR', async () => {
         await expect(service.sendBack(await seed('pr_open', { prNumber: null }), 'x')).rejects.toBeInstanceOf(ConflictException);
+    });
+});
+
+describe('sendBackById', () => {
+    it('looks the job up and delegates to sendBack', async () => {
+        const job = await seed('pr_open');
+        expect(await service.sendBackById(job.id, 'fix y')).toBe('queued');
+        expect(await ds.getRepository(Job).findOneByOrFail({ id: job.id })).toMatchObject({ status: 'queued', lastReason: 'Sent back by the reviewer: fix y' });
+    });
+
+    it('404 for an unknown job, 409 for one that cannot be sent back', async () => {
+        await expect(service.sendBackById('00000000-0000-4000-8000-000000000000', 'x')).rejects.toBeInstanceOf(NotFoundException);
+        const job = await seed('merged');
+        await expect(service.sendBackById(job.id, 'x')).rejects.toBeInstanceOf(ConflictException);
     });
 });

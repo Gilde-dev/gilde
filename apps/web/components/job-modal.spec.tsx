@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, type Job, type JobDetail } from '@/lib/api';
 import { JobModal } from './job-modal';
@@ -71,6 +71,17 @@ describe('JobModal', () => {
     expect(screen.getByText('done')).toBeInTheDocument();
     expect(screen.getByText('Retro').closest('details')).not.toHaveAttribute('open');
     expect(screen.getByText('- What I changed: stuff')).toBeInTheDocument();
+  });
+
+  it('saves a triage job with a full PUT body that keeps its feature link', async () => {
+    const triage: Job = { ...base, status: 'triage', featureId: 'f1', prNumber: null, prUrl: null };
+    vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, ...triage });
+    const update = vi.spyOn(api, 'replaceJob').mockResolvedValue(triage);
+    render(<JobModal job={triage} onClose={() => {}} />);
+    fireEvent.change(await screen.findByLabelText('Title'), { target: { value: 'New title' } });
+    fireEvent.change(screen.getByLabelText('Acceptance criteria (one per line)'), { target: { value: 'One\n\n Two ' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('j1', { title: 'New title', task: 'Do the thing', acceptanceCriteria: ['One', 'Two'], featureId: 'f1' }));
   });
 
   it('links to the job page', () => {

@@ -2,9 +2,9 @@ import { Body, Controller, Get, HttpCode, Post } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../../common/zod-validation.pipe.js';
 
-import { HistoryIndexService, type HistoryRunSummary, type HistoryStatus } from './history-index.service.js';
+import { HistoryIndexService } from './history-index.service.js';
 import { HistorySearchService } from './history-search.service.js';
-import { HistorySearchSchema, type HistorySearchInput, type HistorySearchResultDto } from './history.dto.js';
+import { HistorySearchSchema, type HistoryRunSummary, type HistorySearchInput, type HistorySearchResultDto, type HistoryStatus } from './history.dto.js';
 
 /** Operator access to the shared factory history index. JWT or API key like every other route. */
 @Controller('/v1/history')

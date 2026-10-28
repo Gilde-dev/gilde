@@ -1,12 +1,9 @@
-import { Body, Controller, HttpCode, NotFoundException, Param, ParseUUIDPipe, Post } from '@nestjs/common';
-import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import { JobEventsService } from './job-events.service.js';
 import { SendBackSchema, type JobResponseDto, type SendBackDto } from './job.dto.js';
-import { Job } from './job.entity.js';
 import { JobService } from './job.service.js';
 
 /** Lives next to JobEventsService (not JobController) because JobModule cannot import JobEventsModule. */
@@ -15,7 +12,6 @@ export class JobSendBackController {
 
     constructor(
         private readonly jobService: JobService,
-        @InjectRepository(Job) private readonly jobs: Repository<Job>,
         private readonly events: JobEventsService,
     ) { }
 
@@ -25,9 +21,7 @@ export class JobSendBackController {
         @Param('id', ParseUUIDPipe) id: string,
         @Body(new ZodValidationPipe(SendBackSchema)) dto: SendBackDto,
     ): Promise<JobResponseDto> {
-        const job = await this.jobs.findOneBy({ id });
-        if (!job) throw new NotFoundException('Job not found');
-        await this.events.sendBack(job, dto.reason);
+        await this.events.sendBackById(id, dto.reason);
         return this.jobService.getById(id);
     }
 

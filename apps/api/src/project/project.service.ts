@@ -4,7 +4,7 @@ import { InjectRepository } from "@nestjs/typeorm";
 import { QueryFailedError, Repository } from "typeorm";
 
 import { ProjectMapper } from "./project.mapper.js";
-import { CreateProjectDto, ProjectResponseDto, UpdateProjectDto } from "./project.dto.js";
+import { CreateProjectDto, ProjectResponseDto, ReplaceProjectDto } from "./project.dto.js";
 import { Project } from "./project.entity.js";
 import { Repo } from "../repo/repo.entity.js";
 
@@ -40,7 +40,7 @@ export class ProjectService {
         }
         try {
             const entity = this.projectRepository.create(dto);
-            await this.applySkillsLibrary(entity, dto);
+            await this.applySkillsLibrary(entity, true);
             await this.projectRepository.save(entity);
             return this.projectMapper.toDTO(entity);
         } catch (e) {
@@ -50,10 +50,12 @@ export class ProjectService {
         }
     }
 
-    async update(id: string, dto: UpdateProjectDto): Promise<ProjectResponseDto> {
+    /** Replaces all updatable settings; slug and paused are not part of it. */
+    async update(id: string, dto: ReplaceProjectDto): Promise<ProjectResponseDto> {
         const entity = await this.getOrFail(id);
+        const libraryChanged = dto.skillsLibrary !== entity.skillsLibrary || dto.skillsLibraryRepoId !== entity.skillsLibraryRepoId;
         this.projectRepository.merge(entity, dto);
-        await this.applySkillsLibrary(entity, dto);
+        await this.applySkillsLibrary(entity, libraryChanged);
         const saved = await this.projectRepository.save(entity);
         return this.projectMapper.toDTO(saved);
     }
@@ -73,7 +75,7 @@ export class ProjectService {
     }
 
     /** A repo library must point at a repo of this project; any other kind has no repo. */
-    private async applySkillsLibrary(entity: Project, dto: UpdateProjectDto): Promise<void> {
+    private async applySkillsLibrary(entity: Project, libraryChanged: boolean): Promise<void> {
         entity.skillsLibrary ??= 'none';
         if (entity.skillsLibrary !== 'repo') {
             entity.skillsLibraryRepoId = null;
@@ -82,7 +84,7 @@ export class ProjectService {
         const repoId = entity.skillsLibraryRepoId;
         if (!repoId) throw new BadRequestException("skillsLibraryRepoId is required when skillsLibrary is 'repo'");
         // Only (re)check when the config changes; a repo removed later is reported by the resolver.
-        if (dto.skillsLibrary === undefined && dto.skillsLibraryRepoId === undefined) return;
+        if (!libraryChanged) return;
         if (!entity.id || !(await this.repoRepository.existsBy({ id: repoId, projectId: entity.id }))) {
             throw new BadRequestException('skillsLibraryRepoId must be a repo in the same project');
         }

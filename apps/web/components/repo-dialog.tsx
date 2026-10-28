@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, type FormEvent } from 'react';
-import { api, type ApiError, type Repo } from '@/lib/api';
+import { api, repoReplacement, type ApiError, type Repo } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -58,11 +58,12 @@ export function RepoDialog({
         maxConcurrentJobs: Number(concurrency),
       };
       if (repo) {
-        await api.updateRepo(repo.id, {
+        // A blank branch keeps the loaded one; blank URL and token clear (null).
+        await api.replaceRepo(repo.id, repoReplacement(repo, {
           ...common,
           routineFireUrl: fireUrl.trim() || null,
           routineTokenEnv: tokenEnv || null,
-        });
+        }));
       } else {
         await api.createRepo(projectId, {
           fullName: fullName.trim(),

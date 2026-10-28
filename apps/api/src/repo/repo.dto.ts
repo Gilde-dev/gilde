@@ -20,8 +20,13 @@ export const CreateRepoSchema = z.object({
     maxConcurrentJobs: z.number().int().min(1).max(10).optional(),
 });
 
-/** fullName is the identity used by webhooks, so it can't change; register a new repo instead. */
-export const UpdateRepoSchema = CreateRepoSchema.omit({ fullName: true }).partial();
+/** Full replacement of a repo's settings (PUT). fullName is the identity used by webhooks, so it can't change; register a new repo instead. */
+export const ReplaceRepoSchema = z.object({
+    defaultBranch: z.string().trim().min(1),
+    routineFireUrl: z.string().url().nullable(),
+    routineTokenEnv: envVarName.nullable(),
+    maxConcurrentJobs: z.number().int().min(1).max(10),
+});
 
 export const RepoResponseSchema = z.object({
     id: z.string().uuid(),
@@ -43,6 +48,15 @@ export const RepoResponseSchema = z.object({
     updatedAt: z.string().datetime(),
 });
 
+/** State of the local code clone, for diagnosis. */
+export const WorkspaceStatusSchema = z.object({
+    cloned: z.boolean(),
+    headSha: z.string().nullable(),
+    fetchedAt: z.string().nullable(),
+    error: z.string().nullable(),
+});
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
+
 export type CreateRepoDto = z.infer<typeof CreateRepoSchema>;
-export type UpdateRepoDto = z.infer<typeof UpdateRepoSchema>;
+export type ReplaceRepoDto = z.infer<typeof ReplaceRepoSchema>;
 export type RepoResponseDto = z.infer<typeof RepoResponseSchema>;

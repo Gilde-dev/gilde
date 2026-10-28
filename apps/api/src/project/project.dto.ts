@@ -24,7 +24,20 @@ export const CreateProjectSchema = z.object({
     budgetSoftPct: z.number().finite().gt(0).max(100).optional(),
 });
 
-export const UpdateProjectSchema = CreateProjectSchema.omit({ slug: true }).partial();
+/** Full replacement of a project's settings (PUT). slug is the identity and paused has its own endpoints; nullable keys are required and null clears them. */
+export const ReplaceProjectSchema = z.object({
+    name: z.string().trim().min(1).max(100),
+    description: z.string().max(2000).nullable(),
+    dailyRunLimit: z.number().int().min(1).max(500),
+    maxAttempts: z.number().int().min(1).max(10),
+    runTimeoutMinutes: z.number().int().min(5).max(24 * 60),
+    retryOnChangesRequested: z.boolean(),
+    skillsLibrary: z.enum(SKILLS_LIBRARY_KINDS),
+    skillsLibraryRepoId: z.string().uuid().nullable(),
+    dailyBudgetUsd: budgetLimit,
+    weeklyBudgetUsd: budgetLimit,
+    budgetSoftPct: z.number().finite().gt(0).max(100),
+});
 
 export const ProjectResponseSchema = z.object({
     id: z.string().uuid(),
@@ -46,5 +59,5 @@ export const ProjectResponseSchema = z.object({
 });
 
 export type CreateProjectDto = z.infer<typeof CreateProjectSchema>;
-export type UpdateProjectDto = z.infer<typeof UpdateProjectSchema>;
+export type ReplaceProjectDto = z.infer<typeof ReplaceProjectSchema>;
 export type ProjectResponseDto = z.infer<typeof ProjectResponseSchema>;

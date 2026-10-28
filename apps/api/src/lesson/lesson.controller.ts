@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import type { AuthUser } from '../auth/auth.dto.js';
@@ -7,12 +7,12 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
     ListLessonsQuerySchema,
     MergeLessonsSchema,
-    UpdateLessonSchema,
+    ReplaceLessonSchema,
     type CollectResultDto,
     type LessonResponseDto,
     type ListLessonsQuery,
     type MergeLessonsDto,
-    type UpdateLessonDto,
+    type ReplaceLessonDto,
 } from './lesson.dto.js';
 import { LessonCollectorService } from './lesson-collector.service.js';
 import { LessonService } from './lesson.service.js';
@@ -47,10 +47,10 @@ export class LessonController {
         return this.lessonService.getById(id);
     }
 
-    @Patch(':id')
+    @Put(':id')
     update(
         @Param('id', ParseUUIDPipe) id: string,
-        @Body(new ZodValidationPipe(UpdateLessonSchema)) dto: UpdateLessonDto,
+        @Body(new ZodValidationPipe(ReplaceLessonSchema)) dto: ReplaceLessonDto,
     ): Promise<LessonResponseDto> {
         return this.lessonService.update(id, dto);
     }

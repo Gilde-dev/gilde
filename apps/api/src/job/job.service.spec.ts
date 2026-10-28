@@ -149,10 +149,14 @@ describe('triage', () => {
 
     it('edits title, task and criteria only in triage', async () => {
         const t = await seed(repoA, 'triage');
-        const updated = await service.update(t.id, { title: 'New title', acceptanceCriteria: ['one'] });
-        expect(updated).toMatchObject({ title: 'New title', acceptanceCriteria: ['one'] });
+        const updated = await service.update(t.id, { title: 'New title', task: t.task, acceptanceCriteria: ['one'], featureId: null });
+        expect(updated).toMatchObject({ title: 'New title', acceptanceCriteria: ['one'], featureId: null });
         const q = await seed(repoA, 'queued');
-        await expect(service.update(q.id, { title: 'New title' })).rejects.toThrow(ConflictException);
+        await expect(service.update(q.id, { title: 'New title', task: q.task, acceptanceCriteria: [], featureId: null })).rejects.toThrow(ConflictException);
+        // Resending the stored content is not an edit, so a queued job accepts it.
+        await expect(service.update(q.id, { title: q.title, task: q.task, acceptanceCriteria: q.acceptanceCriteria ?? [], featureId: null })).resolves.toMatchObject({ id: q.id });
+        const d = await seed(repoA, 'dispatched');
+        await expect(service.update(d.id, { title: d.title, task: d.task, acceptanceCriteria: d.acceptanceCriteria ?? [], featureId: null })).rejects.toThrow(ConflictException);
     });
 
     describe('task and criteria size', () => {

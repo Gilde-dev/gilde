@@ -8,7 +8,7 @@ import { JobService } from '../job/job.service.js';
 import { ProjectService } from '../project/project.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import { SkillLibraryResolver } from '../skill/skill-library.resolver.js';
-import type { LessonResponseDto, ListLessonsQuery, MergeLessonsDto, UpdateLessonDto } from './lesson.dto.js';
+import type { LessonResponseDto, ListLessonsQuery, MergeLessonsDto, ReplaceLessonDto } from './lesson.dto.js';
 import { Lesson } from './lesson.entity.js';
 import { LessonMapper } from './lesson.mapper.js';
 import { LessonSource } from './lesson-source.entity.js';
@@ -40,7 +40,8 @@ export class LessonService implements LessonJobHook {
         return (await this.toDTOs([await this.getOrFail(id)]))[0];
     }
 
-    async update(id: string, dto: UpdateLessonDto): Promise<LessonResponseDto> {
+    /** Replaces the editable fields (text, target, note); null clears the nullable ones. */
+    async update(id: string, dto: ReplaceLessonDto): Promise<LessonResponseDto> {
         const lesson = await this.getOrFail(id);
         if (dto.targetRepoId) {
             const repo = await this.repos.findOneBy({ id: dto.targetRepoId });

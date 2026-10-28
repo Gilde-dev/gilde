@@ -7,7 +7,7 @@ import { Job } from '../job/job.entity.js';
 import { ProjectService } from '../project/project.service.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
-import type { MetricsQuery, MetricsResponseDto } from './metrics.dto.js';
+import { DEFAULT_METRICS_DAYS, type MetricsQuery, type MetricsResponseDto } from './metrics.dto.js';
 
 const DAY_MS = 86_400_000;
 const CHUNK = 500;
@@ -28,7 +28,7 @@ export class MetricsService {
         if (q.projectId) await this.projectService.assertExists(q.projectId);
         if (q.repoId) await this.repoService.getById(q.repoId);
 
-        const days = q.days;
+        const days = q.days ?? DEFAULT_METRICS_DAYS;
         const today = startOfUtcDay(now);
         const start = new Date(today.getTime() - (days - 1) * DAY_MS);
 

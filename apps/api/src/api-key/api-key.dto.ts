@@ -10,20 +10,22 @@ export const CreateApiKeySchema = z.object({
 export type CreateApiKeyDto = z.infer<typeof CreateApiKeySchema>;
 
 /** Listed keys never carry the secret or its hash. */
-export interface ApiKeyResponseDto {
-    id: string;
-    name: string;
-    prefix: string;
-    createdAt: string;
-    lastUsedAt: string | null;
-    expiresAt: string | null;
-}
+export const ApiKeyResponseSchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    prefix: z.string(),
+    createdAt: z.string(),
+    lastUsedAt: z.string().nullable(),
+    expiresAt: z.string().nullable(),
+});
+export type ApiKeyResponseDto = z.infer<typeof ApiKeyResponseSchema>;
 
 /** Returned once, on creation: `key` is never shown again. */
-export interface CreatedApiKeyDto {
-    id: string;
-    name: string;
-    prefix: string;
-    key: string;
-    expiresAt: string | null;
-}
+export const CreatedApiKeySchema = z.object({
+    id: z.string(),
+    name: z.string(),
+    prefix: z.string(),
+    key: z.string(),
+    expiresAt: z.string().nullable(),
+});
+export type CreatedApiKeyDto = z.infer<typeof CreatedApiKeySchema>;
