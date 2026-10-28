@@ -61,6 +61,13 @@ export class ExecutorController {
         return this.executors.replaceToken(user, id, dto);
     }
 
+    @Post(':id/reset-exhaustion')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    resetExhaustion(@CurrentUser() user: AuthUser | null, @Param('id', ParseUUIDPipe) id: string): Promise<ExecutorResponseDto> {
+        return this.executors.resetExhaustion(user, id);
+    }
+
     @Delete(':id')
     @HttpCode(204)
     @UseGuards(JwtHumanGuard)

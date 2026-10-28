@@ -11,7 +11,7 @@ const base = {
 } as Job;
 
 describe('JobCard waiting for an executor', () => {
-  it.each(['no executor', 'executor busy', 'executor limit reached', 'executor exhausted'])('shows the reason "%s" on a queued job', (reason) => {
+  it.each(['no executor', 'executor busy', 'executor limit reached', 'executor exhausted until 2026-10-28T12:00:00.000Z'])('shows the reason "%s" on a queued job', (reason) => {
     render(<JobCard job={{ ...base, waitingReason: reason }} onOpen={() => {}} />);
     expect(screen.getByText(`Waiting: ${reason}`)).toBeInTheDocument();
   });

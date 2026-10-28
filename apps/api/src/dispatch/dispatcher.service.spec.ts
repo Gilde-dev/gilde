@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ExecutionError } from '../execution/execution.error.js';
 import { User } from '../user/user.entity.js';
 import { Executor } from '../executor/executor.entity.js';
+import { ExecutorMapper } from '../executor/executor.mapper.js';
+import { ExecutorService } from '../executor/executor.service.js';
 import { Feature } from '../feature/feature.entity.js';
 import type { ExecutionPort } from '../execution/execution.port.js';
 import { prepareJobPrompt } from '../execution/job-prompt.js';
@@ -69,9 +71,11 @@ beforeEach(async () => {
     repoService = new RepoService(new RepoMapper(), {} as never, repos);
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
+    const realExecutors = new ExecutorService(executors, new ExecutorMapper(), {} as never, {} as never, {} as never);
     executorService = {
         listForDispatch: (ownerId: string) => executors.find({ where: { ownerId }, order: { name: 'ASC' } }),
         revealToken: vi.fn().mockResolvedValue('secret-token'),
+        markExhausted: (id: string, resetAt: Date | null) => realExecutors.markExhausted(id, resetAt),
     };
     revealToken = executorService.revealToken as ReturnType<typeof vi.fn>;
     dispatcher = new DispatcherService(new RunService(new RunMapper(), runs), execution, jobs, repos, projects, runs, repoService, ds.getRepository(Feature), { searchLessons } as never, budget as never, budgetAlerts as never, executorService as never, capture);
@@ -93,7 +97,7 @@ function fakeExecution(): ExecutionPort {
 }
 
 let revealToken: ReturnType<typeof vi.fn>;
-let executorService: { listForDispatch: (ownerId: string) => Promise<Executor[]>; revealToken: ReturnType<typeof vi.fn> };
+let executorService: { listForDispatch: (ownerId: string) => Promise<Executor[]>; revealToken: ReturnType<typeof vi.fn>; markExhausted: (id: string, resetAt: Date | null) => Promise<Date | null> };
 
 let seq = 0;
 async function seedUser(name: string, over: Partial<User> = {}) {
@@ -439,6 +443,79 @@ describe('DispatcherService', () => {
         expect(await dispatcher.dispatch()).toMatchObject({ fired: 1, failed: 0 });
     });
 
+    describe('usage limit (executor exhausted)', () => {
+        const waiting = async (id: string) => (await reload(id)).waitingReason;
+        const limit = (resetAt: Date | null = null) => new ExecutionError('Routine fire hit a usage limit (HTTP 429)', 'executor_exhausted', resetAt);
+
+        it('marks the executor exhausted until the reset time, requeues without using an attempt, and notifies once', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            const reset = new Date(Date.now() + 2 * 3_600_000);
+            fire.mockRejectedValueOnce(limit(reset));
+
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
+
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+            expect((await executors.findOneByOrFail({ id: defaultExecutor.id })).exhaustedUntil).toEqual(reset);
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fire_failed', executorId: defaultExecutor.id });
+            const rows = await notifications.find({ where: { kind: 'executor.exhausted' } });
+            expect(rows).toHaveLength(1);
+            expect(rows[0]).toMatchObject({ title: 'Executor default', projectId: null, jobId: null });
+            expect(rows[0]!.reason).toContain(reset.toISOString());
+            expect(rows[0]!.reason).toContain('owner');
+            expect(JSON.stringify(rows)).not.toContain('secret-token');
+
+            // The next pass waits with the reset time, fires nothing and records no second notification.
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
+            expect(await waiting(job.id)).toBe(`executor exhausted until ${reset.toISOString()}`);
+            expect(fire).toHaveBeenCalledOnce();
+            expect(await notifications.count({ where: { kind: 'executor.exhausted' } })).toBe(1);
+        });
+
+        it('uses the configured backoff when the response gives no reset time, and recovers on its own', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await seedJob(repo);
+            fire.mockRejectedValueOnce(limit());
+            const before = Date.now();
+            await dispatcher.dispatch();
+            const until = (await executors.findOneByOrFail({ id: defaultExecutor.id })).exhaustedUntil!.getTime();
+            expect(until - before).toBeGreaterThanOrEqual(60 * 60_000 - 1000);
+            expect(until - before).toBeLessThan(60 * 60_000 + 5000);
+
+            await executors.update({ id: defaultExecutor.id }, { exhaustedUntil: new Date(Date.now() - 1000) });
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1 });
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+        });
+
+        it('moves the job to another executor of the same owner in the same pass', async () => {
+            const repo = await seedRepo(await seedProject());
+            const other = await seedExecutor(owner, { name: 'zz-other', repoIds: [repo.id], maxConcurrent: 5 });
+            const job = await seedJob(repo);
+            fire.mockRejectedValueOnce(limit(new Date(Date.now() + 3_600_000)));
+
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 0, failed: 1 });
+            expect((await reload(job.id)).status).toBe('queued');
+            expect(await dispatcher.dispatch()).toMatchObject({ fired: 1 });
+            expect(fire.mock.calls[1]![0]).toMatchObject({ executorName: other.name });
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 1 });
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ status: 'fired', executorId: other.id });
+        });
+
+        it('does not park or count an attempt however often the limit is hit; other transient errors still use attempts', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 1 }));
+            const job = await seedJob(repo);
+            fire.mockRejectedValueOnce(limit());
+            await dispatcher.dispatch();
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 0 });
+
+            await executors.update({ id: defaultExecutor.id }, { exhaustedUntil: null });
+            fire.mockRejectedValueOnce(new ExecutionError('HTTP 503', 'transient'));
+            await dispatcher.dispatch();
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 1 });
+            expect(await executors.findOneByOrFail({ id: defaultExecutor.id })).toMatchObject({ exhaustedUntil: null });
+        });
+    });
+
     describe('configuration errors', () => {
         it('parks the job naming the executor, keeps the attempt, disables nothing and pauses nothing on a 401', async () => {
             const repo = await seedRepo(await seedProject());
@@ -553,7 +630,7 @@ describe('DispatcherService', () => {
             const { repo, executor } = await repoWithOwnerExecutor({ exhaustedUntil: new Date(Date.now() + 3_600_000) });
             const job = await seedJob(repo);
             expect(await only()).toMatchObject({ fired: 0, waitingOnExecutor: 1 });
-            expect(await waiting(job.id)).toBe('executor exhausted');
+            expect(await waiting(job.id)).toBe(`executor exhausted until ${(await executors.findOneByOrFail({ id: executor.id })).exhaustedUntil!.toISOString()}`);
 
             await executors.update({ id: executor.id }, { exhaustedUntil: new Date(Date.now() - 1000) });
             expect(await only()).toMatchObject({ fired: 1, waitingOnExecutor: 0 });

@@ -191,11 +191,32 @@ describe('RoutineExecutionAdapter', () => {
         expect((await failure(adapter.fire(repo, payload))).kind).toBe('config');
     });
 
-    it.each([429, 500, 503])('treats HTTP %i as retryable', async (status) => {
+    it.each([500, 503])('treats HTTP %i as retryable', async (status) => {
         fetchMock.mockResolvedValue(new Response('later', { status }));
         const err = await failure(adapter.fire(repo, payload));
         expect(err.kind).toBe('transient');
         expect(err.retryable).toBe(true);
+    });
+
+    it('classifies HTTP 429 as an exhausted executor, without a reset time when Retry-After is missing or unusable', async () => {
+        for (const headers of [{}, { 'retry-after': 'soon' }, { 'retry-after': '0' }, { 'retry-after': '99999999999' }]) {
+            fetchMock.mockResolvedValue(new Response('limit', { status: 429, headers }));
+            const err = await failure(adapter.fire(repo, payload));
+            expect(err).toMatchObject({ kind: 'executor_exhausted', resetAt: null, retryable: false });
+        }
+    });
+
+    it('reads Retry-After seconds and HTTP dates on a 429', async () => {
+        fetchMock.mockResolvedValue(new Response('limit', { status: 429, headers: { 'retry-after': '120' } }));
+        const bySeconds = await failure(adapter.fire(repo, payload));
+        expect(bySeconds.kind).toBe('executor_exhausted');
+        expect(bySeconds.resetAt!.getTime() - Date.now()).toBeGreaterThan(110_000);
+        expect(bySeconds.resetAt!.getTime() - Date.now()).toBeLessThanOrEqual(120_000);
+
+        const date = new Date(Date.now() + 3_600_000);
+        fetchMock.mockResolvedValue(new Response('limit', { status: 429, headers: { 'retry-after': date.toUTCString() } }));
+        const byDate = await failure(adapter.fire(repo, payload));
+        expect(Math.abs(byDate.resetAt!.getTime() - date.getTime())).toBeLessThan(1000);
     });
 
     it('treats network errors as retryable', async () => {
