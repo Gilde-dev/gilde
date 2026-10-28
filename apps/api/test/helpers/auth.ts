@@ -43,3 +43,13 @@ export async function authedAgent(app: INestApplication) {
   const headers = await authHeaders(app);
   return request.agent(app.getHttpServer()).set(headers);
 }
+
+/** A real personal API key (`gk_...`) of the user, created through the API like a person would, for tests of the key path. */
+export async function createApiKey(app: INestApplication, user: Pick<TestUser, 'id' | 'email' | 'name'>, name = 'e2e key'): Promise<string> {
+  const res = await request(app.getHttpServer())
+    .post('/api/v1/api-keys')
+    .set({ Authorization: `Bearer ${tokenFor(app, user)}` })
+    .send({ name })
+    .expect(201);
+  return (res.body as { key: string }).key;
+}

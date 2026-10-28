@@ -1,10 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
-import { requireVerifiedHuman } from '../common/verified-human.js';
+import { requirePersistedHuman, requireVerifiedHuman } from '../common/verified-human.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 
 import type { CreateUserDto, UserIdentityDto, UserResponseDto } from './user.dto.js';
@@ -78,6 +78,17 @@ export class UserService {
     async requireVerifiedHuman(user: AuthUser | undefined): Promise<UserIdentityDto> {
         const persisted = user?.credential === 'jwt' ? await this.findIdentity(user.id) : null;
         return requireVerifiedHuman(user, persisted);
+    }
+
+    /**
+     * Gate for operators acting through MCP: the request must carry server-set JWT or API-key provenance and its account must
+     * still exist as a non-bot, non-scout user, read fresh. Unlike requireVerifiedHuman, personal API keys qualify.
+     */
+    async requireOperator(user: AuthUser | undefined): Promise<UserIdentityDto> {
+        const trusted = user?.credential === 'jwt' || user?.credential === 'api_key';
+        const persisted = user && trusted ? await this.findIdentity(user.id) : null;
+        if (!user?.id || !trusted) throw new ForbiddenException('Authentication with a JWT or personal API key is required');
+        return requirePersistedHuman(user, persisted);
     }
 
     /** Internal: the only place the password hash is loaded. Returns the entity, not a DTO. */

@@ -15,6 +15,20 @@ export function requireVerifiedHuman(
 ): UserIdentityDto {
     if (!user?.id) throw new ForbiddenException('A verified human is required');
     if (user.credential !== 'jwt') throw new ForbiddenException('Sign in interactively; API keys cannot do this');
+    return requirePersistedHuman(user, persisted, scoutEmail);
+}
+
+/**
+ * The persisted-account half of requireVerifiedHuman, without any decision about the credential: the account must still
+ * exist and be the authenticated one, must not be a bot and must not be the scout account (email normalized, also when it
+ * is not marked as a bot). The caller decides which credentials it trusts first.
+ */
+export function requirePersistedHuman(
+    user: AuthUser | undefined,
+    persisted: UserIdentityDto | null,
+    scoutEmail: string | undefined = process.env.SCOUT_USER_EMAIL,
+): UserIdentityDto {
+    if (!user?.id) throw new ForbiddenException('A verified human is required');
     if (!persisted || persisted.id !== user.id) throw new ForbiddenException('Account not found');
     if (persisted.isBot) throw new ForbiddenException('Bot accounts cannot do this');
     const scout = scoutEmail?.trim().toLowerCase();

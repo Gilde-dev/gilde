@@ -35,6 +35,10 @@ export type PlanCreation =
     | { created: true; featureId: string; link: string; jobs: { key: string; jobId: string; status: 'triage' }[]; spec: PlanSpecSummary | null }
     | { created: false; problems: string[] };
 
+export interface PlanCreateOptions {
+    reserve?: (m: EntityManager, counts: { jobs: number }) => Promise<void>;
+}
+
 /** Thrown inside the transaction when the plan no longer validates, so everything rolls back. */
 class PlanRejected extends Error {
     constructor(readonly problems: string[]) {
@@ -62,12 +66,16 @@ export class FeaturePlanService {
         return checked.valid ? { valid: true, draft: checked.draft, spec: checked.target ? this.summary(checked.target) : null } : checked;
     }
 
-    /** Creates the feature in draft and its jobs in triage, as `actor`; nothing is queued or started. All or nothing. */
-    async create(input: unknown, actor: { id: string } | null): Promise<PlanCreation> {
+    /**
+     * Creates the feature in draft and its jobs in triage, as `actor`; nothing is queued or started. All or nothing.
+     * `reserve` runs inside the same transaction once the plan validated, with the number of jobs about to be written
+     * (the MCP daily allowance); whatever it throws rolls everything back and propagates.
+     */
+    async create(input: unknown, actor: { id: string } | null, options: PlanCreateOptions = {}): Promise<PlanCreation> {
         const parsed = FeaturePlanSchema.safeParse(input);
         if (!parsed.success) return { created: false, problems: this.schemaProblems(parsed.error) };
         const { specId } = parsed.data;
-        const work = (m: EntityManager) => this.createIn(m, parsed.data, actor);
+        const work = (m: EntityManager) => this.createIn(m, parsed.data, actor, options);
         try {
             return specId
                 ? await this.specs.withSpecLock(specId, work)
@@ -78,10 +86,11 @@ export class FeaturePlanService {
         }
     }
 
-    private async createIn(m: EntityManager, input: FeaturePlan, actor: { id: string } | null): Promise<PlanCreation> {
+    private async createIn(m: EntityManager, input: FeaturePlan, actor: { id: string } | null, options: PlanCreateOptions): Promise<PlanCreation> {
         const checked = await this.check(input, m);
         if (!checked.valid) throw new PlanRejected(checked.problems);
         const { draft, target } = checked;
+        await options.reserve?.(m, { jobs: draft.jobs.length });
 
         const feature = await m.save(m.create(Feature, {
             projectId: draft.projectId,
