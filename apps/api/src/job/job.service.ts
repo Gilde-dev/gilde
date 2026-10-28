@@ -57,8 +57,8 @@ export class JobService {
         const repo = await this.repoService.getById(repoId); // 404 if unknown
         this.assertTaskContent(dto.task, dto.acceptanceCriteria ?? []);
         const dependsOn = dto.dependsOn ?? [];
-        await this.validateDependencies(null, repo.projectId, dependsOn);
-        const feature = dto.featureId ? await this.linkableFeature(dto.featureId, repo.projectId) : null;
+        await this.validateDependencies(null, repo.projectId, dependsOn, manager);
+        const feature = dto.featureId ? await this.linkableFeature(dto.featureId, repo.projectId, manager) : null;
         if (feature?.status === 'draft' && dto.status === 'queued') {
             throw new ConflictException('A draft feature cannot have queued jobs; create the job in triage or start the feature');
         }
@@ -145,12 +145,34 @@ export class JobService {
     }
 
     /** The feature a job may be linked to: it must exist in the project (400) and still be open (409). */
-    private async linkableFeature(featureId: string, projectId: string): Promise<Feature> {
-        const feature = await this.featureRepository.findOneBy({ id: featureId });
+    private async linkableFeature(featureId: string, projectId: string, manager?: EntityManager): Promise<Feature> {
+        const feature = await (manager?.getRepository(Feature) ?? this.featureRepository).findOneBy({ id: featureId });
         if (!feature) throw new BadRequestException(`Feature ${featureId} does not exist`);
         if (feature.projectId !== projectId) throw new BadRequestException(`Feature ${featureId} is in another project`);
         if (FEATURE_CLOSED.includes(feature.status)) throw new ConflictException(`Feature is ${feature.status}`);
         return feature;
+    }
+
+    /**
+     * Cancels a queued job that never started (no attempt used), through the state machine, in the caller's transaction.
+     * Conditional on the status and attempts it saw, so it loses cleanly against a dispatcher claiming the job: returns
+     * false when the job is no longer queued and unstarted, and nothing changed.
+     */
+    async cancelUnstartedQueuedIn(m: EntityManager, id: string): Promise<boolean> {
+        const to = nextStatus('queued', 'cancel');
+        if (!to) throw new Error('Job state machine does not allow cancelling a queued job');
+        const result = await m.update(Job, { id, status: 'queued', attempts: 0 }, { status: to, lastReason: 'Superseded by a newer spec version.' });
+        return !!result.affected;
+    }
+
+    /**
+     * Replaces the content (and creator) of a triage job that never started, in the caller's transaction. Conditional on
+     * the job still being an unstarted triage job; returns false, changing nothing, when it is not.
+     */
+    async rewriteUnstartedTriageIn(m: EntityManager, id: string, content: { title: string; task: string; acceptanceCriteria: string[] }, actor: { id: string } | null): Promise<boolean> {
+        this.assertTaskContent(content.task, content.acceptanceCriteria);
+        const result = await m.update(Job, { id, status: 'triage', attempts: 0 }, { ...content, createdById: actor?.id ?? null });
+        return !!result.affected;
     }
 
     async enqueue(id: string): Promise<EnqueueResponseDto> {
@@ -215,11 +237,14 @@ export class JobService {
         return this.getById(id);
     }
 
-    async validateDependencies(job: Job | null, projectId: string, dependsOn: string[]): Promise<void> {
+    /** With `manager`, reads inside the caller's transaction, so jobs it created and not yet committed count. */
+    async validateDependencies(job: Job | null, projectId: string, dependsOn: string[], manager?: EntityManager): Promise<void> {
+        const jobs = manager?.getRepository(Job) ?? this.jobRepository;
+        const edgesRepository = manager?.getRepository(JobDependency) ?? this.dependencyRepository;
         if (new Set(dependsOn).size !== dependsOn.length) throw new BadRequestException('Duplicate dependencies');
         if (job && dependsOn.includes(job.id)) throw new BadRequestException('A job cannot depend on itself');
         if (!dependsOn.length) return;
-        const found = await this.jobRepository.find({ where: { id: In(dependsOn) }, select: { id: true, projectId: true } });
+        const found = await jobs.find({ where: { id: In(dependsOn) }, select: { id: true, projectId: true } });
         const byId = new Map(found.map((j) => [j.id, j]));
         for (const dep of dependsOn) {
             const j = byId.get(dep);
@@ -229,7 +254,7 @@ export class JobService {
         if (!job) return;
 
         // Cycle check: walk the graph with this job's edges replaced by the proposed ones.
-        const edges = await this.dependencyRepository.find();
+        const edges = await edgesRepository.find();
         const graph = new Map<string, string[]>();
         for (const e of edges) {
             if (e.jobId === job.id) continue;

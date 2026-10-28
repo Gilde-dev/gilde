@@ -28,6 +28,7 @@ import { UsageModule } from './usage/usage.module.js';
 import { NotificationModule } from './notification/notification.module.js';
 import { OtelModule } from './otel/otel.module.js';
 import { BudgetModule } from './budget/budget.module.js';
+import { SpecModule } from './spec/spec.module.js';
 import { ScoutSignalModule } from './scout-signal/scout-signal.module.js';
 
 
@@ -53,6 +54,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     RunModule,
     JobModule,
     FeatureModule,
+    SpecModule,
     DispatchModule,
     FeedbackModule,
     WebhookModule,

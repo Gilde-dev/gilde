@@ -179,6 +179,31 @@ describe('controller conventions (production tree)', () => {
     });
 });
 
+describe('spec domain (production tree)', () => {
+    const controller = readFileSync(join(SRC, 'spec', 'spec.controller.ts'), 'utf8');
+    const dto = readFileSync(join(SRC, 'spec', 'spec.dto.ts'), 'utf8');
+
+    it('is covered by the controller conventions', () => {
+        expect(controllerFiles(SRC).map((f) => f.slice(SRC.length + 1))).toContain(join('spec', 'spec.controller.ts'));
+        expect(checkOnDisk(join(SRC, 'spec', 'spec.controller.ts'))).toEqual([]);
+    });
+
+    it('keeps approval behind the verified-human guard and the other routes reachable by any authenticated user', () => {
+        const approve = /@Post\('specs\/:id\/approve'\)[\s\S]*?approve\(/.exec(controller)?.[0] ?? '';
+        expect(approve).toContain('@UseGuards(JwtHumanGuard)');
+        expect(controller.match(/@UseGuards\(/g)).toHaveLength(1);
+        expect(controller).not.toContain('@Public(');
+    });
+
+    it('takes the actor from the request context, never from a body schema', () => {
+        const schemas = dto.match(/export const (?:Create|Save|Approve)\w+Schema = z\.(\w+)\(/g) ?? [];
+        expect(schemas).toHaveLength(3);
+        expect(schemas.every((s) => s.endsWith('z.strictObject('))).toBe(true);
+        expect(dto.slice(0, dto.indexOf('export type CreateSpecDto'))).not.toMatch(/\b(?:actor|createdBy|updatedBy|approvedBy)\w*\s*:\s*z\./);
+        expect(controller).not.toContain('@Req(');
+    });
+});
+
 describe('checkController', () => {
     const dtos: Record<string, string> = {
         './thing.dto.js': `
