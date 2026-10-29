@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { gildeResultSchema } from '../webhook/pr-body.js';
 import { RunContextSchema } from './run-context.js';
+import { RunKnowledgeSchema } from './run-knowledge.js';
 import { RUN_KINDS, RUN_STATUSES } from './run-status.js';
 
 export const CreateRunSchema = z.object({
@@ -32,6 +33,8 @@ export const RunResponseSchema = z.object({
     instructionsVersion: z.string().nullable(),
     context: RunContextSchema.nullable(),
     contextError: z.string().nullable(),
+    /** MCP servers that contributed knowledge snippets to the prompt, with the characters of text; empty when none did. */
+    knowledge: z.array(RunKnowledgeSchema),
     error: z.string().nullable(),
     ciConclusion: z.string().nullable(),
     result: gildeResultSchema.nullable(),

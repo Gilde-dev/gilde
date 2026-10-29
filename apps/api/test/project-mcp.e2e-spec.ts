@@ -79,7 +79,7 @@ describe('Project MCP servers (e2e)', () => {
       expect((await http().get(`${base()}/${created.id}`).set(as(ann)).expect(200)).body).toMatchObject({ ...created, tools: [] });
 
       const replaced = await http().put(`${base()}/${created.id}`).set(as(ann))
-        .send({ name: 'Wiki', url: 'https://wiki.example.com/mcp', enabled: false, unattendedEnabled: true }).expect(200);
+        .send({ name: 'Wiki', url: 'https://wiki.example.com/mcp', enabled: false, unattendedEnabled: true, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null }).expect(200);
       expect(replaced.body).toMatchObject({ name: 'Wiki', url: 'https://wiki.example.com/mcp', enabled: false, unattendedEnabled: true, tokenLast4: '9z8y' });
 
       await http().delete(`${base()}/${created.id}`).set(as(ann)).expect(204);
@@ -113,7 +113,7 @@ describe('Project MCP servers (e2e)', () => {
       const viaKey = { Authorization: `Bearer ${await createApiKey(app, ann)}` };
       await http().get(base()).set(viaKey).expect(200);
       await http().post(base()).set(viaKey).send(body({ name: 'K' })).expect(401);
-      await http().put(`${base()}/${created.id}`).set(viaKey).send({ name: 'x', url: URL_, enabled: true, unattendedEnabled: false }).expect(401);
+      await http().put(`${base()}/${created.id}`).set(viaKey).send({ name: 'x', url: URL_, enabled: true, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null }).expect(401);
       await http().put(`${base()}/${created.id}/token`).set(viaKey).send({ token: 'abcdefgh' }).expect(401);
       await http().post(`${base()}/${created.id}/test`).set(viaKey).expect(401);
       await http().put(`${base()}/${created.id}/tools`).set(viaKey).send({ tools: [] }).expect(401);
@@ -145,7 +145,7 @@ describe('Project MCP servers (e2e)', () => {
         JSON.stringify((await http().get(base()).set(as(ann))).body),
         JSON.stringify((await http().get(`${base()}/${created.id}`).set(as(ann))).body),
         JSON.stringify((await http().put(`${base()}/${created.id}`).set(as(ann))
-          .send({ name: 'x', url: URL_, enabled: true, unattendedEnabled: false })).body),
+          .send({ name: 'x', url: URL_, enabled: true, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null })).body),
         JSON.stringify((await http().post(base()).set(as(ann)).send(body({ name: 'Bad', url: 'http://x' }))).body),
         JSON.stringify((await http().put(`${base()}/${created.id}/token`).set(as(ann)).send({ token: 'has space' })).body),
       ];
@@ -253,7 +253,7 @@ describe('Project MCP servers (e2e)', () => {
       it('audits every change with who and what, never the token', async () => {
         await useFake();
         const created = await create();
-        await http().put(`${base()}/${created.id}`).set(as(ann)).send({ name: 'Notion', url: URL_, enabled: false, unattendedEnabled: false }).expect(200);
+        await http().put(`${base()}/${created.id}`).set(as(ann)).send({ name: 'Notion', url: URL_, enabled: false, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null }).expect(200);
         await http().put(`${base()}/${created.id}/token`).set(as(ann)).send({ token: 'another-secret-zzzz' }).expect(204);
         await http().post(`${base()}/${created.id}/test`).set(as(ann)).expect(200);
         await http().put(`${base()}/${created.id}/tools`).set(as(ann)).send({ tools: [{ name: 'search', mode: 'read', allowed: true }] }).expect(200);

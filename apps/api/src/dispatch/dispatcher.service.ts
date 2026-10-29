@@ -11,6 +11,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { loadDownstreamContext } from '../execution/downstream.js';
 import { selectJobLessons } from '../execution/job-lessons.js';
+import { knowledgeContributions } from '../execution/job-knowledge.js';
 import { buildJobPromptInput } from '../execution/job-payload.js';
 import { promptTooLargeError } from '../execution/job-prompt.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult, type PreparedPrompt } from '../execution/execution.port.js';
@@ -28,6 +29,7 @@ import type { DispatchBudgetEvidence, DispatchReason, DispatchResult, DispatchSt
 import { BudgetService } from '../budget/budget.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { JobRevision } from '../revision/revision.entity.js';
+import { ProjectMcpKnowledgeService } from '../project-mcp/project-mcp-knowledge.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
@@ -57,6 +59,7 @@ export class DispatcherService {
         private readonly executors: ExecutorService,
         @Optional() private readonly capture?: NotificationCaptureService,
         @Optional() private readonly runContext?: RunContextService,
+        @Optional() private readonly knowledgeService?: ProjectMcpKnowledgeService,
     ) { }
 
     @Cron(CronExpression.EVERY_MINUTE)
@@ -359,6 +362,7 @@ export class DispatcherService {
 
         // Optional context: never throws, so a retrieval problem cannot fail the run or cost an attempt.
         const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
+        const knowledge = await this.knowledgeService?.collect(project.id, job) ?? null;
         const downstream = await loadDownstreamContext(this.jobRepository.manager, job);
 
         let runId: string | undefined;
@@ -366,7 +370,7 @@ export class DispatcherService {
         try {
             // The prompt is sized with the run id it will carry, before any run row exists.
             const reserved = await this.reserveRun(job, kind);
-            const { payload, context } = buildJobPromptInput(job, repo, feature, reserved.id, reserved.attempt, downstream, lessons);
+            const { payload, context } = buildJobPromptInput(job, repo, feature, reserved.id, reserved.attempt, downstream, lessons, knowledge);
             const prompt = this.execution.prepare(payload, context);
             if (!prompt.fits) {
                 await this.parkOversized(job, prompt, kind);
@@ -374,6 +378,7 @@ export class DispatcherService {
             }
             runId = await this.startRun(job, project.id, repo.id, reserved, executor.id, kind);
             await this.recordContext(runId, repo);
+            await this.recordKnowledge(runId, prompt);
             const token = await this.executors.revealToken(executor.id).catch(() => {
                 throw new ExecutionError(`Executor "${executor.name}" token could not be read`, 'config');
             });
@@ -413,6 +418,16 @@ export class DispatcherService {
         // Outside the try: a bookkeeping failure must not park a job that did fire.
         await this.runService.markFired(runId, session);
         return 'fired';
+    }
+
+    /** What reached the prompt, after trimming. A failed write is only logged. */
+    private async recordKnowledge(runId: string, prompt: PreparedPrompt): Promise<void> {
+        try {
+            const contributions = knowledgeContributions(prompt.payload.knowledge);
+            if (contributions.length) await this.runService.recordKnowledge(runId, contributions);
+        } catch (e) {
+            this.logger.warn(`Run knowledge not stored: ${errorMessage(e)}`);
+        }
     }
 
     /** Never blocks or fails a fire: the capture returns an error value, and a failed write is only logged. */

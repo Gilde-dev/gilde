@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useState } from 'react';
-import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run, type RunContext, type RunExecutor } from '@/lib/api';
+import { api, type AgentTotals, type Feedback, type JobDetail, type PromptTrimmed, type Revision, type Run, type RunContext, type RunKnowledge, type RunExecutor } from '@/lib/api';
 import { AgentUsageSummary } from './agent-usage';
 import { errorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
@@ -150,6 +150,19 @@ function Overview({ job, dependents, projectId }: { job: JobDetail; dependents: 
 const shortHash = (h: string | null) => (h ? h.slice(0, 8) : 'none');
 
 /** What the agent had in this run; old runs and failed captures say so instead of showing zeros. */
+/** The MCP servers that gave this run reference snippets; nothing when none did. */
+export function RunKnowledgeSummary({ knowledge }: { knowledge: RunKnowledge[] | undefined }) {
+  if (!knowledge?.length) return null;
+  return (
+    <p className="text-muted-foreground">
+      Knowledge from{' '}
+      {knowledge
+        .map((k) => `${k.server} (${k.snippets} snippet${k.snippets === 1 ? '' : 's'}, ${k.chars.toLocaleString('en')} characters)`)
+        .join(', ')}
+    </p>
+  );
+}
+
 export function RunContextSummary({ context, error }: { context: RunContext | null; error: string | null }) {
   if (!context) {
     return (
@@ -224,6 +237,7 @@ function RunCard({ run, prUrl, prNumber }: { run: Run & { agentUsage?: AgentTota
         </p>
         {run.result && <p>{run.result.summary}</p>}
         {run.error && <p className="text-danger">{run.error}</p>}
+        <RunKnowledgeSummary knowledge={run.knowledge} />
         <RunContextSummary context={run.context} error={run.contextError} />
         {run.agentUsage && <AgentUsageSummary t={run.agentUsage} label={`Attempt ${run.attempt} usage (Claude Code)`} />}
         {run.retro && (
@@ -359,6 +373,7 @@ const count = (n: number, noun: string) => `${n} ${noun}${n === 1 ? '' : 's'}`;
 export function describeTrimmed(t: PromptTrimmed | null): string[] {
   if (!t) return [];
   const lines: string[] = [];
+  if (t.knowledgeRemoved) lines.push(`${count(t.knowledgeRemoved, 'knowledge snippet')} left out`);
   if (t.lessonsRemoved?.length) lines.push(`${count(t.lessonsRemoved.length, 'lesson')} left out`);
   if (t.downstreamTaskCap === 'title-only') lines.push('Downstream task text left out (titles, criteria and dependencies kept)');
   else if (t.downstreamTaskCap !== undefined) lines.push(`Downstream tasks cut to ${t.downstreamTaskCap.toLocaleString('en')} characters`);

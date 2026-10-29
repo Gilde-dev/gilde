@@ -81,8 +81,26 @@ function ServerDialog({
   const [url, setUrl] = useState(server?.url ?? '');
   const [enabled, setEnabled] = useState(server?.enabled ?? true);
   const [unattended, setUnattended] = useState(server?.unattendedEnabled ?? false);
+  const [knowledge, setKnowledge] = useState(server?.knowledgeEnabled ?? false);
+  const [knowledgeTool, setKnowledgeTool] = useState(server?.knowledgeTool ?? '');
+  const [knowledgeArg, setKnowledgeArg] = useState(server?.knowledgeQueryArg ?? 'query');
+  const [readTools, setReadTools] = useState<McpTool[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<unknown>(null);
+  const serverId = server?.id;
+
+  // The knowledge tool is chosen from the allowed read tools of this server.
+  useEffect(() => {
+    if (!serverId) return;
+    let live = true;
+    api
+      .getMcpServer(projectId, serverId)
+      .then((detail) => live && setReadTools(detail.tools.filter((t) => t.allowed && t.mode === 'read')))
+      .catch(() => live && setReadTools([]));
+    return () => {
+      live = false;
+    };
+  }, [projectId, serverId]);
 
   const submit = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -94,7 +112,15 @@ function ServerDialog({
         await api.replaceMcpServer(
           projectId,
           server.id,
-          mcpServerReplacement(latest ?? server, { name: name.trim(), url: url.trim(), enabled, unattendedEnabled: unattended }),
+          mcpServerReplacement(latest ?? server, {
+            name: name.trim(),
+            url: url.trim(),
+            enabled,
+            unattendedEnabled: unattended,
+            knowledgeEnabled: knowledge,
+            knowledgeTool: knowledge ? knowledgeTool : null,
+            knowledgeQueryArg: knowledge ? knowledgeArg.trim() : null,
+          }),
         );
       } else {
         const token = String(new FormData(form).get('token') ?? '').trim();
@@ -148,6 +174,40 @@ function ServerDialog({
               </span>
             </span>
           </label>
+          {server && (
+            <fieldset className="space-y-2 rounded-lg border border-border p-3">
+              <label className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-0.5" checked={knowledge} onChange={(e) => setKnowledge(e.target.checked)} />
+                <span>
+                  Include knowledge in jobs
+                  <span className="block text-muted-foreground">
+                    At dispatch the search tool below is queried with the job title and task, and the top results are added to the job as reference
+                    material (untrusted, within a character budget). A server that fails or is slow is skipped.
+                  </span>
+                </span>
+              </label>
+              {knowledge && (
+                <>
+                  <Field label="Search tool" path="knowledgeTool" error={error} hint="Only allowed, read-only tools can be chosen.">
+                    <Select value={knowledgeTool} onChange={(e) => setKnowledgeTool(e.target.value)} aria-label="Search tool">
+                      <option value="">Choose a tool…</option>
+                      {(readTools ?? []).map((t) => (
+                        <option key={t.name} value={t.name}>
+                          {t.name}
+                        </option>
+                      ))}
+                      {knowledgeTool && !(readTools ?? []).some((t) => t.name === knowledgeTool) && (
+                        <option value={knowledgeTool}>{knowledgeTool}</option>
+                      )}
+                    </Select>
+                  </Field>
+                  <Field label="Query argument" path="knowledgeQueryArg" error={error} hint="The string argument of the tool that takes the query.">
+                    <Input className="font-mono" value={knowledgeArg} maxLength={100} onChange={(e) => setKnowledgeArg(e.target.value)} />
+                  </Field>
+                </>
+              )}
+            </fieldset>
+          )}
           <ErrorText error={error} />
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={onClose}>
@@ -485,6 +545,9 @@ export function McpServersTab({ projectId }: { projectId: string }) {
             </Badge>
             <Badge variant={x.unattendedEnabled ? 'accent' : 'neutral'}>
               {x.unattendedEnabled ? 'Unattended agents: yes' : 'Unattended agents: no'}
+            </Badge>
+            <Badge variant={x.knowledgeEnabled ? 'accent' : 'neutral'}>
+              {x.knowledgeEnabled ? `Knowledge in jobs: ${x.knowledgeTool}` : 'Knowledge in jobs: no'}
             </Badge>
           </div>
           <dl className="grid gap-x-6 gap-y-1 text-sm sm:grid-cols-2">

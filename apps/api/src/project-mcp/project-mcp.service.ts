@@ -72,12 +72,16 @@ export class ProjectMcpService {
         return this.mapper.toDTO(saved);
     }
 
-    /** Replaces name, url, enabled and unattendedEnabled; the token and the allowlist are untouched. */
+    /** Replaces name, url, the enabled flags and the knowledge settings; the token and the allowlist are untouched. */
     async replace(user: AuthUser | null, projectId: string, id: string, dto: ReplaceProjectMcpServerDto): Promise<ProjectMcpServerResponseDto> {
         const actor = await this.users.requireVerifiedHuman(user ?? undefined);
         const entity = await this.getInProject(projectId, id);
         if (dto.name !== entity.name) await this.assertNameFree(projectId, dto.name);
-        const next = { name: dto.name, url: dto.url, enabled: dto.enabled, unattendedEnabled: dto.unattendedEnabled };
+        const knowledge = dto.knowledgeEnabled
+            ? { knowledgeEnabled: true, knowledgeTool: dto.knowledgeTool, knowledgeQueryArg: dto.knowledgeQueryArg }
+            : { knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null };
+        if (knowledge.knowledgeEnabled) await this.assertKnowledgeTool(id, knowledge.knowledgeTool!);
+        const next = { name: dto.name, url: dto.url, enabled: dto.enabled, unattendedEnabled: dto.unattendedEnabled, ...knowledge };
         const changes: Record<string, { from: unknown; to: unknown }> = {};
         for (const [field, to] of Object.entries(next)) {
             const from = entity[field as keyof typeof next];
@@ -195,6 +199,13 @@ export class ProjectMcpService {
     async recordFailure(id: string, error: string, now = new Date()): Promise<void> {
         await this.servers.increment({ id }, 'errorCount', 1);
         await this.servers.update({ id }, { lastError: error.slice(0, 500), lastErrorAt: now });
+    }
+
+    /** The knowledge tool must be on the allowlist and marked read-only; a search that can change data never runs at dispatch. */
+    private async assertKnowledgeTool(serverId: string, name: string): Promise<void> {
+        const row = await this.tools.findOneBy({ serverId, name });
+        if (!row) throw new BadRequestException(`Unknown tool ${name} (test the connection first)`);
+        if (!row.allowed || row.mode !== 'read') throw new BadRequestException(`The knowledge tool ${name} must be an allowed read-only tool`);
     }
 
     private tokenColumns(token: string) {

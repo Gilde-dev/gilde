@@ -12,6 +12,25 @@ export const JobLessonSchema = z.object({
 });
 export type JobLesson = z.infer<typeof JobLessonSchema>;
 
+/** One piece of reference text from a project MCP server. Untrusted data, never instructions. */
+export const KnowledgeSnippetSchema = z.object({
+    server: z.string(),
+    tool: z.string(),
+    /** A URL or identifier the server gave for this result. */
+    ref: z.string().optional(),
+    title: z.string().optional(),
+    /** Delimited as untrusted, see `wrapKnowledgeText`. */
+    text: z.string(),
+});
+export type KnowledgeSnippet = z.infer<typeof KnowledgeSnippetSchema>;
+
+export const JobKnowledgeSchema = z.object({
+    untrusted: z.literal(true),
+    usage: z.string(),
+    snippets: z.array(KnowledgeSnippetSchema),
+});
+export type JobKnowledge = z.infer<typeof JobKnowledgeSchema>;
+
 /** What trimming took out of the optional context, and what the initial caps already cut. Absent fields are unchanged. */
 export const PromptTrimmedSchema = z.object({
     /** Ids of lessons dropped, least relevant first removed. */
@@ -22,6 +41,8 @@ export const PromptTrimmedSchema = z.object({
     downstreamOmitted: z.number().int().optional(),
     /** Ids of downstream jobs removed to fit. */
     downstreamRemoved: z.array(z.string()).optional(),
+    /** Knowledge snippets left out to fit (the last ones, which ranked lowest, go first). */
+    knowledgeRemoved: z.number().int().optional(),
     /** Characters kept of the feature spec. */
     featureSpecCap: z.number().int().optional(),
 });
@@ -48,6 +69,7 @@ export const JobPayloadSchema = z.object({
         dependsOn: z.array(z.string()),
     })).optional(),
     lessons: z.array(JobLessonSchema).optional(),
+    knowledge: JobKnowledgeSchema.optional(),
     continueOn: z.object({ branch: z.string(), prNumber: z.number().int(), reason: z.string() }).optional(),
     promptTrimmed: PromptTrimmedSchema.optional(),
 });

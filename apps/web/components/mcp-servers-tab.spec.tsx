@@ -5,7 +5,7 @@ import { McpServersTab } from './mcp-servers-tab';
 
 const server: McpServer = {
   id: 's1', projectId: 'p1', name: 'notion', url: 'https://mcp.example.com/mcp', hasToken: true, tokenLast4: '1234',
-  enabled: true, unattendedEnabled: false, lastTestedAt: null, lastError: 'Timed out after 5s', lastErrorAt: '2026-10-29T10:00:00Z',
+  enabled: true, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null, lastTestedAt: null, lastError: 'Timed out after 5s', lastErrorAt: '2026-10-29T10:00:00Z',
   callCount: 12, errorCount: 3, createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z',
 };
 const search: McpTool = { name: 'search', description: 'Search pages', mode: 'read', allowed: false };
@@ -98,8 +98,40 @@ describe('McpServersTab', () => {
     fireEvent.click(screen.getByLabelText(/Available to unattended agents/));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith('p1', 's1', { name: 'wiki', url: 'https://mcp.example.com/mcp', enabled: true, unattendedEnabled: true }),
+      expect(replace).toHaveBeenCalledWith('p1', 's1', {
+        name: 'wiki', url: 'https://mcp.example.com/mcp', enabled: true, unattendedEnabled: true, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null,
+      }),
     );
+  });
+
+  it('saves knowledge settings with a read tool chosen from the allowlist', async () => {
+    const readTool: McpTool = { ...search, allowed: true };
+    const writeTool: McpTool = { ...update, allowed: true };
+    vi.mocked(api.getMcpServer).mockResolvedValue(detail([readTool, writeTool, { ...search, name: 'unlisted', allowed: false }]));
+    const replace = vi.spyOn(api, 'replaceMcpServer').mockResolvedValue(server);
+    render(<McpServersTab projectId="p1" />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit notion' }));
+    fireEvent.click(screen.getByLabelText(/Include knowledge in jobs/));
+    const select = screen.getByLabelText('Search tool') as HTMLSelectElement;
+    await waitFor(() => expect(within(select).getByRole('option', { name: 'search' })).toBeInTheDocument());
+    expect(within(select).queryByRole('option', { name: 'update_page' })).not.toBeInTheDocument();
+    expect(within(select).queryByRole('option', { name: 'unlisted' })).not.toBeInTheDocument();
+    fireEvent.change(select, { target: { value: 'search' } });
+    fireEvent.change(screen.getByLabelText('Query argument'), { target: { value: 'q' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() =>
+      expect(replace).toHaveBeenCalledWith('p1', 's1', expect.objectContaining({ knowledgeEnabled: true, knowledgeTool: 'search', knowledgeQueryArg: 'q' })),
+    );
+  });
+
+  it('shows the knowledge setting on the card and a validation issue on the tool field', async () => {
+    vi.mocked(api.listMcpServers).mockResolvedValue([{ ...server, knowledgeEnabled: true, knowledgeTool: 'search', knowledgeQueryArg: 'query' }]);
+    vi.spyOn(api, 'replaceMcpServer').mockRejectedValueOnce(new ApiError('x', 400, 'bad', [{ path: 'knowledgeTool', message: 'Must be an allowed read tool' }]));
+    render(<McpServersTab projectId="p1" />);
+    expect((await card()).getByText('Knowledge in jobs: search')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit notion' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText('Must be an allowed read tool')).toBeInTheDocument();
   });
 
   it('toggles enabled with a full PUT', async () => {
@@ -107,7 +139,9 @@ describe('McpServersTab', () => {
     render(<McpServersTab projectId="p1" />);
     fireEvent.click(await screen.findByRole('button', { name: 'Disable notion' }));
     await waitFor(() =>
-      expect(replace).toHaveBeenCalledWith('p1', 's1', { name: 'notion', url: 'https://mcp.example.com/mcp', enabled: false, unattendedEnabled: false }),
+      expect(replace).toHaveBeenCalledWith('p1', 's1', {
+        name: 'notion', url: 'https://mcp.example.com/mcp', enabled: false, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null,
+      }),
     );
   });
 

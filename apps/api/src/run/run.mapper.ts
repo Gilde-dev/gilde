@@ -21,6 +21,7 @@ export class RunMapper {
             instructionsVersion: e.instructionsVersion,
             context: e.context ?? null,
             contextError: e.contextError ?? null,
+            knowledge: e.knowledge ?? [],
             error: e.error,
             ciConclusion: e.ciConclusion,
             result: e.result,
