@@ -328,6 +328,10 @@ API (all under `/api/v1/agents`):
 | `GET /api/v1/agents/bot-users` | any authenticated user | users marked as bots, for the picker |
 | `PUT /api/v1/agents/:id/settings` | verified human | full replacement of `{ enabled, botUserId, model, settings }`; a `400` with `issues[{ path, message }]` for field errors; audited |
 | `GET /api/v1/agents/:id/audit` | any authenticated user | who changed which field from which value to which, newest first |
+| `GET /api/v1/agents/:id/prompt` (`:id` may also be `slack`) | any authenticated user | the agent's instructions exactly as it receives them, rendered by the same functions the agents use, with an example binding for the dynamic parts, a version (first 12 hex characters of the SHA-256 of the text), the current settings and a link to the source file on GitHub; for `coding` the loaded `docs/agent-instructions.md` and how the job payload is assembled (sections, limit, trimming order). Read-only: no route changes a prompt. `?projectId=` picks the project whose repo reference the co-pilot example shows |
+| `GET /api/v1/agents/slack/notifications` | any authenticated user | the Slack bot's activity: notifications of the outbox that were delivered or failed, newest first, `page` and `pageSize` |
+
+The link of a prompt file points at the commit of the running build, taken from the first of `GILDE_COMMIT_SHA`, `SOURCE_COMMIT`, `GIT_COMMIT_SHA` and `GITHUB_SHA` that holds a hex commit id (the API image takes it from the `GILDE_COMMIT_SHA` build argument: `docker build --build-arg GILDE_COMMIT_SHA=$(git rev-parse HEAD) ...`). Without one the link points at `main` and says so. `GILDE_SOURCE_REPO` (default `Gilde-dev/gilde`) names the repository.
 
 Writes need an interactive JWT of a human: API keys, bot accounts and the scout account get a `403`. The Verkenner, Verfijner and Werkmeester accept only a user that is marked as a bot;
 create one with `pnpm --filter @gilde/api user:create --email <email> --name <name> --bot` (or `user:mark-bot`).
@@ -492,7 +496,7 @@ Tool calls (Gilde's own agents and MCP): tool name, input and output as text, du
 
 ### Reading the log
 
-- `GET /api/v1/agents/:id/runs` with `trigger`, `outcome`, `projectId`, `from` and `to` (ISO times, `to` exclusive), `page` and `pageSize` (default 25, at most 100); newest first. `:id` is one of `gilde`, `verkenner`, `verfijner`, `werkmeester`, `mcp`, `coding`.
+- `GET /api/v1/agents/:id/runs` with `trigger`, `outcome`, `projectId`, `from` and `to` (ISO times, `to` exclusive), `page` and `pageSize` (default 25, at most 100); newest first. `:id` is one of `gilde`, `verkenner`, `verfijner`, `werkmeester`, `mcp`, `coding`. `executorId` limits the `coding` runs to the job runs of one executor; each coding run carries its `executor` (id and name).
 - `GET /api/v1/agent-runs/:id` returns a run with its tool calls.
 
 Both need an ordinary JWT or API key. Co-pilot conversations are private: another user's `gilde` run comes back with `metadataOnly: true`, showing only time, tool count, outcome, model, tokens and cost, with no reason, thread, tool names, inputs or outputs. You see your own in full. Recorded text is data written by others (and by users): show it as plain text only.

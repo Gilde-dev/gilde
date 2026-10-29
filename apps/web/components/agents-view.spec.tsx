@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ApiError, api } from '@/lib/api';
-import { agent, slackBot } from './agent.fixture';
+import { ApiError, api, type AgentRunSummary } from '@/lib/api';
+import { agent, runSummary, slackBot } from './agent.fixture';
 import { AgentsView } from './agents-view';
 
 vi.mock('next/navigation', () => ({
@@ -19,7 +19,7 @@ vi.mock('next/link', () => ({
 
 afterEach(() => vi.restoreAllMocks());
 
-const runs = (total: number, items: { id: string; triggerKind: string; outcome: 'ok' | 'error' | null; startedAt: string }[] = []) => ({ items, page: 1, pageSize: 1, total });
+const runs = (total: number, items: Partial<AgentRunSummary>[] = []) => ({ items: items.map((i) => runSummary(i)), page: 1, pageSize: 1, total });
 
 describe('AgentsView', () => {
   it('lists every agent and the Slack bot with status, reason, bot user, model, usage, limits, trigger and last run', async () => {

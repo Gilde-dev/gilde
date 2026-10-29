@@ -6,6 +6,8 @@ export const AgentRunsQuerySchema = z.object({
     trigger: z.enum(AGENT_RUN_TRIGGERS).optional(),
     outcome: z.enum(AGENT_RUN_OUTCOMES).optional(),
     projectId: z.string().uuid().optional(),
+    /** Coding agents: only the job runs of this executor. */
+    executorId: z.string().uuid().optional(),
     /** Runs that started at or after / before this time. */
     from: z.coerce.date().optional(),
     to: z.coerce.date().optional(),
@@ -51,6 +53,8 @@ export const AgentRunSchema = z.object({
     linkedTable: z.string().nullable(),
     linkedId: z.string().nullable(),
     toolCallCount: z.number().int(),
+    /** Coding agents: the executor that ran the job attempt; null otherwise or when it is gone. */
+    executor: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),
     /** True when this is another user's co-pilot run: only metadata is returned, no content. */
     metadataOnly: z.boolean(),
 });

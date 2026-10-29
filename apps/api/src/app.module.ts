@@ -28,6 +28,7 @@ import { CopilotModule } from './copilot/copilot.module.js';
 import { MemoryModule } from './memory/memory.module.js';
 import { HistoryModule } from './memory/history/history.module.js';
 import { UsageModule } from './usage/usage.module.js';
+import { AgentPromptModule } from './agent-prompt/agent-prompt.module.js';
 import { AgentRunModule } from './agent-run/agent-run.module.js';
 import { NotificationModule } from './notification/notification.module.js';
 import { OtelModule } from './otel/otel.module.js';
@@ -53,6 +54,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     HealthModule,
     UsageModule,
     AgentRunModule,
+    AgentPromptModule,
     BudgetModule,
     MemoryModule,
     HistoryModule,

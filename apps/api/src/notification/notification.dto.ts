@@ -80,3 +80,27 @@ export type RecordNotificationInput = z.input<typeof RecordNotificationSchema>;
 export type ListNotificationsQuery = z.infer<typeof ListNotificationsQuerySchema>;
 export type FailNotificationDto = z.infer<typeof FailNotificationSchema>;
 export type NotificationResponseDto = z.infer<typeof NotificationResponseSchema>;
+
+/** The outbox as the Slack bot's activity: rows the channels app delivered or failed to deliver, newest first. */
+export const DeliveriesQuerySchema = z.object({
+    page: z.coerce.number().int().min(1).max(10_000).optional(),
+    pageSize: z.coerce.number().int().min(1).max(100).optional(),
+});
+export type DeliveriesQuery = z.infer<typeof DeliveriesQuerySchema>;
+
+export const DeliverySchema = z.object({
+    id: z.string().uuid(),
+    kind: z.enum(NOTIFICATION_KINDS),
+    title: z.string(),
+    projectId: z.string().nullable(),
+    jobId: z.string().nullable(),
+    status: z.enum(NOTIFICATION_STATUSES),
+    attempts: z.number().int(),
+    lastError: z.string().nullable(),
+    occurredAt: z.string(),
+    deliveredAt: z.string().nullable(),
+});
+export type DeliveryDto = z.infer<typeof DeliverySchema>;
+
+export const DeliveryPageSchema = z.object({ items: z.array(DeliverySchema), page: z.number().int(), pageSize: z.number().int(), total: z.number().int() });
+export type DeliveryPageDto = z.infer<typeof DeliveryPageSchema>;

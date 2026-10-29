@@ -19,6 +19,9 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/* \
  && mkdir -p /data/workspace && chown -R node:node /data
 WORKDIR /app
+# The commit of this build, so the Prompt tab can link the prompt files at the deployed commit (pass --build-arg GILDE_COMMIT_SHA=<sha>).
+ARG GILDE_COMMIT_SHA=
+ENV GILDE_COMMIT_SHA=$GILDE_COMMIT_SHA
 ENV NODE_ENV=production PORT=4100 GILDE_WORKSPACE_DIR=/data/workspace AGENT_INSTRUCTIONS_PATH=/app/docs/agent-instructions.md
 COPY --from=build --chown=node:node /out/node_modules ./node_modules
 COPY --from=build --chown=node:node /out/package.json ./package.json
