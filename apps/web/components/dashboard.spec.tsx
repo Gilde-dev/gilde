@@ -27,7 +27,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listJobRevisions').mockResolvedValue([]);
   vi.spyOn(api, 'getJob').mockResolvedValue(detail);
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Me', email: 'me@x.nl' });
-  vi.spyOn(api, 'scoutActivity').mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: null, suggestionsThisWeek: 0, weekStart: '2026-10-26', lastWakeAt: null });
+  vi.spyOn(api, 'scoutActivity').mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: null, disabledReason: null, suggestionsThisWeek: 0, weekStart: '2026-10-26', lastWakeAt: null });
 });
 afterEach(() => vi.restoreAllMocks());
 
@@ -224,7 +224,7 @@ describe('Dashboard Suggested badges', () => {
 
   it('reads the scout identity once and marks jobs by creator id, while the scout is on or off', async () => {
     nav.search = 'project=p2';
-    vi.mocked(api.scoutActivity).mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: 'bot', suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: null });
+    vi.mocked(api.scoutActivity).mockResolvedValue({ projectId: 'p2', enabled: false, model: null, scoutUserId: 'bot', disabledReason: null, suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: null });
     vi.mocked(api.listJobs).mockResolvedValue([
       scoutJob({ id: 'a', title: 'By the bot', createdBy: { id: 'bot', name: 'Verkenner' } }),
       scoutJob({ id: 'b', title: 'By a namesake', createdBy: { id: 'human', name: 'Verkenner' } }),

@@ -39,7 +39,7 @@ const budgetStatus = (day: Partial<BudgetPeriodStatus> = {}, week: Partial<Budge
   evaluatedAt: '2026-03-09T12:00:00.000Z', global: { day: period('day', day), week: period('week', week) }, project: null,
   blockers: [], hardBlocked: false, recovery: 'none', recoversAt: null, ...over,
 });
-const enabledStatus = { enabled: true, model: 'openai/m', scout: { enabled: false, model: null }, refine: { enabled: false, model: null } };
+const enabledStatus = { enabled: true, model: 'openai/m', scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: false, model: null } };
 
 beforeEach(() => {
   pathname.value = '/';
@@ -50,7 +50,7 @@ beforeEach(() => {
 
 describe('CopilotProvider', () => {
   it('wraps the app with a collapsed sidebar through the proxy when the co-pilot is enabled', async () => {
-    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null } } });
+    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null } } });
     render(<CopilotProvider><p>app</p></CopilotProvider>);
     const sidebar = await screen.findByTestId('sidebar');
     expect(sidebar).toHaveAttribute('data-open', 'false');
@@ -61,7 +61,7 @@ describe('CopilotProvider', () => {
   });
 
   it('shows a not-configured note instead of the sidebar when disabled', async () => {
-    status.mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null } });
+    status.mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null } });
     render(<CopilotProvider><p>app</p></CopilotProvider>);
     expect(await screen.findByText('Co-pilot not configured')).toBeInTheDocument();
     expect(screen.queryByTestId('sidebar')).not.toBeInTheDocument();
@@ -93,7 +93,7 @@ describe('CopilotProvider', () => {
   });
 
   it('shares page context with the co-pilot only while it is enabled', async () => {
-    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null } } });
+    status.mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null } } });
     render(
       <CopilotProvider>
         <CopilotPageContext description="The project selected in the Gilde UI" value={{ projectId: 'p1' }} />
@@ -177,7 +177,7 @@ describe('CopilotProvider', () => {
 
     it('also warns when the co-pilot itself is not configured', async () => {
       getBudget.mockResolvedValue(budgetStatus({ state: 'soft', limit: 10, spent: 9, percent: 90 }));
-      status.mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null } });
+      status.mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null } });
       render(<CopilotProvider><p>app</p></CopilotProvider>);
       expect(await screen.findByLabelText('Global budget')).toBeInTheDocument();
     });

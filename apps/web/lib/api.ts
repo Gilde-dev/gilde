@@ -773,7 +773,7 @@ export interface CopilotStatus {
   enabled: boolean;
   model: string | null;
   /** The unattended scout (Verkenner), configured separately from the co-pilot. */
-  scout: { enabled: boolean; model: string | null };
+  scout: { enabled: boolean; model: string | null; disabledReason: string | null };
   /** The unattended refine agent (Verfijner) that drafts specs from intake items; off means items stay `new`. */
   refine: { enabled: boolean; model: string | null };
 }
@@ -811,6 +811,8 @@ export interface ScoutActivity {
   enabled: boolean;
   model: string | null;
   scoutUserId: string | null;
+  /** Why the scout is off although SCOUT_ENABLED=true (e.g. SCOUT_USER_EMAIL is not a bot account); null otherwise. */
+  disabledReason: string | null;
   /** Suggestions since Monday 00:00 UTC of the current week. */
   suggestionsThisWeek: number;
   /** The UTC day (YYYY-MM-DD) of that Monday. */

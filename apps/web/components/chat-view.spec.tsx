@@ -42,7 +42,7 @@ const history: CopilotThreadMessages = {
 
 beforeEach(() => {
   agent.setMessages.mockReset();
-  vi.spyOn(api, 'copilotStatus').mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null }, refine: { enabled: false, model: null } });
+  vi.spyOn(api, 'copilotStatus').mockResolvedValue({ enabled: true, model: 'openai/m', scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: false, model: null } });
   vi.spyOn(api, 'listCopilotThreads').mockResolvedValue(threads);
   vi.spyOn(api, 'getCopilotThread').mockResolvedValue(history);
   vi.spyOn(api, 'listProjects').mockResolvedValue([]);
@@ -140,7 +140,7 @@ describe('ChatView', () => {
   });
 
   it('shows the disabled note instead of a chat when the co-pilot is not configured', async () => {
-    vi.spyOn(api, 'copilotStatus').mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null }, refine: { enabled: false, model: null } });
+    vi.spyOn(api, 'copilotStatus').mockResolvedValue({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: false, model: null } });
     render(<ChatView />);
     expect(await screen.findByText('Co-pilot not configured')).toBeInTheDocument();
     expect(screen.queryByTestId('chat')).not.toBeInTheDocument();
