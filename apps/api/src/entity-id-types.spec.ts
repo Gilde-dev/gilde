@@ -18,6 +18,7 @@ const EXTERNAL_IDS = new Set([
   'history_state.pass_id',
   'webhook_deliveries.delivery_id',
   'intake_items.external_id',
+  'intake_items.status_comment_id',
 ]);
 
 const REFERENCE_COLUMN = /(_id|_by)$/;

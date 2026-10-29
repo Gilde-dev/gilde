@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { GitHubCredentials } from './github-credentials.js';
-import { GITHUB_ISSUE_PAGE_SIZE, type GitHubDirEntry, type GitHubFile, type GitHubIssue, type GitHubIssuePage, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from './github.port.js';
+import { GITHUB_ISSUE_PAGE_SIZE, GitHubRequestError, type GitHubIssueCommentRef, type GitHubDirEntry, type GitHubFile, type GitHubIssue, type GitHubIssuePage, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -105,6 +105,54 @@ export class GitHubRestAdapter implements GitHubPort {
         return { issues: rows.filter((r) => !r.pull_request).map(toIssue), complete: rows.length < GITHUB_ISSUE_PAGE_SIZE };
     }
 
+    async upsertIssueComment(fullName: string, issueNumber: number, input: { marker: string; body: string; commentId: string | null }): Promise<GitHubIssueCommentRef> {
+        const base = `/repos/${fullName}/issues`;
+        let id = input.commentId;
+        if (!id) id = await this.findOwnComment(fullName, issueNumber, input.marker);
+        if (id) {
+            const res = await this.send(`/repos/${fullName}/issues/comments/${encodeURIComponent(id)}`, 'PATCH', { body: input.body });
+            if (res.ok) return toCommentRef(await res.json());
+            if (res.status !== 404) throw new GitHubRequestError(`GitHub PATCH /repos/:repo/issues/comments/:id failed: ${res.status}`, res.status);
+            if (input.commentId) {
+                // The stored comment was deleted: look again, then create.
+                const found = await this.findOwnComment(fullName, issueNumber, input.marker);
+                if (found && found !== input.commentId) return this.upsertIssueComment(fullName, issueNumber, { ...input, commentId: found });
+            }
+        }
+        const res = await this.send(`${base}/${issueNumber}/comments`, 'POST', { body: input.body });
+        if (!res.ok) throw new GitHubRequestError(`GitHub POST /repos/:repo/issues/:number/comments failed: ${res.status}`, res.status);
+        return toCommentRef(await res.json());
+    }
+
+    /** The app's earlier status comment: starts with the marker and was written by a bot (so a member cannot make us edit theirs). */
+    private async findOwnComment(fullName: string, issueNumber: number, marker: string): Promise<string | null> {
+        for (let page = 1; page <= 10; page++) {
+            const rows = await this.get<{ id: number; body?: string | null; user?: { type?: string } | null }[]>(
+                `/repos/${fullName}/issues/${issueNumber}/comments?per_page=100&page=${page}`,
+            );
+            const hit = rows.find((r) => r.user?.type === 'Bot' && (r.body ?? '').trimStart().startsWith(marker));
+            if (hit) return String(hit.id);
+            if (rows.length < 100) break;
+        }
+        return null;
+    }
+
+    private async send(path: string, method: 'POST' | 'PATCH', payload: object): Promise<Response> {
+        const fullName = /^\/repos\/([^/]+\/[^/?]+)/.exec(path)?.[1] as string;
+        const token = await this.credentials.tokenFor(fullName);
+        return fetch(`${API}${path}`, {
+            method,
+            headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/vnd.github+json',
+                'Content-Type': 'application/json',
+                'X-GitHub-Api-Version': '2022-11-28',
+            },
+            body: JSON.stringify(payload),
+            signal: AbortSignal.timeout(TIMEOUT_MS),
+        });
+    }
+
     private async get<T>(path: string, nullOn404?: false): Promise<T>;
     private async get<T>(path: string, nullOn404: true): Promise<T | null>;
     private async get<T>(path: string, nullOn404 = false): Promise<T | null> {
@@ -121,7 +169,7 @@ export class GitHubRestAdapter implements GitHubPort {
         });
         // Never include headers or the token in errors.
         if (nullOn404 && res.status === 404) return null;
-        if (!res.ok) throw new Error(`GitHub GET ${path.split('?')[0]} failed: ${res.status}`);
+        if (!res.ok) throw new GitHubRequestError(`GitHub GET ${path.split('?')[0]} failed: ${res.status}`, res.status);
         return (await res.json()) as T;
     }
 }
@@ -146,3 +194,8 @@ const toIssue = (i: IssueJson): GitHubIssue => ({
     authorLogin: i.user?.login ?? null,
     labels: (i.labels ?? []).map((l) => (typeof l === 'string' ? l : l.name ?? '')).filter(Boolean),
 });
+
+const toCommentRef = (json: unknown): GitHubIssueCommentRef => {
+    const c = json as { id: number; html_url: string };
+    return { id: String(c.id), htmlUrl: c.html_url };
+};

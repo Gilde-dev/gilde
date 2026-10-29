@@ -65,6 +65,7 @@ import { ScoutWakeReader } from './scout-wake.reader.js';
 import { resolveScoutSetup } from './verkenner.setup.js';
 import { ScoutThreads } from './verkenner.threads.js';
 import { IntakeModule } from '../intake/intake.module.js';
+import { IntakeCommentService } from '../intake/intake-comment.service.js';
 import { IntakeRefineService } from '../intake/intake-refine.service.js';
 import { resolveRefineSetup } from './verfijner.setup.js';
 import { RefinedSpecWriter } from './verfijner.save.js';
@@ -212,9 +213,9 @@ export class ScoutLifecycle implements OnModuleDestroy {
         {
             // Null (and nothing scheduled) while the Verfijner is off.
             provide: REFINE_WORKER,
-            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService): VerfijnerWorker | null =>
-                (refine ? new VerfijnerWorker(refine, mastra, items, budget) : null),
-            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService],
+            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService, comments: IntakeCommentService): VerfijnerWorker | null =>
+                (refine ? new VerfijnerWorker(refine, mastra, items, budget, comments) : null),
+            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService],
         },
         CopilotThreadsService,
         ScoutWakeReader,

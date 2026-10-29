@@ -578,8 +578,28 @@ list are withdrawn. Repos where the app is not installed, or GitHub cannot be re
 and `.../retry` (verified human; retry sets `new` and clears the error).
 
 **What is stored** (table `intake_items`): the issue's node id, number, URL, title, body (at most 20000 characters, `body_truncated` says
-when it was cut), a sha256 of title + body, the author's login, the labels, the status, a link to the spec and the last error. Comments,
-assignees and other issue data are not read or stored. Gilde never writes to GitHub for intake.
+when it was cut), a sha256 of title + body, the author's login, the labels, the status, a link to the spec and the last error. Of the
+comments only the ones that count as answers are stored (below); assignees and other issue data are not read or stored.
+
+### Answering on the issue
+
+Once the Verfijner has drafted a spec, Gilde writes **one status comment** on the issue as the GitHub App and keeps it up to date; you
+answer the open questions by replying on the issue instead of editing its body.
+
+- **The status comment** is found by a hidden marker (`<!-- gilde:intake:<item id> -->`) and edited in place, never duplicated. It shows
+  the spec title and version (link to `/specs/<id>` on `WEB_ORIGIN`), the status (draft, waiting for answers, ready to approve, approved,
+  planned, or refine failed with a short reason), the number of acceptance criteria with a one-line summary, and the open questions
+  verbatim as a numbered list. It never contains the spec body. It is refreshed after every refine outcome, when the spec is approved and
+  when a feature is planned from it; unchanged content is not rewritten and there is at most one write per item per minute (a held-back
+  write follows within a minute).
+- **Answers.** Reply to the issue, for example `1. Use semicolons.`. Comments (created or edited) from **OWNER, MEMBER or COLLABORATOR**
+  count, the same trust level as the label. Comments from anyone else, from bots and from the app itself are ignored and never stored.
+  A counted comment (at most 4000 characters each, the 20 most recent) is stored on the item and sets it back to `new` (an `ignored`
+  item stays ignored), so the Verfijner drafts a new version with the answers worked in and the answered questions removed. The comments
+  are untrusted data for the agent, like the body. An unchanged re-delivery does not refine again.
+- **Permission.** Writing comments needs **Issues: write** on the GitHub App (it had *Issues: read*); also subscribe to the **Issue
+  comment** event. Without the permission, or when GitHub refuses, the item gets a short `commentError` (shown on `/intake`), the spec
+  and refine result are kept, and the comment is tried again at the next outcome. It never fails a refine.
 
 ### Verfijner (refine agent)
 

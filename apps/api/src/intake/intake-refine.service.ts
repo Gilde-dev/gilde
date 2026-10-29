@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { MoreThanOrEqual, Repository } from 'typeorm';
 
 import { IntakeItem } from './intake-item.entity.js';
+import { refineSha } from './intake-issue.js';
 import { IntakeRefineRun } from './intake-refine-run.entity.js';
 
 /** A refine run fails this many times before the item is `failed`. */
@@ -37,7 +38,7 @@ export class IntakeRefineService {
         const next = new Map<string, IntakeItem>();
         for (const item of waiting) {
             if (busy.has(item.projectId) || next.has(item.projectId)) continue;
-            if (item.refinedSha256 === item.bodySha256) continue;
+            if (item.refinedSha256 === refineSha(item)) continue;
             next.set(item.projectId, item);
         }
         return [...next.values()];

@@ -16,6 +16,7 @@ import { SkillModule } from '../skill/skill.module.js';
 import { SpecModule } from '../spec/spec.module.js';
 import { UserModule } from '../user/user.module.js';
 import { WorkspaceModule } from '../workspace/workspace.module.js';
+import { IntakeModule } from '../intake/intake.module.js';
 import { FeaturePlanService } from '../copilot/feature-plan.service.js';
 
 import { McpController } from './mcp.controller.js';
@@ -41,7 +42,7 @@ export class McpModule {
             imports: [
                 TypeOrmModule.forFeature([McpUsageDay]),
                 UserModule, JobModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule,
-                ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, SpecModule,
+                ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, SpecModule, IntakeModule,
             ],
             controllers: config.enabled ? [McpController] : [],
             providers: [

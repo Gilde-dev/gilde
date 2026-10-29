@@ -1,9 +1,10 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, UnprocessableEntityException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
+import { IntakeCommentService } from '../intake/intake-comment.service.js';
 import { IntakeItem } from '../intake/intake-item.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -61,6 +62,7 @@ export class SpecService {
         @InjectRepository(SpecRecording) private readonly recordingRepository: Repository<SpecRecording>,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @InjectRepository(IntakeItem) private readonly intakeRepository: Repository<IntakeItem>,
+        @Optional() private readonly intakeComments?: IntakeCommentService,
     ) { }
 
     async create(projectId: string, dto: CreateSpecDto, actor: { id: string } | null): Promise<SpecDetailResponseDto> {
@@ -150,6 +152,7 @@ export class SpecService {
                 throw e;
             }
         }
+        void this.intakeComments?.syncForSpec(id);
         return this.getDetail(id, user ?? null);
     }
 

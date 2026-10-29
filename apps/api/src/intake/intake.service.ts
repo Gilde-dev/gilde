@@ -13,12 +13,13 @@ import { Spec } from '../spec/spec.entity.js';
 import { SpecVersion } from '../spec/spec-version.entity.js';
 import { parseSpec } from '../spec/spec-parser.js';
 import { UserService } from '../user/user.service.js';
-import { IntakeItem } from './intake-item.entity.js';
-import { capBody, hasIntakeLabel, intakeLabel, issueSha, type IntakeIssue } from './intake-issue.js';
+import { IntakeItem, type IntakeComment } from './intake-item.entity.js';
+import { capBody, hasIntakeLabel, intakeLabel, issueSha, withComment, type IntakeIssue } from './intake-issue.js';
 import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSpecSummaryDto, IntakeSweepResultDto, ListIntakeQueryDto } from './intake.dto.js';
 import { IntakeMapper } from './intake.mapper.js';
 
 export type IntakeChange = 'created' | 'updated' | 'withdrawn' | 'unchanged' | 'ignored';
+export type IntakeCommentChange = 'stored' | 'unchanged' | 'no item' | 'ignored';
 
 @Injectable()
 export class IntakeService {
@@ -135,6 +136,25 @@ export class IntakeService {
             ...(status === 'new' && (changed || existing.status !== 'new') ? { lastError: null, refineAttempts: 0 } : {}),
         });
         return status === 'ignored' ? 'ignored' : 'updated';
+    }
+
+    /**
+     * Stores a trusted member's comment on the issue of an intake item (the caller has checked who wrote it) and sets the item
+     * back to `new` so the Verfijner works the answer in. An ignored item keeps its status; a withdrawn item takes no comments.
+     * Idempotent: the same comment again, unchanged, changes nothing.
+     */
+    async applyComment(repo: Pick<Repo, 'id'>, issueNumber: number, comment: IntakeComment): Promise<IntakeCommentChange> {
+        const item = await this.items.findOneBy({ source: 'github_issue', repoId: repo.id, number: issueNumber });
+        if (!item) return 'no item';
+        if (item.status === 'withdrawn') return 'ignored';
+        const comments = withComment(item.comments ?? [], comment);
+        const before = JSON.stringify(item.comments ?? []);
+        if (JSON.stringify(comments) === before) return 'unchanged';
+        await this.items.update({ id: item.id }, {
+            comments,
+            ...(item.status === 'ignored' ? {} : { status: 'new', lastError: null, refineAttempts: 0 }),
+        });
+        return 'stored';
     }
 
     /** The manual sweep: verified humans only. */

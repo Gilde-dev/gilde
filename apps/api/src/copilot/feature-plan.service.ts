@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { DataSource, EntityManager } from 'typeorm';
 
+import { IntakeCommentService } from '../intake/intake-comment.service.js';
 import { Feature } from '../feature/feature.entity.js';
 import type { FeatureSpecPin } from '../feature/feature-spec-pin.js';
 import { JobService } from '../job/job.service.js';
@@ -58,6 +59,7 @@ export class FeaturePlanService {
         private readonly dataSource: DataSource,
         private readonly specs: SpecService,
         private readonly jobs: JobService,
+        @Optional() private readonly intakeComments?: IntakeCommentService,
     ) { }
 
     /** Checks a draft against the project, its repos and (when linked) the approved spec version. Writes nothing. */
@@ -77,9 +79,11 @@ export class FeaturePlanService {
         const { specId } = parsed.data;
         const work = (m: EntityManager) => this.createIn(m, parsed.data, actor, options);
         try {
-            return specId
+            const created = specId
                 ? await this.specs.withSpecLock(specId, work)
                 : await this.dataSource.transaction(work);
+            if (specId && created.created) void this.intakeComments?.syncForSpec(specId); // the issue's status comment says "planned"
+            return created;
         } catch (e) {
             if (e instanceof PlanRejected) return { created: false, problems: e.problems };
             throw e;

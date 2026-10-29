@@ -155,7 +155,12 @@ function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore }: {
             )}
           </span>
         )}
+        {i.statusCommentUrl && (
+          <a href={i.statusCommentUrl} target="_blank" rel="noopener noreferrer" className="text-foreground underline">Status comment posted</a>
+        )}
+        {i.commentCount > 0 && <span>{i.commentCount} {i.commentCount === 1 ? 'answer' : 'answers'} from members</span>}
       </div>
+      {i.commentError && <p className="mt-2 break-words text-sm text-warning">Status comment not posted: {i.commentError}</p>}
       {i.lastError && <p className="mt-2 break-words text-sm text-danger">Last error: {i.lastError}</p>}
       {(canRetry(i.status) || canIgnore(i.status)) && (
         <div className="mt-2 flex gap-2">

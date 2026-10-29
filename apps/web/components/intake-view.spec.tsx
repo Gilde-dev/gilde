@@ -45,6 +45,23 @@ describe('IntakeView', () => {
     expect(screen.getAllByText(/Opened/)).toHaveLength(2);
   });
 
+  it('shows the status comment link, the answer count and the comment error', async () => {
+    setup([
+      intakeItem({ statusCommentUrl: 'https://github.com/o/web/issues/12#issuecomment-9', commentCount: 2 }),
+      intakeItem({ id: 'i2', number: 13, title: 'No permission', commentError: 'GitHub refused to write the status comment (HTTP 403). The GitHub App needs the Issues: write permission on this repo.' }),
+      intakeItem({ id: 'i3', number: 14, title: 'Quiet' }),
+    ]);
+    render(<IntakeView />);
+    await screen.findByRole('link', { name: '#12 Add dark mode' });
+    const posted = screen.getByRole('link', { name: 'Status comment posted' });
+    expect(posted).toHaveAttribute('href', 'https://github.com/o/web/issues/12#issuecomment-9');
+    expect(posted).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getAllByRole('link', { name: 'Status comment posted' })).toHaveLength(1);
+    expect(screen.getByText('2 answers from members')).toBeInTheDocument();
+    expect(screen.getByText(/Status comment not posted: GitHub refused .* Issues: write/)).toBeInTheDocument();
+    expect(screen.getAllByText(/Status comment not posted/)).toHaveLength(1);
+  });
+
   it('renders every status with its label', async () => {
     const all = ['new', 'refining', 'drafted', 'failed', 'withdrawn', 'ignored'] as const;
     setup(all.map((s, n) => intakeItem({ id: `i${n}`, status: s, number: n + 1 })));

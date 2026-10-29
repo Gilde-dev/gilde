@@ -64,6 +64,11 @@ export class GitHubCredentials implements OnModuleInit {
         return this.mode !== 'none';
     }
 
+    /** Whether `id` is this app's id (the `performed_via_github_app` of a comment): its own writes are never input. */
+    isOwnApp(id: number | string | null | undefined): boolean {
+        return this.appId !== null && id !== null && id !== undefined && String(id) === this.appId;
+    }
+
     /** A token for API and git access to `fullName` ("owner/repo"). */
     async tokenFor(fullName: string): Promise<string> {
         if (this.mode === 'pat') return this.pat as string;

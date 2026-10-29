@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { GitHubModule } from '../github/github.module.js';
 import { IntakeModule } from '../intake/intake.module.js';
 import { JobEventsModule } from '../job/job-events.module.js';
 import { Job } from '../job/job.entity.js';
@@ -15,6 +16,7 @@ import { WebhookService } from './webhook.service.js';
 
 @Module({
     imports: [
+        GitHubModule,
         TypeOrmModule.forFeature([Job, JobRun, Project, WebhookDelivery]),
         RepoModule,
         FeedbackModule,

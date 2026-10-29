@@ -103,6 +103,16 @@ describe('app mode', () => {
         expect(verify('RSA-SHA256', Buffer.from(`${h}.${p}`), publicKey, Buffer.from(s, 'base64url'))).toBe(true);
     });
 
+    it('recognises its own app id and nothing else', () => {
+        appEnv();
+        const c = new GitHubCredentials();
+        expect(c.isOwnApp(42)).toBe(true);
+        expect(c.isOwnApp('42')).toBe(true);
+        expect(c.isOwnApp(43)).toBe(false);
+        expect(c.isOwnApp(undefined)).toBe(false);
+        expect(c.isOwnApp(null)).toBe(false);
+    });
+
     it('looks up the installation and creates a token, authenticating with the app JWT', async () => {
         appEnv();
         fetchSpy.mockResolvedValueOnce(json({ id: 7 })).mockResolvedValueOnce(json(tokenBody('ghs_one'), 201));

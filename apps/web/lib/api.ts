@@ -453,6 +453,12 @@ export interface IntakeItem {
   specId: string | null;
   spec: IntakeSpecSummary | null;
   lastError: string | null;
+  /** Link to Gilde's status comment on the issue, once posted. */
+  statusCommentUrl: string | null;
+  /** Why the status comment could not be written (short, safe). */
+  commentError: string | null;
+  /** Trusted member comments stored as answers for the Verfijner. */
+  commentCount: number;
   refineAttempts: number;
   createdAt: string;
   updatedAt: string;

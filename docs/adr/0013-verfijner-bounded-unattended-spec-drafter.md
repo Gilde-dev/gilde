@@ -46,6 +46,16 @@ unattended write: a draft spec for its own intake item.
 - **Cost control.** A daily limit per project (`REFINE_DAILY_LIMIT`, default 10 runs per UTC day, counted in `intake_refine_runs`),
   no run while the project's or the global budget is hard (an unreadable budget counts as hard), a step limit, and 2 attempts per
   item and body version before the item is `failed` with a short error. A human can retry a failed item.
+- **One status comment per issue, answers as data (added with issue-side intake).** The flow now writes to GitHub in one place:
+  a single status comment per intake item, created and edited as the GitHub App (needs **Issues: write**; *Issue comment* webhook
+  events are subscribed), through one narrow `GitHubPort` method used via `GitHubCredentials`. It is found by a hidden marker, edited
+  in place, not rewritten when unchanged and written at most once per item per minute. It shows the spec link, version, status, the
+  open questions verbatim and how to answer, never the spec body. Comments of OWNER, MEMBER and COLLABORATOR on an issue with an
+  intake item (the label's trust level) are read as data: stored capped (4000 characters, 20 most recent), included in the item's
+  refine sha and given to the Verfijner between nonce-marked boundary lines like the issue text; other commenters, bots and the app's
+  own comment are dropped unstored, so the status comment cannot trigger a refine. A refused write only records a short
+  `comment_error` on the item and never fails the refine, approval or plan. The agent itself still has no write beyond
+  `saveRefinedSpec`; the comment is written by the server.
 - **Not reachable over HTTP.** The interceptor refuses any Mastra request that names `verfijner` (403), like `verkenner`; the agent is
   not listed on the CopilotKit route, and its memory threads (`verfijner:<item>:<attempt>`, resource = the bot user) are never shown
   as conversations.
@@ -57,8 +67,8 @@ unattended write: a draft spec for its own intake item.
 - Negative: a hostile or sloppy issue can fill the spec list with a poor draft (bounded by the daily limit and by the human labelling
   step); the agent reads repo code, so repo content is sent to the model provider like it already is for the co-pilot. A new table
   and a minute-cadence worker are more moving parts. Run counts are per attempt, so retries cost allowance.
-- Follow-up: the `/intake` page (retry, ignore) and the issue link on specs; writing back to GitHub or other trackers needs its own ADR
-  and an app permission.
+- Follow-up: the `/intake` page (retry, ignore) and the issue link on specs. Writing anything else back to GitHub or other trackers
+  needs its own ADR; the status comment is the only write and needs the app's Issues: write permission.
 
 ## Alternatives considered
 
@@ -66,5 +76,7 @@ unattended write: a draft spec for its own intake item.
 - **Reuse the scout's thread and tools.** The scout is bound to a project and read-only except triage jobs; a spec writer bound to
   an item needs a different binding and a different single write. Separate agents keep both allowlists small and testable.
 - **Let the agent pass the item or spec id to the tool.** Makes the issue text able to steer the write; the binding removes that.
+- **Let the agent post the comment as a tool.** Would put a GitHub write, with issue-influenced text, in the model's hands; the server renders
+  the comment from the spec instead, so its content is bounded and the agent's allowlist stays one write.
 - **Overwrite the spec on edits.** Loses what a human may already have reviewed or approved; versions are immutable (ADR 0009).
 - **Count the daily limit in memory.** Lost on restart and wrong with more than one process.
