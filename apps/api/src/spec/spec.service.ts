@@ -1,10 +1,11 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { EntityManager, In, IsNull, Repository } from 'typeorm';
+import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 import { IntakeCommentService } from '../intake/intake-comment.service.js';
+import { Feature } from '../feature/feature.entity.js';
 import { IntakeItem } from '../intake/intake-item.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -17,6 +18,7 @@ import type {
     ApprovedVersionToken,
     ApproveSpecDto,
     CreateSpecDto,
+    ListSpecsQueryDto,
     SaveSpecVersionDto,
     SpecDetailResponseDto,
     SpecRecordingDto,
@@ -62,6 +64,7 @@ export class SpecService {
         @InjectRepository(SpecRecording) private readonly recordingRepository: Repository<SpecRecording>,
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @InjectRepository(IntakeItem) private readonly intakeRepository: Repository<IntakeItem>,
+        @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         @Optional() private readonly intakeComments?: IntakeCommentService,
     ) { }
 
@@ -98,9 +101,11 @@ export class SpecService {
         return this.getDetail(created.id, actor as AuthUser | null);
     }
 
-    async list(projectId: string): Promise<SpecResponseDto[]> {
+    /** Archived specs are hidden unless `query.archived` is `true`, which lists only those. */
+    async list(projectId: string, query: ListSpecsQueryDto = {}): Promise<SpecResponseDto[]> {
         await this.projectService.getById(projectId);
-        const specs = await this.specRepository.find({ where: { projectId }, order: { updatedAt: 'DESC', id: 'ASC' } });
+        const archivedAt = query.archived === 'true' ? Not(IsNull()) : IsNull();
+        const specs = await this.specRepository.find({ where: { projectId, archivedAt }, order: { updatedAt: 'DESC', id: 'ASC' } });
         const sources = await this.sourcesOf(specs.map((s) => s.id));
         return specs.map((s) => this.mapper.toDTO(s, sources.get(s.id) ?? null));
     }
@@ -108,6 +113,28 @@ export class SpecService {
     async getDetail(id: string, caller: AuthUser | null): Promise<SpecDetailResponseDto> {
         const spec = await this.getOrFail(id);
         return this.detail(spec, caller);
+    }
+
+    /**
+     * Archives a spec (verified humans only): it is hidden from the default list, nothing is deleted or changed. A spec a
+     * feature has pinned is refused with 409 naming the feature. Archiving an archived spec changes nothing.
+     */
+    async archive(id: string, user: AuthUser | undefined): Promise<SpecDetailResponseDto> {
+        const actor = await this.userService.requireVerifiedHuman(user);
+        const spec = await this.getOrFail(id);
+        if (spec.archivedAt) return this.detail(spec, user ?? null);
+        const feature = await this.featureRepository.findOne({ where: { specId: id }, select: { id: true, title: true } });
+        if (feature) throw new ConflictException(`Spec is pinned by feature "${feature.title}" (${feature.id}) and cannot be archived`);
+        await this.specRepository.update({ id, archivedAt: IsNull() }, { archivedAt: new Date(), archivedById: actor.id });
+        return this.getDetail(id, user ?? null);
+    }
+
+    /** Verified humans only. Brings an archived spec back into the default list. */
+    async unarchive(id: string, user: AuthUser | undefined): Promise<SpecDetailResponseDto> {
+        await this.userService.requireVerifiedHuman(user);
+        await this.getOrFail(id);
+        await this.specRepository.update({ id }, { archivedAt: null, archivedById: null });
+        return this.getDetail(id, user ?? null);
     }
 
     /** Saves a new immutable version; the spec goes back to draft. Earlier approvals and recordings stay as evidence. */

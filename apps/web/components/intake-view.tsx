@@ -8,6 +8,7 @@ import { humanOnlyErrorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
+import { ArchiveAction, ArchivedBadge } from './archive-dialog';
 import { NoProjects } from './no-projects';
 import { IntakeStatusBadge, INTAKE_STATUS_BADGE } from './status-badge';
 import { SpecStatusBadge } from './spec-detail';
@@ -28,10 +29,11 @@ export const canIgnore = (s: IntakeStatus) => s === 'new' || s === 'drafted' || 
 export function IntakeView() {
   const { projects, projectId } = useProject();
   const [filter, setFilter] = useState<IntakeStatus | ''>('');
+  const [archived, setArchived] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<{ text: string; error: boolean } | null>(null);
 
-  const fetchItems = useCallback(() => (projectId ? api.listIntake(projectId) : Promise.resolve([] as IntakeItem[])), [projectId]);
+  const fetchItems = useCallback(() => (projectId ? api.listIntake(projectId, undefined, archived) : Promise.resolve([] as IntakeItem[])), [projectId, archived]);
   const items = usePolling(fetchItems, POLL_MS);
   const status = usePolling(api.copilotStatus, 60_000);
   const refineOff = status.data ? !status.data.refine?.enabled : false;
@@ -91,6 +93,10 @@ export function IntakeView() {
             <option key={s} value={s}>{INTAKE_STATUS_BADGE[s].label}</option>
           ))}
         </Select>
+        <label className="ml-2 flex items-center gap-2">
+          <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+          Archived
+        </label>
       </div>
       {items.error && (
         <div role="alert" className="flex items-center gap-3 px-4 pt-3 text-sm text-danger">
@@ -108,8 +114,8 @@ export function IntakeView() {
         <div className="p-4">
           <EmptyState
             icon={Inbox}
-            title="No intake items"
-            text="Label a GitHub issue in a registered repo with gilde:refine and it shows up here, then becomes a draft spec."
+            title={archived ? 'No archived intake items' : 'No intake items'}
+            text={archived ? 'Archived intake items show up here.' : 'Label a GitHub issue in a registered repo with gilde:refine and it shows up here, then becomes a draft spec.'}
           />
         </div>
       )}
@@ -124,6 +130,7 @@ export function IntakeView() {
             <IntakeCard item={i} projectId={projectId} busy={busy !== null}
               onRetry={() => void act(i.id, 'retry intake items', async () => { await api.retryIntake(i.id); })}
               onIgnore={() => void act(i.id, 'ignore intake items', async () => { await api.ignoreIntake(i.id); })}
+              onArchiveChanged={() => void items.refresh()}
             />
           </li>
         ))}
@@ -132,8 +139,8 @@ export function IntakeView() {
   );
 }
 
-function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore }: {
-  item: IntakeItem; projectId: string | null; busy: boolean; onRetry: () => void; onIgnore: () => void;
+function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore, onArchiveChanged }: {
+  item: IntakeItem; projectId: string | null; busy: boolean; onRetry: () => void; onIgnore: () => void; onArchiveChanged: () => void;
 }) {
   return (
     <Card className="p-3">
@@ -142,6 +149,7 @@ function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore }: {
           #{i.number} {i.title}
         </a>
         <IntakeStatusBadge status={i.status} />
+        {i.archivedAt && <ArchivedBadge />}
       </div>
       <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
         <span className="font-mono">{i.repoFullName ?? 'unknown repo'}</span>
@@ -162,12 +170,19 @@ function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore }: {
       </div>
       {i.commentError && <p className="mt-2 break-words text-sm text-warning">Status comment not posted: {i.commentError}</p>}
       {i.lastError && <p className="mt-2 break-words text-sm text-danger">Last error: {i.lastError}</p>}
-      {(canRetry(i.status) || canIgnore(i.status)) && (
-        <div className="mt-2 flex gap-2">
-          {canRetry(i.status) && <Button size="sm" variant="outline" disabled={busy} onClick={onRetry}>Retry</Button>}
-          {canIgnore(i.status) && <Button size="sm" variant="outline" disabled={busy} onClick={onIgnore}>Ignore</Button>}
-        </div>
-      )}
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        {!i.archivedAt && canRetry(i.status) && <Button size="sm" variant="outline" disabled={busy} onClick={onRetry}>Retry</Button>}
+        {!i.archivedAt && canIgnore(i.status) && <Button size="sm" variant="outline" disabled={busy} onClick={onIgnore}>Ignore</Button>}
+        <ArchiveAction
+          archived={!!i.archivedAt}
+          noun="intake item"
+          consequence={i.spec ? 'Its spec is archived with it, unless a feature has pinned that spec. It is not refined and its issue comment is not updated until you unarchive it.' : 'It is not refined and its issue comment is not updated until you unarchive it.'}
+          disabled={busy}
+          onArchive={async () => { await api.archiveIntake(i.id); onArchiveChanged(); }}
+          onUnarchive={async () => { await api.unarchiveIntake(i.id); onArchiveChanged(); }}
+          errorText={humanOnlyErrorText}
+        />
+      </div>
     </Card>
   );
 }

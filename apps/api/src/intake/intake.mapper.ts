@@ -27,6 +27,8 @@ export class IntakeMapper {
             commentError: item.commentError,
             commentCount: item.comments?.length ?? 0,
             refineAttempts: item.refineAttempts,
+            archivedAt: item.archivedAt?.toISOString() ?? null,
+            archivedById: item.archivedById,
             createdAt: item.createdAt.toISOString(),
             updatedAt: item.updatedAt.toISOString(),
         };

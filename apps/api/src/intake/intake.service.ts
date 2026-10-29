@@ -1,10 +1,11 @@
 import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
-import { In, Not, Repository } from 'typeorm';
+import { In, IsNull, Not, Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { isUniqueViolation } from '../common/db-errors.js';
+import { Feature } from '../feature/feature.entity.js';
 import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
 import { ProjectService } from '../project/project.service.js';
 import { GithubInstallationService } from '../repo/github-installation.service.js';
@@ -38,6 +39,7 @@ export class IntakeService {
         @Optional() @InjectRepository(Spec) private readonly specs?: Repository<Spec>,
         @Optional() @InjectRepository(SpecVersion) private readonly specVersions?: Repository<SpecVersion>,
         @Optional() private readonly statusComments?: IntakeCommentService,
+        @Optional() @InjectRepository(Feature) private readonly features?: Repository<Feature>,
     ) { }
 
     /** Refreshes the status comment after a transition. Best effort and never awaited: it cannot fail the transition. */
@@ -54,7 +56,7 @@ export class IntakeService {
             const current = versions.find((v) => v.specId === s.id && v.version === s.currentVersion);
             return [s.id, {
                 id: s.id, slug: s.slug, title: s.title, status: s.status, currentVersion: s.currentVersion,
-                approvedVersion: s.approvedVersion, openQuestions: current ? parseSpec(current.body).openQuestions.length : 0,
+                approvedVersion: s.approvedVersion, archivedAt: s.archivedAt?.toISOString() ?? null, openQuestions: current ? parseSpec(current.body).openQuestions.length : 0,
             }];
         }));
     }
@@ -62,7 +64,7 @@ export class IntakeService {
     async list(projectId: string, query: ListIntakeQueryDto): Promise<IntakeItemResponseDto[]> {
         await this.projects.assertExists(projectId);
         const rows = await this.items.find({
-            where: { projectId, ...(query.status ? { status: query.status } : {}) },
+            where: { projectId, archivedAt: query.archived === 'true' ? Not(IsNull()) : IsNull(), ...(query.status ? { status: query.status } : {}) },
             relations: { repo: true },
             order: { createdAt: 'DESC' },
         });
@@ -74,6 +76,37 @@ export class IntakeService {
         const item = await this.getOrFail(id);
         const specs = await this.specSummaries([item]);
         return this.mapper.toDetailDTO(item, (item.specId && specs.get(item.specId)) || null);
+    }
+
+    /**
+     * Verified humans only. Archives the item and, unless a feature has pinned it, its spec too (a pinned spec stays as it is
+     * and the item is archived anyway). Nothing is deleted. Like `ignored`, an archived item is not refined and its status
+     * comment is not updated until it is unarchived.
+     */
+    async archive(id: string, user: AuthUser | undefined): Promise<IntakeItemDetailResponseDto> {
+        const actor = await this.users.requireVerifiedHuman(user);
+        const item = await this.getOrFail(id);
+        if (item.archivedAt) return this.getById(id);
+        const now = new Date();
+        await this.items.update({ id, archivedAt: IsNull() }, { archivedAt: now, archivedById: actor.id });
+        if (item.specId && this.specs) {
+            const pinned = this.features ? await this.features.existsBy({ specId: item.specId }) : false;
+            if (!pinned) await this.specs.update({ id: item.specId, archivedAt: IsNull() }, { archivedAt: now, archivedById: actor.id });
+        }
+        return this.getById(id);
+    }
+
+    /** Verified humans only. Restores the item, and its spec when archiving the item archived it too (same moment). */
+    async unarchive(id: string, user: AuthUser | undefined): Promise<IntakeItemDetailResponseDto> {
+        await this.users.requireVerifiedHuman(user);
+        const item = await this.getOrFail(id);
+        if (!item.archivedAt) return this.getById(id);
+        await this.items.update({ id }, { archivedAt: null, archivedById: null });
+        if (item.specId && this.specs) {
+            await this.specs.update({ id: item.specId, archivedAt: item.archivedAt }, { archivedAt: null, archivedById: null });
+        }
+        this.syncComment(id);
+        return this.getById(id);
     }
 
     /** Verified humans only. A refining item cannot be ignored; one already ignored or withdrawn has nothing to ignore. */

@@ -188,10 +188,12 @@ describe('spec domain (production tree)', () => {
         expect(checkOnDisk(join(SRC, 'spec', 'spec.controller.ts'))).toEqual([]);
     });
 
-    it('keeps approval behind the verified-human guard and the other routes reachable by any authenticated user', () => {
-        const approve = /@Post\('specs\/:id\/approve'\)[\s\S]*?approve\(/.exec(controller)?.[0] ?? '';
-        expect(approve).toContain('@UseGuards(JwtHumanGuard)');
-        expect(controller.match(/@UseGuards\(/g)).toHaveLength(1);
+    it('keeps approval and archiving behind the verified-human guard and the other routes reachable by any authenticated user', () => {
+        for (const route of ['approve', 'archive', 'unarchive']) {
+            const block = new RegExp(`@Post\\('specs\\/:id\\/${route}'\\)[\\s\\S]*?${route}\\(`).exec(controller)?.[0] ?? '';
+            expect(block).toContain('@UseGuards(JwtHumanGuard)');
+        }
+        expect(controller.match(/@UseGuards\(/g)).toHaveLength(3);
         expect(controller).not.toContain('@Public(');
     });
 

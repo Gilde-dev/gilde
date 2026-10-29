@@ -53,4 +53,18 @@ export class IntakeController {
     retry(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<IntakeItemDetailResponseDto> {
         return this.intakeService.retry(id, user ?? undefined);
     }
+
+    @Post('intake/:id/archive')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    archive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<IntakeItemDetailResponseDto> {
+        return this.intakeService.archive(id, user ?? undefined);
+    }
+
+    @Post('intake/:id/unarchive')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    unarchive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<IntakeItemDetailResponseDto> {
+        return this.intakeService.unarchive(id, user ?? undefined);
+    }
 }

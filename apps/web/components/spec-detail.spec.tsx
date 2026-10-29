@@ -214,4 +214,39 @@ describe('SpecDetailView', () => {
     expect(screen.queryByText(/From issue/)).toBeNull();
     expect(intake).not.toHaveBeenCalled();
   });
+
+  describe('archiving', () => {
+    it('archives after confirming, and shows the pinned-feature refusal', async () => {
+      const get = setup();
+      const archive = vi.spyOn(api, 'archiveSpec').mockRejectedValueOnce(new ApiError('409', 409, 'Spec is pinned by feature "Plan" (f1) and cannot be archived'));
+      render(<SpecDetailView />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+      expect(archive).not.toHaveBeenCalled();
+      fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Archive' }));
+      expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('pinned by feature "Plan"');
+
+      archive.mockResolvedValueOnce(specDetail({ archivedAt: '2026-02-01T00:00:00.000Z' }));
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Archive' }));
+      await waitFor(() => expect(archive).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+      expect(get.mock.calls.length).toBeGreaterThan(1);
+    });
+
+    it('offers no archive actions to someone who is not a verified human', async () => {
+      setup(specDetail({ mayApprove: false }));
+      render(<SpecDetailView />);
+      await screen.findByRole('heading', { name: 'Dark mode' });
+      expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    });
+
+    it('shows the badge and Unarchive for an archived spec', async () => {
+      setup(specDetail({ archivedAt: '2026-02-01T00:00:00.000Z' }));
+      const unarchive = vi.spyOn(api, 'unarchiveSpec').mockResolvedValue(specDetail());
+      render(<SpecDetailView />);
+      expect(await screen.findByText('Archived', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Unarchive' }));
+      await waitFor(() => expect(unarchive).toHaveBeenCalledWith('s1'));
+    });
+  });
 });

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, type Project, type Repo } from '@/lib/api';
 import { spec } from './spec.fixture';
@@ -60,8 +60,8 @@ describe('SpecsView', () => {
     const list = vi.spyOn(api, 'listSpecs').mockResolvedValue([spec({ id: 's9', title: 'Q spec', projectId: 'q' })]);
     render(<SpecsView />);
     expect(await screen.findByRole('link', { name: 'Q spec' })).toHaveAttribute('href', '/specs/s9?project=q');
-    expect(list).toHaveBeenCalledWith('q');
-    expect(list).not.toHaveBeenCalledWith('p');
+    expect(list).toHaveBeenCalledWith('q', false);
+    expect(list).not.toHaveBeenCalledWith('p', false);
   });
 
   it('refetches and drops the old list when the project changes', async () => {
@@ -84,5 +84,17 @@ describe('SpecsView', () => {
     expect(link).toHaveAttribute('href', 'https://github.com/o/web/issues/7');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     expect(screen.getAllByText(/From issue/)).toHaveLength(1);
+  });
+
+  it('shows archived specs with a badge when the Archived filter is on', async () => {
+    setup();
+    const list = vi.spyOn(api, 'listSpecs').mockImplementation(async (_p, archived) => (archived ? [spec({ title: 'Old spec', archivedAt: '2026-02-01T00:00:00.000Z' })] : [spec()]));
+    render(<SpecsView />);
+    await screen.findByRole('link', { name: 'Dark mode' });
+    expect(screen.queryByText('Archived', { selector: 'span' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Archived' }));
+    expect(await screen.findByRole('link', { name: 'Old spec' })).toBeInTheDocument();
+    expect(list).toHaveBeenLastCalledWith('p', true);
+    expect(screen.getByText('Archived', { selector: 'span' })).toBeInTheDocument();
   });
 });

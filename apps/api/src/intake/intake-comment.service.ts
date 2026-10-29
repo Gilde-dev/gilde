@@ -69,6 +69,7 @@ export class IntakeCommentService {
     private async write(itemId: string): Promise<void> {
         const item = await this.items.findOne({ where: { id: itemId }, relations: { repo: true } });
         if (!item?.repo || !this.github.isConfigured()) return;
+        if (item.archivedAt) return; // like ignored: nothing is written until it is unarchived
         // a withdrawn or ignored item only gets its existing comment updated; one that never had a comment gets none
         if ((item.status === 'withdrawn' || item.status === 'ignored') && !item.statusCommentId) return;
         const view = await this.view(item);

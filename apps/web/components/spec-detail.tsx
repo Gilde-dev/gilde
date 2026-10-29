@@ -5,11 +5,12 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, api, type IntakeItem, type Repo, type Spec, type SpecDetail, type SpecRecording, type SpecVersion } from '@/lib/api';
-import { errorText } from '@/lib/job-actions';
+import { errorText, humanOnlyErrorText } from '@/lib/job-actions';
 import { safeUrl } from '@/lib/safe-url';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
+import { ArchiveAction, ArchivedBadge } from './archive-dialog';
 import { CopilotPageContext } from './copilot-provider';
 import { SafeMarkdown } from './safe-markdown';
 import { IntakeStatusBadge, StatusBadge } from './status-badge';
@@ -50,6 +51,10 @@ export function approveErrorText(e: unknown): { message: string; stale: boolean 
   if (e instanceof ApiError && e.status === 422) return { message: `This version cannot be approved. ${detail}`, stale: true };
   return { message: detail, stale: false };
 }
+
+/** A pinned spec is refused with a 409 naming the feature; show that text as is. */
+const archiveErrorText = (e: unknown, what: string) =>
+  e instanceof ApiError && e.status === 409 ? errorText(e) : humanOnlyErrorText(e, what);
 
 function RecordingInfo({ recording, projectId }: { recording: SpecRecording; projectId: string | null }) {
   const pr = safeUrl(recording.prUrl);
@@ -298,12 +303,24 @@ export function SpecDetailView() {
           <PageHeader
             className="px-4 pt-4"
             title={s.title}
+            actions={
+              s.mayApprove ? (
+                <ArchiveAction
+                  archived={!!s.archivedAt}
+                  noun="spec"
+                  onArchive={async () => { await api.archiveSpec(s.id); await spec.refresh(); }}
+                  onUnarchive={async () => { await api.unarchiveSpec(s.id); await spec.refresh(); }}
+                  errorText={archiveErrorText}
+                />
+              ) : undefined
+            }
             description={
               <span className="flex flex-wrap items-center gap-2">
                 <Link href={withProject('/specs', listProject)} className="underline">
                   Specs
                 </Link>
                 <SpecStatusBadge spec={s} />
+                {s.archivedAt && <ArchivedBadge />}
                 <span className="font-mono">{repoName ?? '…'}</span>
                 <span className="font-mono">{s.slug}</span>
                 {s.source && (

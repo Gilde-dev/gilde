@@ -7,6 +7,8 @@ export const IntakeStatusSchema = z.enum(INTAKE_STATUSES);
 
 export const ListIntakeQuerySchema = z.object({
     status: IntakeStatusSchema.optional(),
+    /** `true` lists only archived items; without it archived items are hidden. */
+    archived: z.enum(['true', 'false']).optional(),
 });
 export type ListIntakeQueryDto = z.infer<typeof ListIntakeQuerySchema>;
 
@@ -18,6 +20,7 @@ export const IntakeSpecSummarySchema = z.object({
     status: z.enum(SPEC_STATUSES),
     currentVersion: z.number().int(),
     approvedVersion: z.number().int().nullable(),
+    archivedAt: z.string().nullable(),
     openQuestions: z.number().int(),
 });
 export type IntakeSpecSummaryDto = z.infer<typeof IntakeSpecSummarySchema>;
@@ -45,6 +48,8 @@ export const IntakeItemResponseSchema = z.object({
     /** Trusted member comments stored for the Verfijner. */
     commentCount: z.number().int(),
     refineAttempts: z.number().int(),
+    archivedAt: z.string().nullable(),
+    archivedById: z.string().nullable(),
     createdAt: z.string(),
     updatedAt: z.string(),
 });
