@@ -124,17 +124,52 @@ export class GitHubRestAdapter implements GitHubPort {
         return toCommentRef(await res.json());
     }
 
-    /** The app's earlier status comment: starts with the marker and was written by a bot (so a member cannot make us edit theirs). */
+    /**
+     * Gilde's earlier status comment: starts with the marker and was written by the authenticated identity, so nobody else
+     * can make us edit their comment. App mode: a bot (not a member's comment, and the app's own id when GitHub reports it).
+     * PAT mode: the token's own user, read once from `GET /user` and cached.
+     */
     private async findOwnComment(fullName: string, issueNumber: number, marker: string): Promise<string | null> {
+        const own = await this.ownAuthor(fullName);
         for (let page = 1; page <= 10; page++) {
-            const rows = await this.get<{ id: number; body?: string | null; user?: { type?: string } | null }[]>(
+            const rows = await this.get<{ id: number; body?: string | null; user?: { type?: string; login?: string } | null; performed_via_github_app?: { id?: number } | null }[]>(
                 `/repos/${fullName}/issues/${issueNumber}/comments?per_page=100&page=${page}`,
             );
-            const hit = rows.find((r) => r.user?.type === 'Bot' && (r.body ?? '').trimStart().startsWith(marker));
+            const hit = rows.find((r) => (r.body ?? '').trimStart().startsWith(marker) && own(r));
             if (hit) return String(hit.id);
             if (rows.length < 100) break;
         }
         return null;
+    }
+
+    private ownAuthor(fullName: string): Promise<(row: { user?: { type?: string; login?: string } | null; performed_via_github_app?: { id?: number } | null }) => boolean> {
+        if (this.credentials.mode !== 'pat') {
+            return Promise.resolve((r) => r.user?.type === 'Bot' && (r.performed_via_github_app?.id == null || this.credentials.isOwnApp(r.performed_via_github_app.id)));
+        }
+        return this.patLogin(fullName).then((login) => (r) => !!login && r.user?.login?.toLowerCase() === login.toLowerCase());
+    }
+
+    private patLoginPromise: Promise<string> | null = null;
+
+    /** The login of the personal access token's user; read once, a failed read is not cached. */
+    private patLogin(fullName: string): Promise<string> {
+        if (!this.patLoginPromise) {
+            const read = (async () => {
+                const res = await fetch(`${API}/user`, {
+                    headers: {
+                        Authorization: `Bearer ${await this.credentials.tokenFor(fullName)}`,
+                        Accept: 'application/vnd.github+json',
+                        'X-GitHub-Api-Version': '2022-11-28',
+                    },
+                    signal: AbortSignal.timeout(TIMEOUT_MS),
+                });
+                if (!res.ok) throw new GitHubRequestError(`GitHub GET /user failed: ${res.status}`, res.status);
+                return ((await res.json()) as { login?: string }).login ?? '';
+            })();
+            this.patLoginPromise = read;
+            read.catch(() => { if (this.patLoginPromise === read) this.patLoginPromise = null; });
+        }
+        return this.patLoginPromise;
     }
 
     private async send(path: string, method: 'POST' | 'PATCH', payload: object): Promise<Response> {

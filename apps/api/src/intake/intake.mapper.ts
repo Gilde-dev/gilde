@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { INTAKE_COMMENT_LIMIT } from './intake-issue.js';
 import type { IntakeItem } from './intake-item.entity.js';
 import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSpecSummaryDto } from './intake.dto.js';
 
@@ -37,6 +38,10 @@ export class IntakeMapper {
     toDetailDTO(item: IntakeItem, spec: IntakeSpecSummaryDto | null = null): IntakeItemDetailResponseDto {
         return {
             ...this.toDTO(item, spec),
+            comments: (item.comments ?? []).map((c) => ({
+                id: c.id, author: c.author, body: c.body.slice(0, INTAKE_COMMENT_LIMIT), createdAt: c.createdAt,
+                url: `${item.url.replace(/\/+$/, '')}#issuecomment-${encodeURIComponent(c.id)}`,
+            })),
             body: item.body,
             bodyTruncated: item.bodyTruncated,
             bodySha256: item.bodySha256,
