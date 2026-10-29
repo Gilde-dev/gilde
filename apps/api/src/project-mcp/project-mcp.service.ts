@@ -191,6 +191,12 @@ export class ProjectMcpService {
         await this.servers.update({ id }, { lastError: error.slice(0, 500), lastErrorAt: now });
     }
 
+    /** Internal: a failure that is not a tool call (the server could not be reached while building a tool set). */
+    async recordFailure(id: string, error: string, now = new Date()): Promise<void> {
+        await this.servers.increment({ id }, 'errorCount', 1);
+        await this.servers.update({ id }, { lastError: error.slice(0, 500), lastErrorAt: now });
+    }
+
     private tokenColumns(token: string) {
         const encrypted = this.secrets.encrypt(token, PROJECT_MCP_KEY_VERSION);
         return {

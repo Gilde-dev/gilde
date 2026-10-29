@@ -442,8 +442,66 @@ function SpecDraftWithPreview({ draft, onSave, onCancel }: { draft: SpecDraft; o
   return <SpecDraftCard draft={draft} preview={preview} repoName={repoName} onSave={onSave} onCancel={onCancel} />;
 }
 
+/** Prefix of the tools of a project's MCP servers: `mcp__<server>__<tool>`. */
+const MCP_PREFIX = 'mcp__';
+
+/** An MCP tool call waiting for approval: the server and tool it targets and the arguments it would send. */
+export interface McpCall {
+  server: string;
+  tool: string;
+  args: Record<string, unknown>;
+}
+
+/** The MCP tool call carried by an approval interrupt, or null for any other interrupt. */
+export function mcpCallFromInterrupt(interrupt: ApprovalInterrupt | null | undefined): McpCall | null {
+  const mastra = interrupt?.reason === 'mastra:tool_approval' ? interrupt.metadata?.mastra : undefined;
+  const name = mastra?.toolName;
+  if (typeof name !== 'string' || !name.startsWith(MCP_PREFIX)) return null;
+  const rest = name.slice(MCP_PREFIX.length);
+  const at = rest.indexOf('__');
+  if (at <= 0 || at >= rest.length - 2) return null;
+  const args = mastra?.args;
+  return {
+    server: rest.slice(0, at),
+    tool: rest.slice(at + 2),
+    args: args && typeof args === 'object' && !Array.isArray(args) ? (args as Record<string, unknown>) : {},
+  };
+}
+
+/** A tool of an external MCP server that can change data, with Approve and Cancel. Shows the server, the tool and the arguments. */
+export function McpApprovalCard({ call, onApprove, onCancel }: { call: McpCall; onApprove: () => void; onCancel: () => void }) {
+  const args = JSON.stringify(call.args, null, 2);
+  return (
+    <section aria-label="External tool for approval" className="my-2 space-y-2 rounded-md border bg-background p-3 text-sm">
+      <header>
+        <p className="text-xs uppercase tracking-wide text-muted-foreground">Run external tool?</p>
+        <h3 className="font-semibold">
+          <span className="font-mono">
+            {call.server}.{call.tool}
+          </span>
+        </h3>
+        <p className="text-xs text-muted-foreground">MCP server {call.server}. This tool can change data in that system.</p>
+      </header>
+      {Object.keys(call.args).length > 0 && (
+        <div>
+          <p className="text-xs text-muted-foreground">Arguments</p>
+          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted p-1 text-xs">{args}</pre>
+        </div>
+      )}
+      <div className="flex justify-end gap-2">
+        <Button variant="outline" size="sm" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button size="sm" onClick={onApprove}>
+          Approve
+        </Button>
+      </div>
+    </section>
+  );
+}
+
 /**
- * Renders the approval card in the chat when the agent wants to run createPlannedFeature, createJob or draftSpec (one
+ * Renders the approval card in the chat when the agent wants to run createPlannedFeature, createJob, draftSpec or a write tool of a project MCP server (one
  * registration, dispatching on the tool name; draftSpec gets the Save draft card, never an Approve one). Approving resumes the run with { approved: true }; cancelling
  * declines the tool call, so nothing is created. Renders nothing itself.
  */
@@ -452,7 +510,7 @@ export function CopilotPlanApproval() {
     agentId: 'gilde',
     enabled: (event) => {
       const i = event.value as ApprovalInterrupt;
-      return planFromInterrupt(i) !== null || jobFromInterrupt(i) !== null || specDraftFromInterrupt(i) !== null;
+      return planFromInterrupt(i) !== null || jobFromInterrupt(i) !== null || specDraftFromInterrupt(i) !== null || mcpCallFromInterrupt(i) !== null;
     },
     render: ({ interrupt, resolve, cancel }) => {
       const i = interrupt as ApprovalInterrupt | null;
@@ -463,6 +521,8 @@ export function CopilotPlanApproval() {
       if (job) return <JobApprovalWithNames job={job} onApprove={approve} onCancel={() => cancel()} />;
       const specDraft = specDraftFromInterrupt(i);
       if (specDraft) return <SpecDraftWithPreview draft={specDraft} onSave={approve} onCancel={() => cancel()} />;
+      const mcpCall = mcpCallFromInterrupt(i);
+      if (mcpCall) return <McpApprovalCard call={mcpCall} onApprove={approve} onCancel={() => cancel()} />;
       return <></>;
     },
   });

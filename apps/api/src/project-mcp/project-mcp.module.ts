@@ -10,6 +10,7 @@ import { ProjectMcpController } from './project-mcp.controller.js';
 import { ProjectMcpConnector } from './project-mcp.connector.js';
 import { ProjectMcpMapper } from './project-mcp.mapper.js';
 import { ProjectMcpService } from './project-mcp.service.js';
+import { ProjectMcpToolsService } from './project-mcp-tools.service.js';
 import { ProjectMcpAudit } from './project-mcp-audit.entity.js';
 import { ProjectMcpServer } from './project-mcp-server.entity.js';
 import { ProjectMcpTool } from './project-mcp-tool.entity.js';
@@ -27,11 +28,13 @@ import { ProjectMcpTool } from './project-mcp-tool.entity.js';
     ],
     providers: [
         ProjectMcpService,
+        ProjectMcpToolsService,
         ProjectMcpConnector,
         ProjectMcpMapper
     ],
     exports: [
-        ProjectMcpService
+        ProjectMcpService,
+        ProjectMcpToolsService
     ]
 })
 export class ProjectMcpModule { }

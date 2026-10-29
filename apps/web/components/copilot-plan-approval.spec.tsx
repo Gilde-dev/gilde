@@ -6,7 +6,7 @@ vi.mock('@/lib/api', () => ({ api: { listRepos: vi.fn(), getRepo: vi.fn(), getFe
 
 import { api } from '@/lib/api';
 import { useInterrupt } from '@copilotkit/react-core/v2/headless';
-import { CopilotPlanApproval, JobApprovalCard, PlanApprovalCard, jobFromInterrupt, planFromInterrupt, type FeaturePlan, type JobDraft } from './copilot-plan-approval';
+import { CopilotPlanApproval, JobApprovalCard, McpApprovalCard, PlanApprovalCard, jobFromInterrupt, mcpCallFromInterrupt, planFromInterrupt, type FeaturePlan, type JobDraft } from './copilot-plan-approval';
 
 const plan: FeaturePlan = {
   projectId: 'p1',
@@ -197,5 +197,44 @@ describe('CopilotPlanApproval (one registration for both tools)', () => {
     render(renderInterrupt({ interrupt: ev('createPlannedFeature', plan), resolve: vi.fn(), cancel: vi.fn() }));
     expect(screen.getByLabelText('Plan for approval')).toBeInTheDocument();
     expect(screen.queryByLabelText('Job for approval')).toBeNull();
+  });
+});
+
+describe('mcpCallFromInterrupt', () => {
+  const interrupt = (toolName: string, args: unknown, reason = 'mastra:tool_approval') => ({ reason, metadata: { mastra: { toolName, args } } });
+
+  it('reads the server, tool and arguments of an MCP tool approval and ignores everything else', () => {
+    expect(mcpCallFromInterrupt(interrupt('mcp__Notion__create_page', { title: 'x' }))).toEqual({ server: 'Notion', tool: 'create_page', args: { title: 'x' } });
+    expect(mcpCallFromInterrupt(interrupt('mcp__Notion__create__page', null))).toEqual({ server: 'Notion', tool: 'create__page', args: {} });
+    expect(mcpCallFromInterrupt(interrupt('createJob', {}))).toBeNull();
+    expect(mcpCallFromInterrupt(interrupt('mcp__Notion', {}))).toBeNull();
+    expect(mcpCallFromInterrupt(interrupt('mcp__Notion__x', {}, 'mastra:tool_suspend'))).toBeNull();
+    expect(mcpCallFromInterrupt(null)).toBeNull();
+  });
+});
+
+describe('McpApprovalCard', () => {
+  it('shows the server, the tool and the arguments, and approves or cancels', () => {
+    const onApprove = vi.fn();
+    const onCancel = vi.fn();
+    render(<McpApprovalCard call={{ server: 'Notion', tool: 'create_page', args: { title: 'Roadmap' } }} onApprove={onApprove} onCancel={onCancel} />);
+    expect(screen.getByText('Notion.create_page')).toBeInTheDocument();
+    expect(screen.getByText(/"title": "Roadmap"/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onApprove).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('is rendered by the interrupt handler for an MCP write tool', () => {
+    render(<CopilotPlanApproval />);
+    const { render: renderInterrupt, enabled } = vi.mocked(useInterrupt).mock.calls.at(-1)![0] as never as {
+      render: (a: unknown) => JSX.Element;
+      enabled: (e: { value: unknown }) => boolean;
+    };
+    const interrupt = { reason: 'mastra:tool_approval', metadata: { mastra: { toolName: 'mcp__Notion__create_page', args: {} } } };
+    expect(enabled({ value: interrupt })).toBe(true);
+    render(renderInterrupt({ interrupt, resolve: vi.fn(), cancel: vi.fn() }));
+    expect(screen.getByText('Notion.create_page')).toBeInTheDocument();
   });
 });

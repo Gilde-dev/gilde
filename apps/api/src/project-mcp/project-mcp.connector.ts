@@ -11,6 +11,29 @@ const MAX_TOOLS = 200;
 const MAX_PAGES = 10;
 const MAX_DESCRIPTION = 2000;
 
+/** A tool as the server announces it right now, with the input schema the model needs. */
+export interface LiveTool {
+    name: string;
+    description: string;
+    inputSchema: Record<string, unknown>;
+}
+
+export interface McpCallResult {
+    /** The text content items joined; other content kinds are replaced by a fixed marker. */
+    text: string;
+    /** The server flagged the result as an error. Its text is not passed on. */
+    isError: boolean;
+}
+
+/** An open, reusable connection to one MCP server. Calls carry their own timeout; `close` is safe to repeat. */
+export interface McpSession {
+    listLiveTools(timeoutMs: number): Promise<LiveTool[]>;
+    callTool(name: string, args: Record<string, unknown>, timeoutMs: number): Promise<McpCallResult>;
+    close(): Promise<void>;
+}
+
+const MAX_RESULT_TEXT = 200_000;
+
 export interface DiscoveredTool {
     name: string;
     description: string;
@@ -67,6 +90,77 @@ export class ProjectMcpConnector {
             abort.abort();
             await client.close().catch(() => undefined);
         }
+    }
+
+    /** Opens a connection that stays usable for several calls. The caller closes it. */
+    async openSession(url: string, token: string | null, timeoutMs: number): Promise<McpSession> {
+        const abort = new AbortController();
+        const transport = new StreamableHTTPClientTransport(new URL(url), {
+            requestInit: {
+                redirect: 'error',
+                signal: abort.signal,
+                ...(token && { headers: { Authorization: `Bearer ${token}` } }),
+            },
+            reconnectionOptions: { maxRetries: 0, initialReconnectionDelay: 1000, maxReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1 },
+        });
+        const client = new Client({ name: 'gilde', version: '1.0.0' }, { capabilities: {} });
+        const timer = setTimeout(() => abort.abort(), timeoutMs);
+        try {
+            await client.connect(transport, { timeout: timeoutMs, signal: abort.signal });
+        } catch (e) {
+            const timedOut = abort.signal.aborted;
+            abort.abort();
+            await client.close().catch(() => undefined);
+            throw this.classify(e, timedOut);
+        } finally {
+            clearTimeout(timer);
+        }
+        return {
+            listLiveTools: async (timeout) => {
+                try {
+                    const tools: LiveTool[] = [];
+                    let cursor: string | undefined;
+                    for (let page = 0; page < MAX_PAGES; page++) {
+                        const result = await client.listTools(cursor ? { cursor } : {}, { timeout });
+                        for (const tool of result.tools) {
+                            if (tools.length >= MAX_TOOLS) break;
+                            tools.push({
+                                name: tool.name.slice(0, 200),
+                                description: (tool.description ?? '').slice(0, MAX_DESCRIPTION),
+                                inputSchema: tool.inputSchema as Record<string, unknown>,
+                            });
+                        }
+                        cursor = result.nextCursor;
+                        if (!cursor) break;
+                    }
+                    return tools;
+                } catch (e) {
+                    throw this.classify(e, false);
+                }
+            },
+            callTool: async (name, args, timeout) => {
+                try {
+                    const result = await client.callTool({ name, arguments: args }, undefined, { timeout });
+                    const content = (result as { content?: unknown }).content;
+                    if (!Array.isArray(content)) throw new McpConnectionError('not_mcp', 'The response was not a valid MCP response');
+                    const parts: string[] = [];
+                    let size = 0;
+                    for (const item of content as { type?: unknown; text?: unknown }[]) {
+                        const part = item?.type === 'text' && typeof item.text === 'string' ? item.text : '[non-text content omitted]';
+                        parts.push(part);
+                        size += part.length;
+                        if (size > MAX_RESULT_TEXT) break;
+                    }
+                    return { text: parts.join('\n').slice(0, MAX_RESULT_TEXT), isError: result.isError === true };
+                } catch (e) {
+                    throw this.classify(e, false);
+                }
+            },
+            close: async () => {
+                abort.abort();
+                await client.close().catch(() => undefined);
+            },
+        };
     }
 
     private classify(e: unknown, timedOut: boolean): McpConnectionError {
