@@ -16,7 +16,7 @@ import { Project } from '../../project/project.entity.js';
 import { Repo } from '../../repo/repo.entity.js';
 import { JobRun } from '../../run/run.entity.js';
 import { User } from '../../user/user.entity.js';
-import { fakeEmbedder, testMemoryInfrastructure } from '../memory.testing.js';
+import { fakeEmbedder, settleTestMemory, testMemoryInfrastructure } from '../memory.testing.js';
 
 import { HistoryIndexService } from './history-index.service.js';
 import { HistorySearchService } from './history-search.service.js';
@@ -92,6 +92,7 @@ export async function historyHarness(overrides: Partial<HistoryOptions> = {}) {
         async close() {
             await services.infra.onModuleDestroy();
             await ds.destroy();
+            await settleTestMemory();
             rmSync(dir, { recursive: true, force: true });
         },
         seed: {

@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { NotFoundException } from '@nestjs/common';
 import { LibSQLStore } from '@mastra/libsql';
 
-import { testMemoryInfrastructure } from '../memory/memory.testing.js';
+import { settleTestMemory, testMemoryInfrastructure } from '../memory/memory.testing.js';
 
 import { COPILOT_AGENT_ID, createMastra, withoutScout, type ScoutSetup } from './copilot.mastra.js';
 import { COPILOTKIT_PATH } from './copilot.mastra.js';
@@ -124,7 +124,10 @@ describe('createMastra with the scout', () => {
 describe('scout threads and runs', () => {
     let dir: string;
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'verkenner-mastra-')); });
-    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+    afterEach(async () => {
+        await settleTestMemory();
+        rmSync(dir, { recursive: true, force: true });
+    });
 
     function build(toolName?: string, services: Record<string, unknown> = {}) {
         const stub = stubModel({ toolName });

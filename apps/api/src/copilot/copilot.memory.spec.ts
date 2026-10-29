@@ -8,7 +8,7 @@ import { createMockModel } from '@mastra/core/test-utils/llm-mock';
 
 import { memoryConfig } from '../memory/memory.config.js';
 import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
-import { fakeEmbedder, testMemoryInfrastructure } from '../memory/memory.testing.js';
+import { fakeEmbedder, settleTestMemory, testMemoryInfrastructure } from '../memory/memory.testing.js';
 
 import { createCopilotMemory, WORKING_MEMORY_TEMPLATE } from './copilot.mastra.js';
 
@@ -19,7 +19,10 @@ describe('co-pilot memory (local Mastra persistence)', () => {
     const open = () => testMemoryInfrastructure({ url: `file:${join(dir, 'mastra.db')}`, dimension: 64, embedder: embedder as never });
 
     beforeEach(() => { dir = mkdtempSync(join(tmpdir(), 'gilde-memory-')); });
-    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+    afterEach(async () => {
+        await settleTestMemory();
+        rmSync(dir, { recursive: true, force: true });
+    });
 
     async function say(infra: MemoryInfrastructure, userId: string, threadId: string, text: string) {
         const agent = new Agent({ id: 'a', name: 'a', instructions: 'x', model: createMockModel({ mockText: 'ok', version: 'v2' }) as never, memory: createCopilotMemory(infra) });

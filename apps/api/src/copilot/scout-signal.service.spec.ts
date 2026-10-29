@@ -8,7 +8,7 @@ import type { Mastra } from '@mastra/core/mastra';
 import type { NotificationsStorage } from '@mastra/core/storage';
 import { DataSource } from 'typeorm';
 
-import { testMemoryInfrastructure } from '../memory/memory.testing.js';
+import { settleTestMemory, testMemoryInfrastructure } from '../memory/memory.testing.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import type { ScoutEvent } from '../scout-signal/scout-signal.events.js';
 import { createMastra, SCOUT_DISPATCH_CRON, type ScoutSetup } from './copilot.mastra.js';
@@ -120,6 +120,7 @@ describe('ScoutSignalService (real Mastra, LibSQL and TypeORM SQLite, stub model
     afterEach(async () => {
         await mastra.shutdown?.();
         await ds.destroy();
+        await settleTestMemory();
         rmSync(dir, { recursive: true, force: true });
     });
 

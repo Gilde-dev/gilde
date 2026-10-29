@@ -33,16 +33,34 @@ export function fakeEmbedder(dimension = 1536) {
     };
 }
 
+/** Vectors created by testMemoryInfrastructure that settleTestMemory has not awaited yet. */
+const pendingVectors: LibSQLVector[] = [];
+
 /** Infrastructure on a LibSQL file (default: in memory) with the fake embedder; embeddings count as configured. */
 export function testMemoryInfrastructure(options: { url?: string; dimension?: number } & MemoryInfrastructureOverrides = {}): MemoryInfrastructure {
     const url = options.url ?? 'file::memory:?cache=shared';
     const dimension = options.dimension ?? 64;
     const config = { ...memoryConfig({ OPENAI_API_KEY: 'test', MEMORY_EMBEDDING_DIMENSION: String(dimension) }), libsqlUrl: url };
+    const personalVector = new LibSQLVector({ id: `test-personal-${url}`, url });
+    const historyVector = new LibSQLVector({ id: `test-history-${url}`, url });
+    pendingVectors.push(personalVector, historyVector);
     return new MemoryInfrastructure(config, {
         storage: new LibSQLStore({ id: `test-store-${url}`, url }),
-        personalVector: new LibSQLVector({ id: `test-personal-${url}`, url }),
-        historyVector: new LibSQLVector({ id: `test-history-${url}`, url }),
+        personalVector,
+        historyVector,
         embedder: fakeEmbedder(dimension) as never,
         ...options,
     });
+}
+
+/**
+ * Waits until every LibSQLVector made by testMemoryInfrastructure has finished initializing. LibSQLVector starts
+ * initializing (a realpath of its file) in the constructor without anyone awaiting it, so deleting a temp dir right
+ * after a test can make that realpath fail later as an unhandled rejection, which fails the whole vitest run (seen on
+ * CI). Call this before removing a directory a test infrastructure lives in. Initialization errors are ignored here.
+ */
+export async function settleTestMemory(): Promise<void> {
+    const vectors = pendingVectors.splice(0);
+    // listIndexes is public and awaits the vector's initialization first.
+    await Promise.allSettled(vectors.map((v) => v.listIndexes()));
 }
