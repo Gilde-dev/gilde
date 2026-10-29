@@ -156,7 +156,7 @@ describe('IntakeView', () => {
     const note = await screen.findByText(/collected but not refined/, undefined, { timeout: 5000 });
     expect(note).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'How to enable it' })).toHaveAttribute('rel', 'noopener noreferrer');
-    expect(screen.getByRole('link', { name: '#12 Add dark mode' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: '#12 Add dark mode' })).toBeInTheDocument();
   });
 
   it('does not show the disabled note when the Verfijner is on', async () => {
