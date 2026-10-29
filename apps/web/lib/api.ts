@@ -864,6 +864,74 @@ export function executorReplacement(e: Executor, changes: Partial<ReplaceExecuto
   };
 }
 
+export type McpToolMode = 'read' | 'write';
+export const MCP_AUDIT_ACTIONS = ['created', 'updated', 'token_replaced', 'tested', 'tools_updated', 'deleted'] as const;
+export type McpAuditAction = (typeof MCP_AUDIT_ACTIONS)[number];
+
+/** A project's MCP server. The token is never returned, only its last four characters. */
+export interface McpServer {
+  id: string;
+  projectId: string;
+  name: string;
+  url: string;
+  hasToken: boolean;
+  tokenLast4: string | null;
+  enabled: boolean;
+  unattendedEnabled: boolean;
+  lastTestedAt: string | null;
+  lastError: string | null;
+  lastErrorAt: string | null;
+  callCount: number;
+  errorCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface McpTool {
+  name: string;
+  description: string;
+  mode: McpToolMode;
+  allowed: boolean;
+}
+
+export interface McpAuditEntry {
+  id: string;
+  serverId: string;
+  serverName: string;
+  actorId: string;
+  actorEmail: string;
+  action: McpAuditAction;
+  changes: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface McpServerDetail extends McpServer {
+  tools: McpTool[];
+  audit: McpAuditEntry[];
+}
+
+export interface McpTestResult {
+  ok: boolean;
+  errorKind: 'unreachable' | 'timeout' | 'auth' | 'not_mcp' | null;
+  message: string | null;
+  tools: McpTool[];
+}
+
+export interface CreateMcpServerInput {
+  name: string;
+  url: string;
+  token?: string;
+  enabled?: boolean;
+  unattendedEnabled?: boolean;
+}
+
+/** Full PUT body: every non-secret updatable field. */
+export type ReplaceMcpServerInput = Pick<McpServer, 'name' | 'url' | 'enabled' | 'unattendedEnabled'>;
+
+export function mcpServerReplacement(s: McpServer, changes: Partial<ReplaceMcpServerInput> = {}): ReplaceMcpServerInput {
+  return { name: s.name, url: s.url, enabled: s.enabled, unattendedEnabled: s.unattendedEnabled, ...changes };
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -1292,6 +1360,21 @@ export const api = {
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),
   createProject: (input: CreateProjectInput) => request<Project>('/v1/projects', 'POST', input),
   getBudget: (projectId?: string) => request<BudgetStatus>(`/v1/budget${projectId ? `?projectId=${id(projectId)}` : ''}`),
+  listMcpServers: (projectId: string) => request<McpServer[]>(`/v1/projects/${id(projectId)}/mcp-servers`),
+  getMcpServer: (projectId: string, serverId: string) =>
+    request<McpServerDetail>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}`),
+  createMcpServer: (projectId: string, input: CreateMcpServerInput) =>
+    request<McpServer>(`/v1/projects/${id(projectId)}/mcp-servers`, 'POST', input),
+  replaceMcpServer: (projectId: string, serverId: string, input: ReplaceMcpServerInput) =>
+    request<McpServer>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}`, 'PUT', input),
+  replaceMcpServerToken: (projectId: string, serverId: string, token: string) =>
+    request<void>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}/token`, 'PUT', { token }),
+  testMcpServer: (projectId: string, serverId: string) =>
+    request<McpTestResult>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}/test`, 'POST'),
+  replaceMcpServerTools: (projectId: string, serverId: string, tools: Pick<McpTool, 'name' | 'mode' | 'allowed'>[]) =>
+    request<McpTool[]>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}/tools`, 'PUT', { tools }),
+  deleteMcpServer: (projectId: string, serverId: string) =>
+    request<void>(`/v1/projects/${id(projectId)}/mcp-servers/${id(serverId)}`, 'DELETE'),
   getProject: (projectId: string) => request<Project>(`/v1/projects/${id(projectId)}`),
   createRepo: (projectId: string, input: CreateRepoInput) =>
     request<Repo>(`/v1/projects/${id(projectId)}/repos`, 'POST', input),
