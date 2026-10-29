@@ -92,12 +92,12 @@ describe('IntakeView', () => {
     await screen.findByRole('link', { name: '#1 new' });
     const card = (s: string) => within(screen.getByRole('link', { name: new RegExp(`^#\\d+ ${s}$`) }).closest('li')!);
     const names = (s: string) => card(s).queryAllByRole('button').map((b) => b.textContent);
-    expect(names('new')).toEqual(['Ignore']);
-    expect(names('refining')).toEqual([]);
-    expect(names('drafted')).toEqual(['Ignore']);
-    expect(names('failed')).toEqual(['Retry', 'Ignore']);
-    expect(names('withdrawn')).toEqual([]);
-    expect(names('ignored')).toEqual(['Retry']);
+    expect(names('new')).toEqual(['Ignore', 'Archive']);
+    expect(names('refining')).toEqual(['Archive']);
+    expect(names('drafted')).toEqual(['Ignore', 'Archive']);
+    expect(names('failed')).toEqual(['Retry', 'Ignore', 'Archive']);
+    expect(names('withdrawn')).toEqual(['Archive']);
+    expect(names('ignored')).toEqual(['Retry', 'Archive']);
   });
 
   it('retries and ignores an item, then reloads', async () => {
@@ -165,5 +165,46 @@ describe('IntakeView', () => {
     await screen.findByRole('link', { name: '#12 Add dark mode' });
     await waitFor(() => expect(api.copilotStatus).toHaveBeenCalled());
     expect(screen.queryByText(/collected but not refined/)).toBeNull();
+  });
+
+  it('archives an item only after confirming, then reloads', async () => {
+    const list = setup();
+    const archive = vi.spyOn(api, 'archiveIntake').mockResolvedValue(intakeItem());
+    render(<IntakeView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    expect(archive).not.toHaveBeenCalled();
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByText('Archive this intake item?')).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Cancel' }));
+    expect(archive).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Archive' }));
+    await waitFor(() => expect(archive).toHaveBeenCalledWith('i1'));
+    await waitFor(() => expect(list).toHaveBeenCalledTimes(2));
+  });
+
+  it('explains a refused archive in the dialog', async () => {
+    setup();
+    vi.spyOn(api, 'archiveIntake').mockRejectedValue(new ApiError('403', 403));
+    render(<IntakeView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }));
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Archive' }));
+    expect(await within(screen.getByRole('dialog')).findByRole('alert')).toHaveTextContent('Only a signed-in person can archive this intake item');
+  });
+
+  it('shows archived items with a badge and Unarchive when the Archived filter is on', async () => {
+    const list = setup();
+    list.mockImplementation(async (_p, _s, archived) => (archived ? [intakeItem({ archivedAt: '2026-02-01T00:00:00.000Z', status: 'failed' })] : [intakeItem()]));
+    const unarchive = vi.spyOn(api, 'unarchiveIntake').mockResolvedValue(intakeItem());
+    render(<IntakeView />);
+    await screen.findByRole('link', { name: '#12 Add dark mode' });
+    expect(screen.queryByText('Archived', { selector: 'span' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Archived' }));
+    await waitFor(() => expect(list).toHaveBeenLastCalledWith('p', undefined, true));
+    expect(await screen.findByText('Archived', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archive' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Unarchive' }));
+    await waitFor(() => expect(unarchive).toHaveBeenCalledWith('i1'));
   });
 });

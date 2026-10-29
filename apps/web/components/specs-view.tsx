@@ -2,11 +2,12 @@
 
 import { FileText } from 'lucide-react';
 import Link from 'next/link';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 import { api, type Repo, type Spec } from '@/lib/api';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
+import { ArchivedBadge } from './archive-dialog';
 import { NoProjects } from './no-projects';
 import { SpecStatusBadge } from './spec-detail';
 import { Card } from './ui/card';
@@ -17,7 +18,8 @@ const POLL_MS = 10_000;
 
 export function SpecsView() {
   const { projects, projectId } = useProject();
-  const fetchSpecs = useCallback(() => (projectId ? api.listSpecs(projectId) : Promise.resolve([] as Spec[])), [projectId]);
+  const [archived, setArchived] = useState(false);
+  const fetchSpecs = useCallback(() => (projectId ? api.listSpecs(projectId, archived) : Promise.resolve([] as Spec[])), [projectId, archived]);
   const specs = usePolling(fetchSpecs, POLL_MS);
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([] as Repo[])), [projectId]);
   const repos = usePolling(fetchRepos, POLL_MS * 6);
@@ -31,11 +33,19 @@ export function SpecsView() {
         description="Versioned documents the co-pilot drafts and a verified human approves."
       />
       {projects?.length === 0 && <NoProjects />}
+      <label className="flex items-center gap-2 px-4 pt-3 text-sm">
+        <input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />
+        Archived
+      </label>
       {specs.error && <p role="alert" className="px-4 pt-3 text-sm text-danger">{specs.error.message}</p>}
       {specs.loading && !specs.data && !specs.error && <p className="p-4 text-sm text-muted-foreground">Loading…</p>}
       {specs.data?.length === 0 && (
         <div className="p-4">
-          <EmptyState icon={FileText} title="No specs" text="Ask the co-pilot to draft a spec for a repo of this project." />
+          <EmptyState
+            icon={FileText}
+            title={archived ? 'No archived specs' : 'No specs'}
+            text={archived ? 'Archived specs show up here.' : 'Ask the co-pilot to draft a spec for a repo of this project.'}
+          />
         </div>
       )}
       <ul className="space-y-2 p-4">
@@ -47,6 +57,7 @@ export function SpecsView() {
                   {s.title}
                 </Link>
                 <SpecStatusBadge spec={s} />
+                {s.archivedAt && <ArchivedBadge />}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
                 <span className="font-mono">{repoName(s.repoId) ?? (repos.data ? 'unknown repo' : '…')}</span>

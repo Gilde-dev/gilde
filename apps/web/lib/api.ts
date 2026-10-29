@@ -408,6 +408,9 @@ export interface Spec {
   updatedById: string | null;
   approvedById: string | null;
   approvedAt: string | null;
+  /** Set while the spec is archived: hidden from the default list. */
+  archivedAt: string | null;
+  archivedById: string | null;
   createdAt: string;
   updatedAt: string;
   source: SpecSource | null;
@@ -433,6 +436,7 @@ export interface IntakeSpecSummary {
   status: SpecStatus;
   currentVersion: number;
   approvedVersion: number | null;
+  archivedAt: string | null;
   openQuestions: number;
 }
 
@@ -460,6 +464,9 @@ export interface IntakeItem {
   /** Trusted member comments stored as answers for the Verfijner. */
   commentCount: number;
   refineAttempts: number;
+  /** Set while the item is archived: hidden from the default list, not refined, no status comment updates. */
+  archivedAt: string | null;
+  archivedById: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -1201,11 +1208,19 @@ export const api = {
     request<Feature[]>(`/v1/projects/${id(projectId)}/features${status ? `?status=${status}` : ''}`),
   createFeature: (projectId: string, input: CreateFeatureInput) =>
     request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
-  listSpecs: (projectId: string) => request<Spec[]>(`/v1/projects/${id(projectId)}/specs`),
-  listIntake: (projectId: string, status?: IntakeStatus) =>
-    request<IntakeItem[]>(`/v1/projects/${id(projectId)}/intake${status ? `?status=${status}` : ''}`),
+  /** Archived specs are hidden unless `archived` is true, which lists only those. */
+  listSpecs: (projectId: string, archived?: boolean) =>
+    request<Spec[]>(`/v1/projects/${id(projectId)}/specs${archived ? '?archived=true' : ''}`),
+  listIntake: (projectId: string, status?: IntakeStatus, archived?: boolean) => {
+    const query = [status && `status=${status}`, archived && 'archived=true'].filter(Boolean).join('&');
+    return request<IntakeItem[]>(`/v1/projects/${id(projectId)}/intake${query ? `?${query}` : ''}`);
+  },
   /** Verified humans only (403 otherwise). */
   retryIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/retry`, 'POST'),
+  archiveIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/archive`, 'POST'),
+  unarchiveIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/unarchive`, 'POST'),
+  archiveSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}/archive`, 'POST'),
+  unarchiveSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}/unarchive`, 'POST'),
   ignoreIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/ignore`, 'POST'),
   sweepIntake: () => request<IntakeSweepResult>('/v1/intake/sweep', 'POST'),
   getSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}`),

@@ -56,6 +56,12 @@ describe('IntakeRefineService.nextPerProject', () => {
         expect(next.find((i) => i.id === oldest.id)?.repo?.fullName).toBe('o/one');
     });
 
+    it('skips archived items', async () => {
+        await add(p1, r1, 1, { archivedAt: new Date() });
+        const next = await add(p1, r1, 2);
+        expect((await service.nextPerProject()).map((i) => i.id)).toEqual([next.id]);
+    });
+
     it('only picks status new: not refining, drafted, failed, withdrawn or ignored', async () => {
         for (const [n, status] of (['drafted', 'failed', 'withdrawn', 'ignored'] as const).entries()) await add(p1, r1, n + 1, { status });
         expect(await service.nextPerProject()).toEqual([]);

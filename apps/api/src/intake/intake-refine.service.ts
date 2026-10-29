@@ -37,7 +37,7 @@ export class IntakeRefineService {
         const busy = new Set((await this.items.find({ where: { status: 'refining' }, select: { id: true, projectId: true } })).map((i) => i.projectId));
         const next = new Map<string, IntakeItem>();
         for (const item of waiting) {
-            if (busy.has(item.projectId) || next.has(item.projectId)) continue;
+            if (item.archivedAt || busy.has(item.projectId) || next.has(item.projectId)) continue;
             if (item.refinedSha256 === refineSha(item)) continue;
             next.set(item.projectId, item);
         }

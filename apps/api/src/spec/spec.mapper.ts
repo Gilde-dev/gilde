@@ -21,6 +21,8 @@ export class SpecMapper {
             updatedById: e.updatedById,
             approvedById: e.approvedById,
             approvedAt: e.approvedAt?.toISOString() ?? null,
+            archivedAt: e.archivedAt?.toISOString() ?? null,
+            archivedById: e.archivedById,
             createdAt: e.createdAt.toISOString(),
             updatedAt: e.updatedAt.toISOString(),
             source,

@@ -119,6 +119,13 @@ export class IntakeItem {
     @Column({ name: 'comment_error', type: 'text', nullable: true })
     commentError: string | null;
 
+    /** Hidden from the default lists when set; archiving never deletes or changes anything else. */
+    @Column({ name: 'archived_at', type: Date, nullable: true })
+    archivedAt: Date | null;
+
+    @Column({ name: 'archived_by_id', type: 'uuid', nullable: true })
+    archivedById: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

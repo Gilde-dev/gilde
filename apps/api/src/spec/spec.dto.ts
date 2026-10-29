@@ -105,6 +105,12 @@ export const SpecSourceSchema = z.object({
     number: z.number().int(),
 });
 
+/** `archived=true` lists only archived specs; without it archived specs are hidden. */
+export const ListSpecsQuerySchema = z.object({
+    archived: z.enum(['true', 'false']).optional(),
+});
+export type ListSpecsQueryDto = z.infer<typeof ListSpecsQuerySchema>;
+
 export const SpecResponseSchema = z.object({
     id: z.string().uuid(),
     projectId: z.string().uuid(),
@@ -118,6 +124,8 @@ export const SpecResponseSchema = z.object({
     updatedById: z.string().uuid().nullable(),
     approvedById: z.string().uuid().nullable(),
     approvedAt: z.string().datetime().nullable(),
+    archivedAt: z.string().datetime().nullable(),
+    archivedById: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     source: SpecSourceSchema.nullable(),

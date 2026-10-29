@@ -1,4 +1,4 @@
-import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -8,9 +8,11 @@ import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 import {
     ApproveSpecSchema,
     CreateSpecSchema,
+    ListSpecsQuerySchema,
     SaveSpecVersionSchema,
     type ApproveSpecDto,
     type CreateSpecDto,
+    type ListSpecsQueryDto,
     type SaveSpecVersionDto,
     type SpecDetailResponseDto,
     type SpecResponseDto,
@@ -24,8 +26,11 @@ export class SpecController {
     constructor(private readonly specService: SpecService) { }
 
     @Get('projects/:id/specs')
-    list(@Param('id', ParseUUIDPipe) projectId: string): Promise<SpecResponseDto[]> {
-        return this.specService.list(projectId);
+    list(
+        @Param('id', ParseUUIDPipe) projectId: string,
+        @Query(new ZodValidationPipe(ListSpecsQuerySchema)) query: ListSpecsQueryDto,
+    ): Promise<SpecResponseDto[]> {
+        return this.specService.list(projectId, query);
     }
 
     @Post('projects/:id/specs')
@@ -61,5 +66,21 @@ export class SpecController {
         @CurrentUser() user: AuthUser | null,
     ): Promise<SpecDetailResponseDto> {
         return this.specService.approve(id, dto, user ?? undefined);
+    }
+
+    /** Verified humans only. */
+    @Post('specs/:id/archive')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    archive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<SpecDetailResponseDto> {
+        return this.specService.archive(id, user ?? undefined);
+    }
+
+    /** Verified humans only. */
+    @Post('specs/:id/unarchive')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    unarchive(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<SpecDetailResponseDto> {
+        return this.specService.unarchive(id, user ?? undefined);
     }
 }

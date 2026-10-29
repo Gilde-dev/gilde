@@ -135,6 +135,15 @@ describe('IntakeCommentService', () => {
         expect(await reload()).toMatchObject({ statusCommentId: '9001', statusCommentUrl: 'https://github.com/o/r/issues/7#issuecomment-9001', commentError: null });
     });
 
+    it('writes nothing for an archived item until it is unarchived', async () => {
+        await items.update({ id: item.id }, { archivedAt: new Date() });
+        await service.sync(item.id);
+        expect(upsert).not.toHaveBeenCalled();
+        await items.update({ id: item.id }, { archivedAt: null });
+        await service.sync(item.id);
+        expect(upsert).toHaveBeenCalledTimes(1);
+    });
+
     it('does not write again when the rendered content is unchanged', async () => {
         await service.sync(item.id);
         advance(5 * 60_000);
