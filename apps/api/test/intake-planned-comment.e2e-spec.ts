@@ -30,6 +30,7 @@ describe('Intake status comment says planned when a feature is planned from the 
   const fakeGithub = {
     isConfigured: () => true,
     upsertIssueComment: async (repo: string, number: number, input: { marker: string; body: string; commentId: string | null }) => {
+      if (repo !== repoRow) return { id: '1', htmlUrl: 'x' }; // the minute cron may flush items left in the shared test database
       if (failWith) throw failWith;
       upserts.push({ fullName: repo, number, ...input });
       return { id: '9001', htmlUrl: `https://github.com/${repo}/issues/${number}#issuecomment-9001` };
