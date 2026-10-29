@@ -32,6 +32,11 @@ import { VERFIJNER_INSTRUCTIONS } from './verfijner.instructions.js';
 import type { RefinedSpecWriter } from './verfijner.save.js';
 import { createRefineTools } from './verfijner.tools.js';
 import type { ScoutSuggestionService } from './scout-suggestion.service.js';
+import { PLAN_AGENT_ID, type PlanConfig } from './werkmeester.config.js';
+import { WERKMEESTER_INSTRUCTIONS } from './werkmeester.instructions.js';
+import type { PlanProposer } from './werkmeester.propose.js';
+import { planBinding } from './werkmeester.context.js';
+import { createPlanTools } from './werkmeester.tools.js';
 
 /** Where Mastra is mounted: the global prefix plus the route of the copilot module. */
 export const MASTRA_PREFIX = '/api/v1/mastra';
@@ -125,6 +130,15 @@ export interface RefineSetup {
     writer?: Pick<RefinedSpecWriter, 'save'>;
 }
 
+/** An enabled Werkmeester: its configuration and the existing bot user it acts as. `model` replaces the configured one in tests. */
+export interface PlanSetup {
+    config: Extract<PlanConfig, { enabled: true }>;
+    user: CopilotUser;
+    model?: unknown;
+    /** Creates the plans (the proposePlan tool). Without it (unit tests of the agent) every proposal is refused. */
+    proposer?: Pick<PlanProposer, 'propose'>;
+}
+
 interface RunUsage { inputTokens?: number; outputTokens?: number; cachedInputTokens?: number; reasoningTokens?: number }
 
 interface RunFinish {
@@ -187,15 +201,16 @@ export function copilotDefaultOptions(
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null, refine?: RefineSetup | null): Mastra {
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null, refine?: RefineSetup | null, plan?: PlanSetup | null): Mastra {
     // The scout and the Verfijner are configured independently of the co-pilot: any one alone gets an instance, none gets an empty one.
-    if (!config.enabled && !scout && !refine) return new Mastra({});
+    if (!config.enabled && !scout && !refine && !plan) return new Mastra({});
 
     const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
     const agents: Record<string, Agent> = {};
     if (config.enabled) agents[COPILOT_AGENT_ID] = createCopilotAgent(config, services, memoryInfra, repoContext, usage);
     if (scout) agents[SCOUT_AGENT_ID] = createScoutAgent(scout, services, memoryInfra, usage);
     if (refine) agents[REFINE_AGENT_ID] = createRefineAgent(refine, services, memoryInfra, usage);
+    if (plan) agents[PLAN_AGENT_ID] = createPlanAgent(plan, services, memoryInfra, usage);
 
     return new Mastra({
         agents,
@@ -230,6 +245,26 @@ const REFUSING_SUGGESTIONS: Pick<ScoutSuggestionService, 'suggest'> = {
 const REFUSING_WRITER: Pick<RefinedSpecWriter, 'save'> = {
     save: async () => ({ saved: false, errors: ['Saving specs is not available.'] }),
 };
+
+const REFUSING_PROPOSER: Pick<PlanProposer, 'propose'> = {
+    propose: async () => ({ created: false, retryable: false, reason: 'Proposing plans is not available.' }),
+};
+
+function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+    const own = createPlanTools(services, plan.proposer ?? REFUSING_PROPOSER);
+    return new Agent({
+        id: PLAN_AGENT_ID,
+        name: PLAN_AGENT_ID,
+        description: 'Werkmeester, the planner: turns one approved spec version into a draft feature with triage jobs. Runs unattended, bound to one spec version; not reachable over HTTP.',
+        instructions: WERKMEESTER_INSTRUCTIONS,
+        model: (plan.model ?? plan.config.model) as `openai/${string}`,
+        // Exactly its own allowlisted tools: no MCP tools, nothing else.
+        tools: ({ requestContext }) => (planBinding(requestContext) ? own : {}) as never,
+        // One thread per attempt; thread-scoped memory like the scout's.
+        memory: createScoutMemory(memoryInfra, usage),
+        defaultOptions: copilotDefaultOptions(plan.config.maxSteps, undefined, usage && { service: usage, model: plan.config.model }, PLAN_AGENT_ID) as never,
+    });
+}
 
 function createRefineAgent(refine: RefineSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
     const own = createRefineTools(services, refine.writer ?? REFUSING_WRITER);
@@ -303,7 +338,7 @@ export function withoutScout(mastra: Mastra): Mastra {
     return new Proxy(mastra, {
         get(target, prop) {
             if (prop === 'listAgents') {
-                return () => Object.fromEntries(Object.entries(target.listAgents() ?? {}).filter(([id]) => id !== SCOUT_AGENT_ID && id !== REFINE_AGENT_ID));
+                return () => Object.fromEntries(Object.entries(target.listAgents() ?? {}).filter(([id]) => id !== SCOUT_AGENT_ID && id !== REFINE_AGENT_ID && id !== PLAN_AGENT_ID));
             }
             const value = Reflect.get(target, prop, target) as unknown;
             return typeof value === 'function' ? (value as (...args: unknown[]) => unknown).bind(target) : value;
