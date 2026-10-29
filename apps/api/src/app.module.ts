@@ -21,6 +21,7 @@ import { RevisionModule } from './revision/revision.module.js';
 import { UserModule } from './user/user.module.js';
 import { ApiKeyModule } from './api-key/api-key.module.js';
 import { ExecutorModule } from './executor/executor.module.js';
+import { ProjectMcpModule } from './project-mcp/project-mcp.module.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CopilotModule } from './copilot/copilot.module.js';
 import { MemoryModule } from './memory/memory.module.js';
@@ -70,6 +71,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     UserModule,
     ApiKeyModule,
     ExecutorModule,
+    ProjectMcpModule,
     AuthModule,
     CopilotModule,
     McpModule.register(),

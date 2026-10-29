@@ -121,6 +121,29 @@ Retries and revision rounds pick an executor of the same owner again. A configur
 disables nothing: the job is parked with a reason naming the executor (never the token) so its owner can fix or replace the token.
 Names are unique per owner.
 
+## Project MCP servers
+
+A project can register remote MCP servers (a knowledge base, Notion, Confluence, an issue tracker) so Gilde's agents can use that
+context; see [ADR 0014](docs/adr/0014-mcp-servers-per-project-with-allowlist-and-read-write-rules.md). This registry only stores and
+checks the servers; the agents do not use it yet.
+
+Setup:
+
+1. Set `EXECUTOR_SECRET_KEY` on the API (`openssl rand -base64 32`, the same key as for executors). Without it, a server with a token
+   cannot be added (503); a server without a token can.
+2. Register a server (verified human, signed in interactively; no API keys, bots or the scout):
+   `POST /api/v1/projects/:projectId/mcp-servers` with `{ "name", "url", "token"?, "enabled"?, "unattendedEnabled"? }`. The URL must be a
+   public `https` Streamable HTTP endpoint. The token is sent as `Authorization: Bearer <token>`, stored encrypted, never returned (the
+   API shows `hasToken` and the last four characters), and replaced with `PUT .../:id/token`. `PUT .../:id` replaces name, URL,
+   `enabled` and `unattendedEnabled` (available to the unattended agents, off by default).
+3. Test it: `POST .../:id/test` initializes the server and lists its tools without calling any (10 s timeout). The answer is
+   `{ ok, errorKind, message, tools }`; `errorKind` is `unreachable`, `timeout`, `auth` (401/403) or `not_mcp`. Tools start as `read`
+   only when the server marks them `readOnlyHint: true`, otherwise as `write`, and not allowed.
+4. Choose the allowlist: `PUT .../:id/tools` with `{ "tools": [{ "name", "mode": "read" | "write", "allowed" }] }` replaces it (tools you
+   leave out become not allowed). Nothing is usable until it is allowed. A re-test keeps your choices for tools that still exist.
+
+`GET .../:id` shows the tools, the usage (calls, errors, last error) and the audit trail: who changed what and when, never the token.
+
 ## Postgres and migrations
 
 By default the API uses SQLite (`db.sqlite`) with `synchronize`, so local development needs no migrations. To use Postgres instead:

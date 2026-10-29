@@ -46,7 +46,8 @@ export class ExecutorSecretService {
         this.requireKey();
     }
 
-    encrypt(plaintext: string): EncryptedToken {
+    /** `keyVersion` is the scope the secret belongs to (executors and project MCP servers each have their own). */
+    encrypt(plaintext: string, keyVersion: number = EXECUTOR_KEY_VERSION): EncryptedToken {
         const key = this.requireKey();
         const iv = randomBytes(IV_BYTES);
         const cipher = createCipheriv('aes-256-gcm', key, iv, { authTagLength: TAG_BYTES });
@@ -55,14 +56,14 @@ export class ExecutorSecretService {
             ciphertext: ciphertext.toString('base64'),
             iv: iv.toString('base64'),
             tag: cipher.getAuthTag().toString('base64'),
-            keyVersion: EXECUTOR_KEY_VERSION,
+            keyVersion,
         };
     }
 
     /** Internal: for the dispatcher only, never behind a route. Throws a generic error when the data was tampered with or the key differs. */
-    decrypt(encrypted: EncryptedToken): string {
+    decrypt(encrypted: EncryptedToken, supportedKeyVersion: number = EXECUTOR_KEY_VERSION): string {
         const key = this.requireKey();
-        if (encrypted.keyVersion !== EXECUTOR_KEY_VERSION) throw new Error(`Unsupported executor key version ${encrypted.keyVersion}`);
+        if (encrypted.keyVersion !== supportedKeyVersion) throw new Error(`Unsupported executor key version ${encrypted.keyVersion}`);
         try {
             const decipher = createDecipheriv('aes-256-gcm', key, Buffer.from(encrypted.iv, 'base64'), { authTagLength: TAG_BYTES });
             decipher.setAuthTag(Buffer.from(encrypted.tag, 'base64'));
