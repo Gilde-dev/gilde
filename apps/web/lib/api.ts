@@ -471,6 +471,20 @@ export interface IntakeItem {
   updatedAt: string;
 }
 
+/** A stored member comment as the Verfijner sees it (same order, same 4000-character cap). */
+export interface IntakeComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  /** The comment on GitHub. */
+  url: string;
+}
+
+export interface IntakeItemDetail extends IntakeItem {
+  comments: IntakeComment[];
+}
+
 export interface IntakeSweepResult {
   repos: number;
   skipped: number;
@@ -1216,6 +1230,7 @@ export const api = {
     return request<IntakeItem[]>(`/v1/projects/${id(projectId)}/intake${query ? `?${query}` : ''}`);
   },
   /** Verified humans only (403 otherwise). */
+  getIntake: (itemId: string) => request<IntakeItemDetail>(`/v1/intake/${id(itemId)}`),
   retryIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/retry`, 'POST'),
   archiveIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/archive`, 'POST'),
   unarchiveIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/unarchive`, 'POST'),

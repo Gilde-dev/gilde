@@ -9,6 +9,7 @@ import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
 import { ArchiveAction, ArchivedBadge } from './archive-dialog';
+import { IntakeAnswers } from './intake-answers';
 import { NoProjects } from './no-projects';
 import { IntakeStatusBadge, INTAKE_STATUS_BADGE } from './status-badge';
 import { SpecStatusBadge } from './spec-detail';
@@ -168,6 +169,7 @@ function IntakeCard({ item: i, projectId, busy, onRetry, onIgnore, onArchiveChan
         )}
         {i.commentCount > 0 && <span>{i.commentCount} {i.commentCount === 1 ? 'answer' : 'answers'} from members</span>}
       </div>
+      {i.commentCount > 0 && <IntakeAnswers itemId={i.id} />}
       {i.commentError && <p className="mt-2 break-words text-sm text-warning">Status comment not posted: {i.commentError}</p>}
       {i.lastError && <p className="mt-2 break-words text-sm text-danger">Last error: {i.lastError}</p>}
       <div className="mt-2 flex flex-wrap items-center gap-2">

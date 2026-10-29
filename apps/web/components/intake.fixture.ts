@@ -1,4 +1,4 @@
-import type { IntakeItem } from '@/lib/api';
+import type { IntakeComment, IntakeItem } from '@/lib/api';
 
 export function intakeItem(over: Partial<IntakeItem> = {}): IntakeItem {
   return {
@@ -6,4 +6,8 @@ export function intakeItem(over: Partial<IntakeItem> = {}): IntakeItem {
     url: 'https://github.com/o/web/issues/12', title: 'Add dark mode', authorLogin: 'ann', labels: ['gilde:refine'], status: 'new',
     specId: null, spec: null, lastError: null, statusCommentUrl: null, commentError: null, commentCount: 0, refineAttempts: 0, archivedAt: null, archivedById: null, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z', ...over,
   };
+}
+
+export function intakeComment(over: Partial<IntakeComment> = {}): IntakeComment {
+  return { id: '5', author: 'bob', body: 'Use a comma', createdAt: '2026-01-02T00:00:00.000Z', url: 'https://github.com/o/web/issues/12#issuecomment-5', ...over };
 }
