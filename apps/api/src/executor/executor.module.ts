@@ -27,7 +27,8 @@ import { ExecutorService } from './executor.service.js';
         ExecutorMapper
     ],
     exports: [
-        ExecutorService
+        ExecutorService,
+        ExecutorSecretService
     ]
 })
 export class ExecutorModule { }
