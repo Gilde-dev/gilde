@@ -60,6 +60,13 @@ export class Project {
     })
     autoFixConflicts: boolean;
 
+    /** Queue a Werkmeester planning run when a spec version is approved. */
+    @Column({
+        name: 'auto_plan',
+        default: false
+    })
+    autoPlan: boolean;
+
     /** Estimated-USD limit per UTC day for this project's agent runs; null = no limit, 0 = stop immediately. */
     @Column({
         name: 'daily_budget_usd',

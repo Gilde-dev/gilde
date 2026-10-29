@@ -39,6 +39,8 @@ export interface Project {
   retryOnChangesRequested: boolean;
   /** Start one automatic conflict-fix round per PR head when an agent PR gets merge conflicts. */
   autoFixConflicts: boolean;
+  /** Queue a Werkmeester planning run when a spec version is approved. */
+  autoPlan: boolean;
   paused: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
@@ -62,6 +64,7 @@ export interface ReplaceProjectInput {
   runTimeoutMinutes: number;
   retryOnChangesRequested: boolean;
   autoFixConflicts: boolean;
+  autoPlan: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
   /** Finite >= 0; null clears the limit (no limit), 0 stops dispatch immediately. */
@@ -97,6 +100,7 @@ export function projectReplacement(p: Project, edits: Partial<ReplaceProjectInpu
       runTimeoutMinutes: p.runTimeoutMinutes,
       retryOnChangesRequested: p.retryOnChangesRequested,
       autoFixConflicts: p.autoFixConflicts,
+      autoPlan: p.autoPlan,
       skillsLibrary: p.skillsLibrary,
       skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd,
@@ -376,6 +380,25 @@ export interface SpecRecording {
   createdAt: string;
 }
 
+export const PLANNING_RUN_STATUSES = ['queued', 'running', 'planned', 'skipped', 'failed'] as const;
+export type PlanningRunStatus = (typeof PLANNING_RUN_STATUSES)[number];
+
+/** One request for the Werkmeester to plan an approved version; the latest per version is on the version. */
+export interface SpecPlanningRun {
+  id: string;
+  version: number;
+  status: PlanningRunStatus;
+  attempts: number;
+  /** Set when planned (or skipped because the version already has a feature). */
+  featureId: string | null;
+  /** Short reason of a skipped or failed run. */
+  reason: string | null;
+  trigger: 'auto' | 'manual';
+  requestedById: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface SpecEligibility {
   eligible: boolean;
   reasons: string[];
@@ -394,6 +417,8 @@ export interface SpecVersion {
   eligibility: SpecEligibility;
   approval: SpecApprovalEvidence | null;
   recording: SpecRecording | null;
+  /** The latest planning run of this version; null when none was requested. */
+  planning: SpecPlanningRun | null;
 }
 
 /** The external issue a spec was drafted from; null for specs written by hand. */
@@ -422,6 +447,8 @@ export interface Spec {
   createdAt: string;
   updatedAt: string;
   source: SpecSource | null;
+  /** Why a newer approved version was not planned ("v3 approved; feature X is pinned to v2"); null when there is none. */
+  planNote: string | null;
 }
 
 export interface SpecDetail extends Spec {
@@ -1347,6 +1374,8 @@ export const api = {
   /** Verified humans only. Sends exactly the version the caller saw; a stale one is a 409. */
   approveSpec: (specId: string, expectedVersion: number) =>
     request<SpecDetail>(`/v1/specs/${id(specId)}/approve`, 'POST', { expectedVersion }),
+  /** Verified humans only. Queues a planning run for the approved version: 403 for others, 409 when it cannot be queued. */
+  planSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}/plan`, 'POST'),
   getFeature: (featureId: string) => request<FeatureDetail>(`/v1/features/${id(featureId)}`),
   replaceFeature: (featureId: string, input: ReplaceFeatureInput) =>
     request<Feature>(`/v1/features/${id(featureId)}`, 'PUT', input),

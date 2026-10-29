@@ -698,6 +698,7 @@ pnpm --filter @gilde/api user:create --email werkmeester@example.com --name Werk
 | `PLAN_ENABLED` | Must be literally `true`. |
 | `PLAN_USER_EMAIL` | The existing bot user the agent acts as, separate from the Verkenner's and the Verfijner's. A human account, or an unknown email, leaves the Werkmeester off. |
 | `PLAN_MODEL` | `openai/<model>`; falls back to `COPILOT_MODEL`. Needs `OPENAI_API_KEY`. |
+| `PLAN_DAILY_LIMIT` | Planning runs per project per UTC day (default 5). An invalid value (not a positive integer) leaves the Werkmeester off. |
 
 Off or misconfigured, the API still starts and the reason is in the log, without secrets.
 
@@ -709,8 +710,17 @@ with ``First run `git fetch origin && git rebase origin/main` ``, or a job names
 version that already has a pinned feature, is archived or is no longer the approved one is `skipped`.
 
 **Limits.** Its tools are an explicit allowlist: read-only tools for the bound project, plus `proposePlan`. Spec text, code, history and other
-read content are untrusted data in delimited blocks, and the Mastra HTTP routes refuse the agent. Triggers (approval with the project's
-`autoPlan`, "Plan from spec"), the worker and its daily limit follow in later changes.
+read content are untrusted data in delimited blocks, and the Mastra HTTP routes refuse the agent.
+
+**Triggers and the worker.** A planning run (`spec_planning_runs`: `queued`, `running`, `planned`, `skipped`, `failed`; at most one queued or
+running run per spec version, enforced by a partial unique index) is queued in two ways: approving a spec version in a project whose
+`autoPlan` setting is on (off by default; set on the project PUT), and `POST /api/v1/specs/:id/plan` for the approved version (verified humans
+only; 409 when nothing is approved, the spec is archived, the version already has a feature, or a run is queued or running). A newer approved
+version of a spec whose earlier version already has a feature queues no run; the spec gets a `planNote` ("v3 approved; feature X is pinned to
+v2") for a human to decide. Once a minute the worker starts the oldest queued run of each project that has none running, within
+`PLAN_DAILY_LIMIT` and while neither the project's nor the global budget is hard, and ends it `planned` (with the feature id), `skipped` or,
+after 2 attempts, `failed` with a short reason. Queued runs wait while the Werkmeester is off. Planned features are drafts with triage jobs;
+nothing is queued or dispatched automatically.
 
 ## GitHub webhooks (local)
 

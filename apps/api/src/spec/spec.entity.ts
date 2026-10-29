@@ -54,6 +54,10 @@ export class Spec {
     @Column({ name: 'archived_by_id', type: 'uuid', nullable: true })
     archivedById: string | null;
 
+    /** Left by an approval that Werkmeester did not plan because an earlier version is already planned; cleared by the next one. */
+    @Column({ name: 'plan_note', type: 'text', nullable: true })
+    planNote: string | null;
+
     @CreateDateColumn({ name: 'created_at' })
     createdAt: Date;
 

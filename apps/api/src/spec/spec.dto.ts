@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { INTAKE_SOURCES } from '../intake/intake-item.entity.js';
 import { JOB_STATUSES } from '../job/job-state.js';
 import { SPEC_STATUSES } from './spec.entity.js';
+import { PLANNING_RUN_STATUSES, PLANNING_RUN_TRIGGERS } from './spec-planning-run.entity.js';
 
 /** Largest body in characters; leaves room for the recording job's task (limit 40,000 together with its criteria). */
 export const SPEC_BODY_MAX = 30_000;
@@ -77,6 +78,20 @@ export const SpecRecordingSchema = z.object({
     createdAt: z.string().datetime(),
 });
 
+/** One request to plan a version; the latest per version is on the version. */
+export const SpecPlanningRunSchema = z.object({
+    id: z.string().uuid(),
+    version: z.number().int(),
+    status: z.enum(PLANNING_RUN_STATUSES),
+    attempts: z.number().int(),
+    featureId: z.string().uuid().nullable(),
+    reason: z.string().nullable(),
+    trigger: z.enum(PLANNING_RUN_TRIGGERS),
+    requestedById: z.string().uuid().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+});
+
 export const SpecEligibilitySchema = z.object({
     eligible: z.boolean(),
     reasons: z.array(z.string()),
@@ -96,6 +111,8 @@ export const SpecVersionResponseSchema = z.object({
     eligibility: SpecEligibilitySchema,
     approval: SpecApprovalEvidenceSchema.nullable(),
     recording: SpecRecordingSchema.nullable(),
+    /** The latest planning run of this version; null when none was requested. */
+    planning: SpecPlanningRunSchema.nullable(),
 });
 
 /** The external issue a spec was drafted from (an intake item); null for specs written by hand. */
@@ -129,6 +146,8 @@ export const SpecResponseSchema = z.object({
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
     source: SpecSourceSchema.nullable(),
+    /** Why a newer approved version was not planned ("v3 approved; feature X is pinned to v2"); null when there is none. */
+    planNote: z.string().nullable(),
 });
 
 export const SpecDetailResponseSchema = SpecResponseSchema.extend({
@@ -146,5 +165,6 @@ export type SpecResponseDto = z.infer<typeof SpecResponseSchema>;
 export type SpecDetailResponseDto = z.infer<typeof SpecDetailResponseSchema>;
 export type SpecVersionResponseDto = z.infer<typeof SpecVersionResponseSchema>;
 export type SpecApprovalEvidenceDto = z.infer<typeof SpecApprovalEvidenceSchema>;
+export type SpecPlanningRunDto = z.infer<typeof SpecPlanningRunSchema>;
 export type SpecRecordingDto = z.infer<typeof SpecRecordingSchema>;
 export type SpecRecordingState = (typeof RECORDING_STATES)[number];

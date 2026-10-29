@@ -35,6 +35,16 @@ describe('api client', () => {
     expect(JSON.parse(String(init.body))).toEqual({ expectedVersion: 4 });
   });
 
+  it('plans a spec with a POST without a body', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response('{}', { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await api.planSpec('s1');
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe('/api/gilde/v1/specs/s1/plan');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBeUndefined();
+  });
+
   it('throws a readable error on non-2xx', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({ message: 'Job not found' }), { status: 404 })));
     await expect(api.getJob('x')).rejects.toThrow('GET /v1/jobs/x failed: 404 Job not found');
@@ -52,7 +62,7 @@ describe('update clients send complete PUT bodies', () => {
 
   const project = {
     id: 'p1', slug: 'shop', name: 'Shop', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60,
-    retryOnChangesRequested: true, autoFixConflicts: false, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
+    retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
     budgetSoftPct: 80, createdAt: 'c', updatedAt: 'u',
   } as Project;
   const repo = {
@@ -67,7 +77,7 @@ describe('update clients send complete PUT bodies', () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { name: 'Renamed', weeklyBudgetUsd: undefined })));
     expect(r).toMatchObject({ url: '/api/gilde/v1/projects/p1', method: 'PUT' });
     expect(r.body).toEqual({
-      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false,
+      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true,
       skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80,
     });
   });
@@ -113,7 +123,7 @@ describe('update clients send complete PUT bodies', () => {
 
   it('never contains undefined keys', async () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { description: undefined, budgetSoftPct: undefined })));
-    expect(Object.keys(r.body)).toHaveLength(12);
+    expect(Object.keys(r.body)).toHaveLength(13);
     expect(r.raw).not.toContain('undefined');
   });
 });

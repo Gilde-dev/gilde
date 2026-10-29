@@ -5,7 +5,7 @@ const valid = { PLAN_ENABLED: 'true', PLAN_USER_EMAIL: 'werkmeester@example.com'
 
 describe('planConfig', () => {
     it('is on with the flag, user, model and key', () => {
-        expect(planConfig(valid)).toEqual({ enabled: true, model: 'openai/plan-model', userEmail: 'werkmeester@example.com', maxSteps: 30 });
+        expect(planConfig(valid)).toEqual({ enabled: true, model: 'openai/plan-model', userEmail: 'werkmeester@example.com', dailyLimit: 5, maxSteps: 30 });
     });
 
     it('falls back to COPILOT_MODEL, and PLAN_MODEL wins when both are set', () => {
@@ -51,5 +51,13 @@ describe('resolvePlanSetup', () => {
         expect(logger.warn).toHaveBeenLastCalledWith(expect.stringContaining('PLAN_USER_EMAIL is not set'));
         expect(await resolvePlanSetup(users(null, null) as never, {}, logger)).toBeNull();
         expect(logger.log).toHaveBeenLastCalledWith(expect.stringContaining('PLAN_ENABLED is not "true"'));
+    });
+
+    it('reads PLAN_DAILY_LIMIT and fails closed on an invalid value', () => {
+        expect(planConfig({ ...valid, PLAN_DAILY_LIMIT: '12' })).toMatchObject({ enabled: true, dailyLimit: 12 });
+        expect(planConfig({ ...valid, PLAN_DAILY_LIMIT: ' ' })).toMatchObject({ enabled: true, dailyLimit: 5 });
+        for (const bad of ['0', '-1', '1.5', 'abc', '5x', '99999999999999999999']) {
+            expect(planConfig({ ...valid, PLAN_DAILY_LIMIT: bad })).toMatchObject({ enabled: false, reason: expect.stringContaining('PLAN_DAILY_LIMIT') });
+        }
     });
 });

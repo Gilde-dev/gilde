@@ -14,6 +14,7 @@ export class ProjectMapper {
             dailyRunLimit: entity.dailyRunLimit,
             retryOnChangesRequested: entity.retryOnChangesRequested,
             autoFixConflicts: entity.autoFixConflicts ?? false,
+            autoPlan: entity.autoPlan ?? false,
             runTimeoutMinutes: entity.runTimeoutMinutes,
             paused: entity.paused,
             maxAttempts: entity.maxAttempts,
