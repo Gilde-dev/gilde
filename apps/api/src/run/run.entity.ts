@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 import type { RunContext } from './run-context.js';
+import type { RunKnowledge } from './run-knowledge.js';
 import type { GildeResult } from '../webhook/pr-body.js';
 import { RUN_STATUSES, type RunKind, type RunStatus } from './run-status.js';
 
@@ -69,6 +70,10 @@ export class JobRun {
     /** What the agent had when fired (skills, gildeboek version, AGENTS.md hash); null when not recorded. */
     @Column({ type: 'simple-json', nullable: true })
     context: RunContext | null;
+
+    /** MCP servers whose snippets were in the prompt; null when none were. */
+    @Column({ type: 'simple-json', nullable: true })
+    knowledge: RunKnowledge[] | null;
 
     /** Why `context` could not be captured: short, no secrets. */
     @Column({

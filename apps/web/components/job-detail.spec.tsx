@@ -24,7 +24,7 @@ const detail: JobDetail = {
   ],
   runs: [{
     id: 'run1', jobId: 'j1', projectId: 'p', repoId: 'r', attempt: 1, executorId: 'e1', executor: { id: 'e1', name: 'ada-main', ownerId: 'u', ownerName: 'Ada' }, status: 'ci_passed', sessionId: 's',
-    sessionUrl: 'https://claude.ai/code/s', instructionsVersion: null, context: null, contextError: null, error: null, ciConclusion: 'success',
+    sessionUrl: 'https://claude.ai/code/s', instructionsVersion: null, context: null, contextError: null, knowledge: [{ server: 'Notion', snippets: 2, chars: 1234 }], error: null, ciConclusion: 'success',
     result: { outcome: 'done', summary: 'All good' }, retro: '- stuff',
     firedAt: '2026-01-01T00:10:00.000Z', finishedAt: '2026-01-01T00:12:05.000Z',
     createdAt: '2026-01-01T00:09:00.000Z', updatedAt: '2026-01-01T00:12:05.000Z',
@@ -87,6 +87,18 @@ describe('JobDetailView', () => {
     expect(screen.getByText(/on ada-main \(Ada\)/)).toBeInTheDocument();
   });
 
+  it('shows which servers gave the run knowledge snippets, and nothing for runs without', async () => {
+    const { unmount } = render(<JobDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Runs/ }));
+    expect(screen.getByText('Knowledge from Notion (2 snippets, 1,234 characters)')).toBeInTheDocument();
+    unmount();
+    vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, runs: [{ ...detail.runs[0], knowledge: [] }] });
+    render(<JobDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: /Runs/ }));
+    expect(screen.getByText('All good')).toBeInTheDocument();
+    expect(screen.queryByText(/Knowledge from/)).toBeNull();
+  });
+
   it('omits the executor for runs from before personal executors', async () => {
     vi.spyOn(api, 'getJob').mockResolvedValue({ ...detail, runs: [{ ...detail.runs[0], executorId: null, executor: null }] });
     render(<JobDetailView />);
@@ -139,11 +151,11 @@ describe('JobDetailView', () => {
     it('lists what was trimmed', async () => {
       vi.mocked(api.getJobPrompt).mockResolvedValue({
         text: 'p', instructionsVersion: null, length: 59_900, limit: 60_000,
-        trimmed: { lessonsRemoved: ['l1', 'l2'], downstreamTaskCap: 'title-only', downstreamRemoved: ['d1'], downstreamOmitted: 3, featureSpecCap: 4000 },
+        trimmed: { knowledgeRemoved: 3, lessonsRemoved: ['l1', 'l2'], downstreamTaskCap: 'title-only', downstreamRemoved: ['d1'], downstreamOmitted: 3, featureSpecCap: 4000 },
       });
       await open();
       expect(await screen.findByText('Trimmed to fit the limit')).toBeInTheDocument();
-      for (const line of ['2 lessons left out', 'Downstream task text left out (titles, criteria and dependencies kept)', '1 downstream job removed to fit', '3 downstream jobs beyond the first 20 left out', 'Feature spec cut to 4,000 characters']) {
+      for (const line of ['3 knowledge snippets left out', '2 lessons left out', 'Downstream task text left out (titles, criteria and dependencies kept)', '1 downstream job removed to fit', '3 downstream jobs beyond the first 20 left out', 'Feature spec cut to 4,000 characters']) {
         expect(screen.getByText(line)).toBeInTheDocument();
       }
       expect(screen.queryByRole('alert')).not.toBeInTheDocument();

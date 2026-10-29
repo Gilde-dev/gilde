@@ -9,6 +9,7 @@ import { UserModule } from '../user/user.module.js';
 import { ProjectMcpController } from './project-mcp.controller.js';
 import { ProjectMcpConnector } from './project-mcp.connector.js';
 import { ProjectMcpMapper } from './project-mcp.mapper.js';
+import { ProjectMcpKnowledgeService } from './project-mcp-knowledge.service.js';
 import { ProjectMcpService } from './project-mcp.service.js';
 import { ProjectMcpToolsService } from './project-mcp-tools.service.js';
 import { ProjectMcpAudit } from './project-mcp-audit.entity.js';
@@ -29,12 +30,14 @@ import { ProjectMcpTool } from './project-mcp-tool.entity.js';
     providers: [
         ProjectMcpService,
         ProjectMcpToolsService,
+        ProjectMcpKnowledgeService,
         ProjectMcpConnector,
         ProjectMcpMapper
     ],
     exports: [
         ProjectMcpService,
-        ProjectMcpToolsService
+        ProjectMcpToolsService,
+        ProjectMcpKnowledgeService
     ]
 })
 export class ProjectMcpModule { }

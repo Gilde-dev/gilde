@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
@@ -9,6 +9,7 @@ import { selectJobLessons } from '../execution/job-lessons.js';
 import { buildJobPromptInput } from '../execution/job-payload.js';
 import { Feature } from '../feature/feature.entity.js';
 import { HistorySearchService } from '../memory/history/history-search.service.js';
+import { ProjectMcpKnowledgeService } from '../project-mcp/project-mcp-knowledge.service.js';
 import { Repo } from '../repo/repo.entity.js';
 import type { JobPromptResponseDto } from './job.dto.js';
 import { Job } from './job.entity.js';
@@ -25,6 +26,7 @@ export class JobPromptService {
         @InjectRepository(Repo) private readonly repoRepository: Repository<Repo>,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
         private readonly history: HistorySearchService,
+        @Optional() private readonly knowledgeService?: ProjectMcpKnowledgeService,
     ) { }
 
     /** The exact text the next fire of this job would send, with its size and trimming. Reads only; an oversized result is returned for inspection. */
@@ -34,8 +36,10 @@ export class JobPromptService {
         const repo = await this.repoRepository.findOneByOrFail({ id: job.repoId });
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
         const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
+        // Like at dispatch: never throws, and a failing server only means no snippets from it.
+        const knowledge = (await this.knowledgeService?.collect(job.projectId, job)) ?? null;
         try {
-            const { payload, context } = buildJobPromptInput(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstreamContext(this.jobRepository.manager, job), lessons);
+            const { payload, context } = buildJobPromptInput(job, repo, feature, PREVIEW_RUN_ID, job.attempts + 1, await loadDownstreamContext(this.jobRepository.manager, job), lessons, knowledge);
             const { text, instructionsVersion, length, limit, trimmed } = this.execution.prepare(payload, context);
             return { text, instructionsVersion, length, limit, trimmed };
         } catch (e) {

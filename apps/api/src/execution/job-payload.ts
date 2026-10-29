@@ -2,12 +2,12 @@ import type { Feature } from '../feature/feature.entity.js';
 import type { Job } from '../job/job.entity.js';
 import type { Repo } from '../repo/repo.entity.js';
 import { DOWNSTREAM_TASK_LIMIT, type DownstreamContext, type DownstreamJob } from './downstream.js';
-import type { JobLesson, JobPayload, PromptContext } from './execution.port.js';
+import type { JobKnowledge, JobLesson, JobPayload, PromptContext } from './execution.port.js';
 
 /** Longest feature spec handed to an agent, in characters. */
 export const FEATURE_SPEC_LIMIT = 8000;
 
-export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, runId: string, attempt: number, downstream: DownstreamJob[] = [], lessons: JobLesson[] = []): JobPayload {
+export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, runId: string, attempt: number, downstream: DownstreamJob[] = [], lessons: JobLesson[] = [], knowledge: JobKnowledge | null = null): JobPayload {
     return {
         gilde: 1,
         jobId: job.id,
@@ -25,6 +25,7 @@ export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, r
             : {}),
         ...(downstream.length ? { downstream } : {}),
         ...(lessons.length ? { lessons } : {}),
+        ...(knowledge?.snippets.length ? { knowledge } : {}),
         ...(job.prNumber !== null && job.branch
             ? {
                 continueOn: {
@@ -39,10 +40,10 @@ export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, r
 
 /** The payload plus what the initial caps cut, for `prepare`: the context never reaches the agent. */
 export function buildJobPromptInput(
-    job: Job, repo: Repo, feature: Feature | null, runId: string, attempt: number, downstream: DownstreamContext, lessons: JobLesson[] = [],
+    job: Job, repo: Repo, feature: Feature | null, runId: string, attempt: number, downstream: DownstreamContext, lessons: JobLesson[] = [], knowledge: JobKnowledge | null = null,
 ): { payload: JobPayload; context: PromptContext } {
     return {
-        payload: buildJobPayload(job, repo, feature, runId, attempt, downstream.jobs, lessons),
+        payload: buildJobPayload(job, repo, feature, runId, attempt, downstream.jobs, lessons, knowledge),
         context: {
             dependents: downstream.dependents,
             initial: {

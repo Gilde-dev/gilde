@@ -189,6 +189,27 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
         }
     }
 
+    /**
+     * One call for the knowledge feature: the raw result text (capped at `maxResultChars`), not wrapped, because the caller parses
+     * it. Never throws: a failure is recorded on the server and returned as a short, token-free message.
+     */
+    async callForText(server: ProjectMcpServer, tool: string, args: Record<string, unknown>): Promise<{ text: string } | { error: string }> {
+        let token: string | null = null;
+        try {
+            token = server.tokenLast4 !== null ? await this.registry.revealToken(server.id) : null;
+            const session = await this.session(server, token);
+            const result = await session.callTool(tool, args, this.limits.timeoutMs);
+            if (result.isError) throw new McpConnectionError('not_mcp', 'The MCP server reported an error for this tool call');
+            await this.record(server.id, null);
+            return { text: result.text.slice(0, this.limits.maxResultChars) };
+        } catch (e) {
+            if (e instanceof McpConnectionError && e.kind !== 'not_mcp') await this.evict(server.id);
+            const error = safeMessage(e, token);
+            await this.record(server.id, error);
+            return { error };
+        }
+    }
+
     private async record(serverId: string, error: string | null): Promise<void> {
         try { await this.registry.recordCall(serverId, error); } catch { /* counters must never fail a call */ }
     }

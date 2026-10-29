@@ -612,6 +612,13 @@ export interface RunContext {
   capturedAt: string;
 }
 
+/** An MCP server that put snippets in a run's prompt; `chars` is the snippet text without delimiters. */
+export interface RunKnowledge {
+  server: string;
+  snippets: number;
+  chars: number;
+}
+
 export interface Run {
   id: string;
   jobId: string;
@@ -627,6 +634,8 @@ export interface Run {
   /** Null for runs from before it was recorded, or when capturing failed (see contextError). */
   context: RunContext | null;
   contextError: string | null;
+  /** MCP servers whose knowledge snippets were in the prompt. */
+  knowledge: RunKnowledge[];
   error: string | null;
   ciConclusion: string | null;
   result: RunResult | null;
@@ -695,6 +704,8 @@ export interface PromptTrimmed {
   /** Downstream jobs left out by the initial 20-job cutoff. */
   downstreamOmitted?: number;
   downstreamRemoved?: string[];
+  /** Knowledge snippets left out, lowest ranked first. */
+  knowledgeRemoved?: number;
   featureSpecCap?: number;
 }
 
@@ -878,6 +889,10 @@ export interface McpServer {
   tokenLast4: string | null;
   enabled: boolean;
   unattendedEnabled: boolean;
+  /** Dispatch queries `knowledgeTool` (an allowed read tool) with the job text and adds the snippets to the payload. */
+  knowledgeEnabled: boolean;
+  knowledgeTool: string | null;
+  knowledgeQueryArg: string | null;
   lastTestedAt: string | null;
   lastError: string | null;
   lastErrorAt: string | null;
@@ -926,10 +941,22 @@ export interface CreateMcpServerInput {
 }
 
 /** Full PUT body: every non-secret updatable field. */
-export type ReplaceMcpServerInput = Pick<McpServer, 'name' | 'url' | 'enabled' | 'unattendedEnabled'>;
+export type ReplaceMcpServerInput = Pick<
+  McpServer,
+  'name' | 'url' | 'enabled' | 'unattendedEnabled' | 'knowledgeEnabled' | 'knowledgeTool' | 'knowledgeQueryArg'
+>;
 
 export function mcpServerReplacement(s: McpServer, changes: Partial<ReplaceMcpServerInput> = {}): ReplaceMcpServerInput {
-  return { name: s.name, url: s.url, enabled: s.enabled, unattendedEnabled: s.unattendedEnabled, ...changes };
+  return {
+    name: s.name,
+    url: s.url,
+    enabled: s.enabled,
+    unattendedEnabled: s.unattendedEnabled,
+    knowledgeEnabled: s.knowledgeEnabled,
+    knowledgeTool: s.knowledgeTool,
+    knowledgeQueryArg: s.knowledgeQueryArg,
+    ...changes,
+  };
 }
 
 export class ApiError extends Error {

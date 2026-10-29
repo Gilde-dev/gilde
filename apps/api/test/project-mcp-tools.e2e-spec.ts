@@ -93,7 +93,7 @@ describe('Project MCP tools (e2e)', () => {
     expect(Object.keys(await buildTools('unattended'))).toEqual([]);
 
     const current = await server(id);
-    await http().put(`${base()}/${id}`).set(as(ann)).send({ name: current.name, url: current.url, enabled: true, unattendedEnabled: true }).expect(200);
+    await http().put(`${base()}/${id}`).set(as(ann)).send({ name: current.name, url: current.url, enabled: true, unattendedEnabled: true, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null }).expect(200);
     expect(Object.keys(await buildTools('unattended'))).toEqual(['mcp__Notion__search']);
   });
 
@@ -103,7 +103,7 @@ describe('Project MCP tools (e2e)', () => {
     expect(Object.keys(await buildTools('copilot'))).toEqual([]);
     await allow(id, [{ name: 'search', allowed: true, mode: 'read' }]);
     const current = await server(id);
-    await http().put(`${base()}/${id}`).set(as(ann)).send({ name: current.name, url: current.url, enabled: false, unattendedEnabled: false }).expect(200);
+    await http().put(`${base()}/${id}`).set(as(ann)).send({ name: current.name, url: current.url, enabled: false, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null }).expect(200);
     expect(Object.keys(await buildTools('copilot'))).toEqual([]);
   });
 

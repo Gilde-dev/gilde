@@ -17,6 +17,7 @@ const SPEC_CAPS = [4000, 2000] as const;
 type DownstreamEntry = NonNullable<JobPayload['downstream']>[number];
 
 interface Reduction {
+    knowledge: number;
     lessons: number;
     taskCap: number | 'title-only' | null;
     removed: Set<string>;
@@ -35,7 +36,7 @@ function capTask(d: DownstreamEntry, cap: number | 'title-only' | null): Downstr
 /**
  * The exact text a fire sends: instructions, a `---` line, then the job line and JSON payload. Optional context is
  * reduced while the text is over PROMPT_LIMIT, one step at a time and re-rendered (including `promptTrimmed`) after each,
- * stopping as soon as it fits: lessons from the least relevant end; downstream tasks capped at 1500, then 400, then left
+ * stopping as soon as it fits: knowledge snippets from the lowest ranked end; lessons from the least relevant end; downstream tasks capped at 1500, then 400, then left
  * out; downstream jobs removed (oldest unrelated feature siblings first, then dependents, oldest first); the feature spec
  * capped at 4000, then 2000. Instructions, the job's own task and criteria are never shortened. Never mutates `payload`;
  * a result that still does not fit is returned with `fits: false`.
@@ -45,12 +46,15 @@ export function prepareJobPrompt(payload: JobPayload, instructions: AgentInstruc
     const downstream = payload.downstream ?? [];
     const initial = context.initial ?? {};
     const dependents = context.dependents ?? new Set<string>();
-    const state: Reduction = { lessons: lessons.length, taskCap: null, removed: new Set(), specCap: null };
+    const knowledge = payload.knowledge?.snippets ?? [];
+    const state: Reduction = { knowledge: knowledge.length, lessons: lessons.length, taskCap: null, removed: new Set(), specCap: null };
 
     const view = (): { payload: JobPayload; trimmed: PromptTrimmed | null } => {
         const keptLessons = lessons.slice(0, state.lessons);
         const keptDownstream = downstream.filter((d) => !state.removed.has(d.jobId)).map((d) => capTask(d, state.taskCap));
         const trimmed: PromptTrimmed = {};
+        const keptKnowledge = knowledge.slice(0, state.knowledge);
+        if (keptKnowledge.length < knowledge.length) trimmed.knowledgeRemoved = knowledge.length - keptKnowledge.length;
         if (keptLessons.length < lessons.length) trimmed.lessonsRemoved = lessons.slice(state.lessons).map((l) => l.id);
         if (state.taskCap === 'title-only') trimmed.downstreamTaskCap = 'title-only';
         else if (state.taskCap !== null && downstream.some((d) => !state.removed.has(d.jobId) && (d.task?.length ?? 0) > (state.taskCap as number))) trimmed.downstreamTaskCap = state.taskCap;
@@ -71,6 +75,7 @@ export function prepareJobPrompt(payload: JobPayload, instructions: AgentInstruc
         for (const [key, value] of Object.entries(payload)) {
             if (key === 'promptTrimmed') continue;
             if (key === 'lessons') { if (keptLessons.length) out[key] = keptLessons; }
+            else if (key === 'knowledge') { if (keptKnowledge.length) out[key] = { ...payload.knowledge, snippets: keptKnowledge }; }
             else if (key === 'downstream') { if (keptDownstream.length) out[key] = keptDownstream; }
             else if (key === 'feature') out[key] = feature;
             else out[key] = value;
@@ -93,6 +98,8 @@ export function prepareJobPrompt(payload: JobPayload, instructions: AgentInstruc
         ...downstream.filter((d) => dependents.has(d.jobId)),
     ].map((d) => d.jobId);
     const steps: (() => void)[] = [
+        // External reference text goes first: the job's own task and criteria are never shortened.
+        ...knowledge.map(() => () => { state.knowledge--; }),
         ...lessons.map(() => () => { state.lessons--; }),
         ...(downstream.length ? [...TASK_CAPS.map((cap) => () => { state.taskCap = cap; }), () => { state.taskCap = 'title-only' as const; }] : []),
         ...removalOrder.map((id) => () => { state.removed.add(id); }),
