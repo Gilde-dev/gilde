@@ -9,6 +9,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { JobDependency } from '../job/job-dependency.entity.js';
 import { Job } from '../job/job.entity.js';
 import { HistoryModule } from '../memory/history/history.module.js';
+import { ProjectMcpModule } from '../project-mcp/project-mcp.module.js';
 import { Project } from '../project/project.entity.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
@@ -36,6 +37,7 @@ import { DispatcherService } from './dispatcher.service.js';
         ExecutionModule,
         ExecutorModule,
         HistoryModule,
+        ProjectMcpModule,
         RepoModule,
         RunModule,
         SkillModule,

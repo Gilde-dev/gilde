@@ -5,6 +5,7 @@ import { Repository } from 'typeorm';
 import { isUniqueViolation } from '../common/db-errors.js';
 import type { CreateRunDto, RunResponseDto } from './run.dto.js';
 import type { RunContext } from './run-context.js';
+import type { RunKnowledge } from './run-knowledge.js';
 import { JobRun } from './run.entity.js';
 import { RunMapper } from './run.mapper.js';
 
@@ -36,6 +37,11 @@ export class RunService {
     /** Records what the agent had; the capture itself never throws, and a failed write must not stop the fire. */
     async recordContext(id: string, capture: { context: RunContext | null; contextError: string | null }): Promise<void> {
         await this.runRepository.update({ id }, { context: capture.context, contextError: capture.contextError });
+    }
+
+    /** Which MCP servers put snippets in the prompt of this run, and how much text. */
+    async recordKnowledge(id: string, knowledge: RunKnowledge[]): Promise<void> {
+        await this.runRepository.update({ id }, { knowledge });
     }
 
     async markFailed(id: string, error: string): Promise<void> {

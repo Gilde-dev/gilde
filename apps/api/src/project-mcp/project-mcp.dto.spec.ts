@@ -20,7 +20,7 @@ describe('project MCP DTOs', () => {
 
     it('requires a full replacement and keeps the token out of it', () => {
         expect(ReplaceProjectMcpServerSchema.safeParse({ name: 'x', url: 'https://a.example.com' }).success).toBe(false);
-        const parsed = ReplaceProjectMcpServerSchema.parse({ name: 'x', url: 'https://a.example.com', enabled: true, unattendedEnabled: false, token: 'secret' });
+        const parsed = ReplaceProjectMcpServerSchema.parse({ name: 'x', url: 'https://a.example.com', enabled: true, unattendedEnabled: false, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null, token: 'secret' });
         expect(parsed).not.toHaveProperty('token');
     });
 
@@ -49,5 +49,22 @@ describe('project MCP token encryption scope', () => {
         expect(encrypted.keyVersion).toBe(PROJECT_MCP_KEY_VERSION + 1);
         expect(secrets.decrypt(encrypted, PROJECT_MCP_KEY_VERSION + 1)).toBe('mcp-token');
         expect(() => secrets.decrypt(encrypted, PROJECT_MCP_KEY_VERSION)).toThrow(/key version/);
+    });
+});
+
+describe('knowledge settings of a replaced server', () => {
+    const base = { name: 'x', url: 'https://a.example.com', enabled: true, unattendedEnabled: false };
+
+    it('needs a search tool and a query argument once knowledge is enabled', () => {
+        const off = { ...base, knowledgeEnabled: false, knowledgeTool: null, knowledgeQueryArg: null };
+        expect(ReplaceProjectMcpServerSchema.safeParse(off).success).toBe(true);
+        expect(ReplaceProjectMcpServerSchema.safeParse({ ...base, knowledgeEnabled: true, knowledgeTool: null, knowledgeQueryArg: null }).success).toBe(false);
+        expect(ReplaceProjectMcpServerSchema.safeParse({ ...base, knowledgeEnabled: true, knowledgeTool: 'search', knowledgeQueryArg: null }).success).toBe(false);
+        expect(ReplaceProjectMcpServerSchema.safeParse({ ...base, knowledgeEnabled: true, knowledgeTool: 'search', knowledgeQueryArg: 'query' }).success).toBe(true);
+    });
+
+    it('is part of a full replacement and takes only a plain argument name', () => {
+        expect(ReplaceProjectMcpServerSchema.safeParse(base).success).toBe(false);
+        expect(ReplaceProjectMcpServerSchema.safeParse({ ...base, knowledgeEnabled: true, knowledgeTool: 'search', knowledgeQueryArg: 'q; drop' }).success).toBe(false);
     });
 });

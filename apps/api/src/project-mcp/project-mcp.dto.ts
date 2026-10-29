@@ -35,6 +35,9 @@ export const McpTokenSchema = z.string().trim().min(1).max(1000).regex(/^[\x21-\
 
 const NameSchema = z.string().trim().min(1).max(80);
 
+/** The name of an argument in a tool's input: a plain identifier. */
+export const McpQueryArgSchema = z.string().trim().min(1).max(100).regex(/^[A-Za-z_][A-Za-z0-9_.-]*$/, { message: 'Must be an argument name' });
+
 export const CreateProjectMcpServerSchema = z.object({
     name: NameSchema,
     url: McpServerUrlSchema,
@@ -50,6 +53,13 @@ export const ReplaceProjectMcpServerSchema = z.object({
     url: McpServerUrlSchema,
     enabled: z.boolean(),
     unattendedEnabled: z.boolean(),
+    /** Knowledge for job payloads: when enabled, `knowledgeTool` (an allowed read tool) and `knowledgeQueryArg` are required. */
+    knowledgeEnabled: z.boolean(),
+    knowledgeTool: z.string().trim().min(1).max(200).nullable(),
+    knowledgeQueryArg: McpQueryArgSchema.nullable(),
+}).refine((v) => !v.knowledgeEnabled || (v.knowledgeTool !== null && v.knowledgeQueryArg !== null), {
+    path: ['knowledgeTool'],
+    message: 'Choose a search tool and the argument that takes the query',
 });
 export type ReplaceProjectMcpServerDto = z.infer<typeof ReplaceProjectMcpServerSchema>;
 
@@ -78,6 +88,9 @@ export const ProjectMcpServerResponseSchema = z.object({
     tokenLast4: z.string().nullable(),
     enabled: z.boolean(),
     unattendedEnabled: z.boolean(),
+    knowledgeEnabled: z.boolean(),
+    knowledgeTool: z.string().nullable(),
+    knowledgeQueryArg: z.string().nullable(),
     lastTestedAt: z.string().nullable(),
     lastError: z.string().nullable(),
     lastErrorAt: z.string().nullable(),

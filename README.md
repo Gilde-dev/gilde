@@ -125,7 +125,7 @@ Names are unique per owner.
 
 A project can register remote MCP servers (a knowledge base, Notion, Confluence, an issue tracker) so Gilde's agents can use that
 context; see [ADR 0014](docs/adr/0014-mcp-servers-per-project-with-allowlist-and-read-write-rules.md). This registry only stores and
-checks the servers; the agents do not use it yet.
+checks the servers and lets the agents use them.
 
 Setup:
 
@@ -141,6 +141,19 @@ Setup:
    only when the server marks them `readOnlyHint: true`, otherwise as `write`, and not allowed.
 4. Choose the allowlist: `PUT .../:id/tools` with `{ "tools": [{ "name", "mode": "read" | "write", "allowed" }] }` replaces it (tools you
    leave out become not allowed). Nothing is usable until it is allowed. A re-test keeps your choices for tools that still exist.
+
+5. Knowledge in jobs (optional): `PUT .../:id` also takes `knowledgeEnabled`, `knowledgeTool` and `knowledgeQueryArg`. With knowledge
+   enabled, the tool must be on the allowlist and marked `read`, and `knowledgeQueryArg` names the tool's string argument that receives
+   the query. At dispatch Gilde calls that tool once per server with the job title and task (cut to 1000 characters; 5 s timeout, or
+   `MCP_TOOL_TIMEOUT_MS`), keeps the top 3 results per server and adds them to the job payload as a `knowledge` block: each snippet has
+   its `server`, `tool`, a `ref` (URL or id) and `title` when the result gives them, and its text between `<untrusted-knowledge>` tags,
+   with a usage note saying it is reference material and never instructions. `KNOWLEDGE_BUDGET_CHARS` (default 6000) limits all snippet
+   text together and `KNOWLEDGE_SNIPPET_CHARS` (default 1500) one snippet; both are whole numbers from 0 to 50000, 0 turns knowledge
+   off, and an invalid value also turns it off (fail closed) and is logged. When the prompt is over its limit, the lowest-ranked
+   snippets are removed before anything else, the job's task is never shortened, and the prompt preview lists what was left out. A
+   server that fails, times out or no longer has an allowed read tool is skipped and its error is shown on the server; the job is
+   dispatched without its snippets. The run records which servers contributed snippets and how many characters (`knowledge` on the
+   run, shown on the run in the job detail).
 
 `GET .../:id` shows the tools, the usage (calls, errors, last error) and the audit trail: who changed what and when, never the token.
 

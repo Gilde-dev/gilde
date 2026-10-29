@@ -1,3 +1,4 @@
+import { ProjectMcpModule } from '../project-mcp/project-mcp.module.js';
 import { Module } from '@nestjs/common';
 
 import { TypeOrmModule } from '@nestjs/typeorm';
@@ -30,6 +31,7 @@ import { JobController } from './job.controller.js';
         ]),
         ExecutionModule,
         HistoryModule,
+        ProjectMcpModule,
         RepoModule,
         RunModule,
         FeedbackModule,
