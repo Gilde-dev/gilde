@@ -20,7 +20,9 @@ import { WebhookDelivery } from '../webhook/webhook-delivery.entity.js';
 import { WebhookService } from '../webhook/webhook.service.js';
 import { Feedback } from '../feedback/feedback.entity.js';
 import { IntakeItem } from './intake-item.entity.js';
-import { INTAKE_BODY_LIMIT, capBody, hasIntakeLabel, issueSha, type IntakeIssue } from './intake-issue.js';
+import { IntakeRefineRun } from './intake-refine-run.entity.js';
+import { IntakeRefineService } from './intake-refine.service.js';
+import { INTAKE_BODY_LIMIT, INTAKE_COMMENT_LIMIT, INTAKE_COMMENT_MAX, capBody, hasIntakeLabel, issueSha, refineSha, type IntakeIssue } from './intake-issue.js';
 import { IntakeMapper } from './intake.mapper.js';
 import { IntakeService } from './intake.service.js';
 
@@ -56,7 +58,7 @@ beforeEach(async () => {
     delete process.env.INTAKE_LABEL;
     ds = await new DataSource({
         type: 'better-sqlite3', database: ':memory:', synchronize: true,
-        entities: [User, Project, Repo, Job, JobRun, Feedback, Feature, Notification, GithubInstallation, WebhookDelivery, IntakeItem],
+        entities: [User, Project, Repo, Job, JobRun, Feedback, Feature, Notification, GithubInstallation, WebhookDelivery, IntakeItem, IntakeRefineRun],
     }).initialize();
     items = ds.getRepository(IntakeItem);
     repos = ds.getRepository(Repo);
@@ -87,6 +89,7 @@ beforeEach(async () => {
     webhook = new WebhookService(
         repoService, undefined as never, undefined as never, undefined as never, ds.getRepository(Project),
         undefined as never, undefined, installations, service,
+        { isOwnApp: (id: unknown) => String(id) === '4242' } as never,
     );
 });
 
@@ -230,6 +233,108 @@ describe('issues webhook', () => {
         expect((await all())[0]!.status).toBe('drafted');
         await webhook.handle('issues', payload('edited', { body: 'changed' }));
         expect((await all())[0]!.status).toBe('new');
+    });
+});
+
+describe('issue comments', () => {
+    const commentPayload = (action: string, over: Record<string, unknown> = {}, extra: Record<string, unknown> = {}, issueOver: Record<string, unknown> = {}) => ({
+        action,
+        repository: { full_name: 'o/r' },
+        issue: { number: 7, html_url: 'https://github.com/o/r/issues/7', ...issueOver },
+        comment: { id: 501, body: 'Answers: 1. semicolons', author_association: 'MEMBER', user: { login: 'maint', type: 'User' }, created_at: '2026-10-29T10:00:00Z', ...over },
+        sender: { type: 'User' },
+        ...extra,
+    });
+    const settle = async (status: IntakeItem['status'], over: Partial<IntakeItem> = {}) => items.update({ number: 7 }, { status, refinedSha256: 'x', ...over });
+
+    beforeEach(async () => { await service.applyIssue(repo, issue()); await settle('drafted'); });
+
+    it.each(['OWNER', 'MEMBER', 'COLLABORATOR'])('stores a %s comment and sets the item back to new', async (association) => {
+        const result = await webhook.handle('issue_comment', commentPayload('created', { author_association: association }));
+        expect(result).toBe('intake comment stored for issue #7');
+        const [item] = await all();
+        expect(item).toMatchObject({ status: 'new', refineAttempts: 0, lastError: null });
+        expect(item!.comments).toEqual([{ id: '501', author: 'maint', body: 'Answers: 1. semicolons', createdAt: '2026-10-29T10:00:00.000Z' }]);
+    });
+
+    it.each(['CONTRIBUTOR', 'NONE', 'FIRST_TIME_CONTRIBUTOR', undefined])('ignores a %s commenter and stores nothing', async (association) => {
+        const result = await webhook.handle('issue_comment', commentPayload('created', { author_association: association }));
+        expect(result).toContain('ignored');
+        const [item] = await all();
+        expect(item!.comments).toEqual([]);
+        expect(item!.status).toBe('drafted');
+    });
+
+    it('ignores comments of the app itself and of other bots, even with a trusted association', async () => {
+        expect(await webhook.handle('issue_comment', commentPayload('created', { author_association: 'MEMBER', performed_via_github_app: { id: 4242 } }))).toContain('ignored');
+        expect(await webhook.handle('issue_comment', commentPayload('edited', { author_association: 'OWNER', user: { login: 'gilde[bot]', type: 'Bot' } }, { sender: { type: 'Bot' } }))).toContain('bot');
+        const [item] = await all();
+        expect(item).toMatchObject({ comments: [], status: 'drafted' });
+    });
+
+    it('ignores comments on issues without an intake item, on withdrawn items, and other actions', async () => {
+        expect(await webhook.handle('issue_comment', commentPayload('created', {}, {}, { number: 99 }))).toContain('ignored');
+        expect(await webhook.handle('issue_comment', commentPayload('deleted'))).toContain('ignored');
+        await settle('withdrawn');
+        expect(await webhook.handle('issue_comment', commentPayload('created'))).toContain('ignored');
+        const [item] = await all();
+        expect(item).toMatchObject({ comments: [], status: 'withdrawn' });
+    });
+
+    it('keeps an ignored item ignored but stores the comment', async () => {
+        await settle('ignored');
+        await webhook.handle('issue_comment', commentPayload('created'));
+        const [item] = await all();
+        expect(item).toMatchObject({ status: 'ignored' });
+        expect(item!.comments).toHaveLength(1);
+    });
+
+    it('replaces an edited comment by id, and an unchanged re-delivery changes nothing', async () => {
+        await webhook.handle('issue_comment', commentPayload('created'));
+        await settle('drafted', { refinedSha256: refineSha((await all())[0]!) });
+        expect(await webhook.handle('issue_comment', commentPayload('created'))).toBe('intake comment unchanged for issue #7');
+        expect((await all())[0]!.status).toBe('drafted');
+
+        expect(await webhook.handle('issue_comment', commentPayload('edited', { body: 'Answers: 1. tabs' }))).toBe('intake comment stored for issue #7');
+        const [item] = await all();
+        expect(item!.comments).toHaveLength(1);
+        expect(item!.comments[0]!.body).toBe('Answers: 1. tabs');
+        expect(item!.status).toBe('new');
+    });
+
+    it('caps a body at 4000 characters, keeps the 20 most recent oldest first', async () => {
+        await webhook.handle('issue_comment', commentPayload('created', { id: 1, body: 'x'.repeat(INTAKE_COMMENT_LIMIT + 50) }));
+        expect((await all())[0]!.comments[0]!.body).toHaveLength(INTAKE_COMMENT_LIMIT);
+        for (let i = 2; i <= INTAKE_COMMENT_MAX + 5; i++) {
+            await webhook.handle('issue_comment', commentPayload('created', { id: i, body: `c${i}`, created_at: new Date(Date.UTC(2026, 9, 29, 10, i)).toISOString() }));
+        }
+        const comments = (await all())[0]!.comments;
+        expect(comments).toHaveLength(INTAKE_COMMENT_MAX);
+        expect(comments.map((c) => c.id)).toEqual(Array.from({ length: INTAKE_COMMENT_MAX }, (_, i) => String(i + 6)));
+    });
+
+    it('includes the comments in the refine sha: a new answer changes it, the same data does not', async () => {
+        const [before] = await all();
+        expect(refineSha(before!)).toBe(before!.bodySha256);
+        await webhook.handle('issue_comment', commentPayload('created'));
+        const sha1 = refineSha((await all())[0]!);
+        expect(sha1).not.toBe(before!.bodySha256);
+        await webhook.handle('issue_comment', commentPayload('created'));
+        expect(refineSha((await all())[0]!)).toBe(sha1);
+        await webhook.handle('issue_comment', commentPayload('created', { id: 502 }));
+        expect(refineSha((await all())[0]!)).not.toBe(sha1);
+    });
+
+    it('does not select a refined item again for an unchanged comment, but does after a new one', async () => {
+        const refiner = new IntakeRefineService(items, ds.getRepository(IntakeRefineRun));
+        await webhook.handle('issue_comment', commentPayload('created'));
+        expect((await refiner.nextPerProject()).map((i) => i.number)).toEqual([7]);
+        await items.update({ number: 7 }, { status: 'drafted', refinedSha256: refineSha((await all())[0]!) });
+        await webhook.handle('issue_comment', commentPayload('created'));
+        await items.update({ number: 7 }, { status: 'new' });
+        expect(await refiner.nextPerProject()).toEqual([]);
+        await webhook.handle('issue_comment', commentPayload('created', { id: 777, body: 'more' }));
+        expect((await refiner.nextPerProject()).map((i) => i.number)).toEqual([7]);
     });
 });
 

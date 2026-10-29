@@ -11,6 +11,7 @@ import { isUniqueViolation } from '../common/db-errors.js';
 import { WebhookDelivery } from './webhook-delivery.entity.js';
 import { RepoService } from '../repo/repo.service.js';
 import { JobRun } from '../run/run.entity.js';
+import { GitHubCredentials } from '../github/github-credentials.js';
 import { IntakeService } from '../intake/intake.service.js';
 import { parsePrBody } from './pr-body.js';
 
@@ -35,13 +36,16 @@ interface WebhookPayload {
         author_association?: string;
         user?: { login?: string };
     };
+    sender?: { type?: string };
     comment?: {
         id?: number;
+        performed_via_github_app?: { id?: number } | null;
         html_url?: string;
         created_at?: string;
         body?: string | null;
         author_association?: string;
-        user?: { login?: string };
+        user?: { login?: string; type?: string };
+        updated_at?: string;
         pull_request_review_id?: number | null;
         path?: string;
         line?: number | null;
@@ -92,6 +96,7 @@ export class WebhookService {
         @InjectRepository(WebhookDelivery) private readonly deliveries?: Repository<WebhookDelivery>,
         private readonly installations?: GithubInstallationService,
         private readonly intake?: IntakeService,
+        private readonly credentials?: GitHubCredentials,
     ) { }
 
     /**
@@ -127,7 +132,7 @@ export class WebhookService {
         if (event === 'workflow_run') return this.onWorkflowRun(repo.id, payload!);
         if (event === 'pull_request_review') return this.onReview(repo.id, payload!);
         if (event === 'pull_request_review_comment') return this.onReviewComment(repo.id, payload!);
-        if (event === 'issue_comment') return this.onIssueComment(repo.id, payload!);
+        if (event === 'issue_comment') return this.onIssueComment(repo, payload!);
         if (event === 'issues') return this.onIssue(repo, payload!);
         return this.onPullRequest(repo.id, payload!);
     }
@@ -219,10 +224,31 @@ export class WebhookService {
         return stored ? `stored review comment for PR #${pr.number}` : `unchanged: review comment ${comment.id} already stored`;
     }
 
-    private async onIssueComment(repoId: string, payload: WebhookPayload): Promise<string> {
+    /**
+     * Comments on an issue with an intake item are answers for the Verfijner: only OWNER, MEMBER and COLLABORATOR count,
+     * the same trust as the label, and never the app's own status comment or any other bot. Everything else is dropped unstored.
+     */
+    private async onIntakeComment(repo: { id: string }, payload: WebhookPayload): Promise<string> {
         const { issue, comment } = payload;
+        if (!this.intake || !issue || comment?.id === undefined) return `ignored: issue_comment on issue #${issue?.number}`;
+        if (payload.action !== 'created' && payload.action !== 'edited') return `ignored: issue_comment ${payload.action ?? '(no action)'}`;
+        const own = payload.sender?.type === 'Bot' || comment.user?.type === 'Bot' || !!this.credentials?.isOwnApp(comment.performed_via_github_app?.id);
+        if (own) return `ignored: issue_comment on issue #${issue.number} by a bot`;
+        if (!comment.author_association || !TRUSTED_REVIEWERS.has(comment.author_association)) {
+            return `ignored: issue_comment on issue #${issue.number} by ${comment.author_association ?? 'unknown'} commenter`;
+        }
+        const change = await this.intake.applyComment(repo, issue.number, {
+            id: String(comment.id), author: comment.user?.login ?? 'unknown', body: comment.body ?? '',
+            createdAt: toDate(comment.created_at).toISOString(),
+        });
+        return change === 'no item' ? `ignored: issue_comment on issue #${issue.number}` : `intake comment ${change} for issue #${issue.number}`;
+    }
+
+    private async onIssueComment(repo: { id: string }, payload: WebhookPayload): Promise<string> {
+        const { issue, comment } = payload;
+        const repoId = repo.id;
+        if (issue && !issue.pull_request) return this.onIntakeComment(repo, payload);
         if (payload.action !== 'created' || !issue || comment?.id === undefined) return `ignored: issue_comment ${payload.action ?? '(no action)'}`;
-        if (!issue.pull_request) return `ignored: issue_comment on issue #${issue.number}`;
         const job = await this.findJobByPr(repoId, issue.number);
         if (!job) return `ignored: PR #${issue.number} is not a known job PR`;
         const stored = await this.feedback.record({

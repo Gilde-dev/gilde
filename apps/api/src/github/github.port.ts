@@ -50,6 +50,19 @@ export interface GitHubIssuePage {
 
 export const GITHUB_ISSUE_PAGE_SIZE = 100;
 
+/** A comment Gilde wrote on an issue. */
+export interface GitHubIssueCommentRef {
+    id: string;
+    htmlUrl: string;
+}
+
+/** A GitHub request that failed; carries the status, never headers or tokens. */
+export class GitHubRequestError extends Error {
+    constructor(message: string, readonly status: number) {
+        super(message);
+    }
+}
+
 export interface GitHubPort {
     /** False when no GitHub credentials are configured; the other methods would fail. */
     isConfigured(): boolean;
@@ -66,4 +79,10 @@ export interface GitHubPort {
     listDirectory(fullName: string, path: string, ref: string): Promise<GitHubDirEntry[] | null>;
     /** One page (at most GITHUB_ISSUE_PAGE_SIZE) of the open issues that carry `label`. */
     listOpenIssuesWithLabel(fullName: string, label: string): Promise<GitHubIssuePage>;
+    /**
+     * Gilde's one status comment on an issue (needs Issues: write). Edits comment `commentId` when given and still there;
+     * otherwise looks for an earlier comment of the app that starts with `marker`, and only creates one when none exists.
+     * Throws GitHubRequestError when GitHub refuses.
+     */
+    upsertIssueComment(fullName: string, issueNumber: number, input: { marker: string; body: string; commentId: string | null }): Promise<GitHubIssueCommentRef>;
 }

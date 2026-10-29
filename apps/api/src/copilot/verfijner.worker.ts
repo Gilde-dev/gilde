@@ -6,6 +6,8 @@ import type { Mastra } from '@mastra/core/mastra';
 
 import type { BudgetService } from '../budget/budget.service.js';
 import type { IntakeItem } from '../intake/intake-item.entity.js';
+import { refineSha } from '../intake/intake-issue.js';
+import type { IntakeCommentService } from '../intake/intake-comment.service.js';
 import type { IntakeRefineService } from '../intake/intake-refine.service.js';
 
 import type { RefineSetup } from './copilot.mastra.js';
@@ -32,6 +34,7 @@ export class VerfijnerWorker {
         private readonly mastra: Pick<Mastra, 'getAgent'>,
         private readonly refine: IntakeRefineService,
         private readonly budget: Pick<BudgetService, 'status'>,
+        private readonly comments?: Pick<IntakeCommentService, 'sync'>,
     ) { }
 
     @Cron('0 * * * * *')
@@ -77,7 +80,7 @@ export class VerfijnerWorker {
         try {
             const prompt = refinePrompt({
                 repoFullName: item.repo?.fullName ?? item.repoId, number: item.number, url: item.url, title: item.title,
-                body: item.body, bodyTruncated: item.bodyTruncated, specId: item.specId,
+                body: item.body, bodyTruncated: item.bodyTruncated, specId: item.specId, comments: item.comments ?? [],
             }, randomBytes(8).toString('hex'));
             const output = await this.mastra.getAgent(REFINE_AGENT_ID).stream(prompt, {
                 ...refineStreamOptions(this.setup.user, binding),
@@ -85,11 +88,12 @@ export class VerfijnerWorker {
             } as never);
             await (output as { consumeStream(): Promise<void> }).consumeStream();
             if (refineOutcome(binding).saves === 0) throw new Error('The agent finished without saving a spec');
-            if (!(await this.refine.drafted(item.id, item.bodySha256))) this.logger.log(`Item ${item.id} changed during its refine run; it stays as it is.`);
+            if (!(await this.refine.drafted(item.id, refineSha(item)))) this.logger.log(`Item ${item.id} changed during its refine run; it stays as it is.`);
         } catch (error) {
             const status = await this.refine.failed(item.id, message(error));
             this.logger.warn(`Refining item ${item.id} failed (${status ?? 'item changed'}): ${message(error)}`);
         }
+        await this.comments?.sync(item.id); // never throws: a comment problem is recorded on the item
     }
 }
 

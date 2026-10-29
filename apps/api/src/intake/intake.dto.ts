@@ -38,6 +38,12 @@ export const IntakeItemResponseSchema = z.object({
     specId: z.string().nullable(),
     spec: IntakeSpecSummarySchema.nullable(),
     lastError: z.string().nullable(),
+    /** Link to Gilde's status comment on the issue, once posted. */
+    statusCommentUrl: z.string().nullable(),
+    /** Why the status comment could not be written (short, safe). */
+    commentError: z.string().nullable(),
+    /** Trusted member comments stored for the Verfijner. */
+    commentCount: z.number().int(),
     refineAttempts: z.number().int(),
     createdAt: z.string(),
     updatedAt: z.string(),
