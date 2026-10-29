@@ -5,6 +5,7 @@ import type { SpecService } from '../spec/spec.service.js';
 import { parseSpec } from '../spec/spec-parser.js';
 
 import type { CopilotUser } from './copilot.context.js';
+import { MAX_OPEN_QUESTIONS } from './verfijner.instructions.js';
 import { refineOutcome, type RefineBinding } from './verfijner.context.js';
 
 export type SaveRefinedSpecResult =
@@ -38,7 +39,9 @@ export class RefinedSpecWriter {
         if (!item || item.projectId !== binding.projectId || item.repoId !== binding.repoId) return { saved: false, errors: ['The intake item of this run no longer exists.'] };
         if (item.status !== 'refining') return { saved: false, errors: [`The intake item is ${item.status}, not being refined any more; stop.`] };
 
-        const errors = parseSpec(input.body).issues.map((i) => (i.line === null ? i.message : `line ${i.line}: ${i.message}`));
+        const parsed = parseSpec(input.body);
+        const errors = parsed.issues.map((i) => (i.line === null ? i.message : `line ${i.line}: ${i.message}`));
+        if (parsed.openQuestions.length > MAX_OPEN_QUESTIONS) errors.push(`at most ${MAX_OPEN_QUESTIONS} open questions; turn the rest into stated assumptions`);
         if (!input.body.includes(item.url)) errors.push(`The Context section must contain the issue URL ${item.url}`);
         if (errors.length) return { saved: false, errors };
 

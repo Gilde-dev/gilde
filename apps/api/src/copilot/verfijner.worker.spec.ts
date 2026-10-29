@@ -9,6 +9,7 @@ import { REFINE_AGENT_ID, refineConfig } from './verfijner.config.js';
 import { refineSha } from '../intake/intake-issue.js';
 import { refineOutcome, type RefineBinding } from './verfijner.context.js';
 import { scriptedModel, validSpecBody, type ScriptedStep } from './verfijner.testing.js';
+import { RefinedSpecWriter } from './verfijner.save.js';
 import { VerfijnerWorker } from './verfijner.worker.js';
 
 const P1 = '3f2b8a4e-1c5d-4e7a-9b60-0d1e2f3a4b5c';
@@ -157,6 +158,20 @@ describe('VerfijnerWorker', () => {
         // The second model call saw the first result.
         const toolResults = JSON.stringify(prompts[1].filter((m) => m.role === 'tool'));
         expect(toolResults).toContain('Missing section');
+    });
+
+    it('lets the agent retry after too many open questions and ends with the version of 4', async () => {
+        const specs = { create: vi.fn(async () => ({ id: 's', currentVersion: 1 })), saveVersion: vi.fn(), getDetail: vi.fn() };
+        const link = { get: vi.fn(async () => ({ ...item(), status: 'refining' })), linkSpec: vi.fn() };
+        const real = new RefinedSpecWriter(specs as never, link as never, BOT);
+        save.mockImplementation((binding: RefineBinding, input: { title: string; body: string }) => real.save(binding, input));
+        const body = (n: number) => validSpecBody(URL).replace('None\n', Array.from({ length: n }, (_, i) => `- Question ${i + 1}?`).join('\n') + '\n');
+        const step = (n: number): ScriptedStep => ({ tool: 'saveRefinedSpec', input: { title: 'Export to CSV', body: body(n) } });
+        await worker([step(7), step(4)]).tick();
+        expect(specs.create).toHaveBeenCalledTimes(1);
+        expect((specs.create.mock.calls[0] as unknown as [string, { body: string }])[1].body).toBe(body(4));
+        expect(JSON.stringify(prompts[1].filter((m) => m.role === 'tool'))).toContain('at most 5 open questions');
+        expect(refine.drafted).toHaveBeenCalledTimes(1);
     });
 
     it('turns an error thrown by a tool or the model into a failed attempt with a short message', async () => {

@@ -1,6 +1,7 @@
 import { ConflictException } from '@nestjs/common';
 
 import { issueRefineBinding, refineOutcome } from './verfijner.context.js';
+import { MAX_OPEN_QUESTIONS } from './verfijner.instructions.js';
 import { RefinedSpecWriter, refineSlug } from './verfijner.save.js';
 import { validSpecBody } from './verfijner.testing.js';
 
@@ -70,6 +71,22 @@ describe('RefinedSpecWriter', () => {
         await writer().save(b, { title: 'Export to CSV', body: validSpecBody(URL) });
         expect(specs.create).toHaveBeenCalledTimes(1);
         expect(specs.saveVersion).toHaveBeenCalledTimes(1);
+    });
+
+    describe('open questions limit', () => {
+        const withQuestions = (n: number) => validSpecBody(URL).replace('None\n', Array.from({ length: n }, (_, i) => `- Question ${i + 1}?`).join('\n') + '\n');
+
+        it('accepts the maximum and rejects one more with a fixable error', async () => {
+            expect(MAX_OPEN_QUESTIONS).toBe(5);
+            expect(await writer().save(binding(), { title: 'T', body: withQuestions(5) })).toMatchObject({ saved: true });
+            const result = await writer().save(binding(), { title: 'T', body: withQuestions(6) });
+            expect(result).toEqual({ saved: false, errors: ['at most 5 open questions; turn the rest into stated assumptions'] });
+        });
+
+        it('counts None and an empty section as resolved', async () => {
+            expect(await writer().save(binding(), { title: 'T', body: withQuestions(0) })).toMatchObject({ saved: true });
+            expect(await writer().save(binding(), { title: 'T', body: validSpecBody(URL).replace('None\n', '') })).toMatchObject({ saved: true });
+        });
     });
 
     it('returns parser errors so the agent can retry, and saves nothing', async () => {
