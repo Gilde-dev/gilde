@@ -162,7 +162,7 @@ describe('Full-replacement PUT updates (e2e)', () => {
   describe('projects', () => {
     const fullOf = (p: Body): Body => ({
       name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
-      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts,
+      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts, autoPlan: p.autoPlan,
       skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct,
     });

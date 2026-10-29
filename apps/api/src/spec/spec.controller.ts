@@ -68,6 +68,14 @@ export class SpecController {
         return this.specService.approve(id, dto, user ?? undefined);
     }
 
+    /** Verified humans only: queues a Werkmeester planning run for the approved version, whatever `autoPlan` says. */
+    @Post('specs/:id/plan')
+    @HttpCode(200)
+    @UseGuards(JwtHumanGuard)
+    plan(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: AuthUser | null): Promise<SpecDetailResponseDto> {
+        return this.specService.requestPlan(id, user ?? undefined);
+    }
+
     /** Verified humans only. */
     @Post('specs/:id/archive')
     @HttpCode(200)

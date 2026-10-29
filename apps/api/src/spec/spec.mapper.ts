@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 
 import type { SpecApprovalEvidenceDto, SpecResponseDto, SpecSourceDto } from './spec.dto.js';
 import { Spec } from './spec.entity.js';
+import type { SpecPlanningRunDto } from './spec.dto.js';
+import { SpecPlanningRun } from './spec-planning-run.entity.js';
 import { SpecApproval } from './spec-approval.entity.js';
 
 @Injectable()
@@ -26,6 +28,22 @@ export class SpecMapper {
             createdAt: e.createdAt.toISOString(),
             updatedAt: e.updatedAt.toISOString(),
             source,
+            planNote: e.planNote ?? null,
+        };
+    }
+
+    planningToDTO(r: SpecPlanningRun): SpecPlanningRunDto {
+        return {
+            id: r.id,
+            version: r.version,
+            status: r.status,
+            attempts: r.attempts,
+            featureId: r.featureId,
+            reason: r.reason,
+            trigger: r.trigger,
+            requestedById: r.requestedById,
+            createdAt: r.createdAt.toISOString(),
+            updatedAt: r.updatedAt.toISOString(),
         };
     }
 

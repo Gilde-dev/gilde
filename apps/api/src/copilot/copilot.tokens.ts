@@ -16,5 +16,6 @@ export const SCOUT_SIGNALS = Symbol('SCOUT_SIGNALS');
 export const REFINE_SETUP = Symbol('REFINE_SETUP');
 /** VerfijnerWorker, or null when the Verfijner is off. */
 export const REFINE_WORKER = Symbol('REFINE_WORKER');
+export const PLAN_WORKER = Symbol('PLAN_WORKER');
 /** The enabled Werkmeester (config + bot user) or null when it is off. */
 export const PLAN_SETUP = Symbol('PLAN_SETUP');

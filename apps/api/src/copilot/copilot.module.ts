@@ -50,7 +50,7 @@ import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { CopilotThreadsService } from './copilot-threads.service.js';
 import { createMastra, MASTRA_PREFIX, type PlanSetup, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
@@ -72,6 +72,8 @@ import { IntakeRefineService } from '../intake/intake-refine.service.js';
 import { resolveRefineSetup } from './verfijner.setup.js';
 import { RefinedSpecWriter } from './verfijner.save.js';
 import { VerfijnerWorker } from './verfijner.worker.js';
+import { PlanningWorker } from './planning.worker.js';
+import { SpecPlanningService } from '../spec/spec-planning.service.js';
 import { resolvePlanSetup } from './werkmeester.setup.js';
 import { PlanProposer } from './werkmeester.propose.js';
 import { WerkmeesterService } from './werkmeester.service.js';
@@ -234,6 +236,13 @@ export class ScoutLifecycle implements OnModuleDestroy {
             inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService],
         },
         {
+            // Null (and nothing scheduled) while the Werkmeester is off; queued runs wait until it is on.
+            provide: PLAN_WORKER,
+            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService): PlanningWorker | null =>
+                (plan ? new PlanningWorker(plan, werkmeester, planning, budget) : null),
+            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService],
+        },
+        {
             // Always provided; `enabled` is false (and plan() fails) while the Werkmeester is off.
             provide: WerkmeesterService,
             useFactory: (plan: PlanSetup | null, mastra: Mastra, specs: SpecService, repos: RepoService): WerkmeesterService => new WerkmeesterService(plan, mastra, specs, repos),
@@ -243,7 +252,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

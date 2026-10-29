@@ -1,3 +1,5 @@
+import { randomUUID } from 'node:crypto';
+
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, Optional, UnprocessableEntityException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { EntityManager, In, IsNull, Not, Repository } from 'typeorm';
@@ -8,6 +10,7 @@ import { IntakeCommentService } from '../intake/intake-comment.service.js';
 import { Feature } from '../feature/feature.entity.js';
 import { IntakeItem } from '../intake/intake-item.entity.js';
 import { Job } from '../job/job.entity.js';
+import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobService } from '../job/job.service.js';
 import { ProjectService } from '../project/project.service.js';
@@ -30,6 +33,7 @@ import type {
 import { SpecApproval } from './spec-approval.entity.js';
 import { Spec } from './spec.entity.js';
 import { SpecMapper } from './spec.mapper.js';
+import { SpecPlanningRun, OPEN_PLANNING_STATUSES } from './spec-planning-run.entity.js';
 import { SpecRecording } from './spec-recording.entity.js';
 import { recordingJobContent, recordingState, sha256 } from './spec-recording.js';
 import { SpecVersion } from './spec-version.entity.js';
@@ -65,6 +69,7 @@ export class SpecService {
         @InjectRepository(Job) private readonly jobRepository: Repository<Job>,
         @InjectRepository(IntakeItem) private readonly intakeRepository: Repository<IntakeItem>,
         @InjectRepository(Feature) private readonly featureRepository: Repository<Feature>,
+        @InjectRepository(SpecPlanningRun) private readonly planningRepository: Repository<SpecPlanningRun>,
         @Optional() private readonly intakeComments?: IntakeCommentService,
     ) { }
 
@@ -184,6 +189,31 @@ export class SpecService {
     }
 
     /**
+     * Queues a planning run for the approved version (verified humans only), whatever the project's `autoPlan` says. 409 when
+     * nothing is approved, the spec is archived, the version already has a feature or a run is queued or running.
+     */
+    async requestPlan(id: string, user: AuthUser | undefined): Promise<SpecDetailResponseDto> {
+        const requester = await this.userService.requireVerifiedHuman(user);
+        await this.locked(id, async (m) => {
+            const spec = await m.findOneBy(Spec, { id });
+            if (!spec) throw new NotFoundException(`Spec ${id} not found`);
+            if (spec.archivedAt) throw new ConflictException('This spec is archived; unarchive it before planning');
+            if (spec.approvedVersion === null) throw new ConflictException('This spec has no approved version; a verified human must approve it first');
+            const approval = await m.findOneBy(SpecApproval, { specId: id, version: spec.approvedVersion });
+            if (!approval) throw new ConflictException(`Version ${spec.approvedVersion} has no approval`);
+            const feature = await m.findOne(Feature, { where: { specId: id, specVersion: spec.approvedVersion }, select: { id: true, title: true } });
+            if (feature) throw new ConflictException(`Version ${spec.approvedVersion} is already planned: feature "${feature.title}" is pinned to it`);
+            const open = await m.findOne(SpecPlanningRun, { where: { specId: id, version: spec.approvedVersion, status: In(OPEN_PLANNING_STATUSES) } });
+            if (open) throw new ConflictException(`Version ${spec.approvedVersion} already has a planning run that is ${open.status}`);
+            if (!(await this.insertPlanningRun(m, spec, approval, 'manual', requester.id))) {
+                throw new ConflictException(`Version ${spec.approvedVersion} already has a planning run in progress`);
+            }
+            await m.update(Spec, { id }, { planNote: null });
+        });
+        return this.getDetail(id, user ?? null);
+    }
+
+    /**
      * Marks a version's recording as pinned by a feature, so it is never replaced or cancelled. Idempotent: a recording that
      * another feature already pinned stays pinned by that one, which protects it just the same.
      */
@@ -286,6 +316,35 @@ export class SpecService {
             baseBranch: repo.defaultBranch,
         });
         await this.recordVersion(m, spec, version, approval, content, approver);
+        await this.planOnApproval(m, spec, approval);
+    }
+
+    /**
+     * With `autoPlan` on, queues the planning run of a newly approved version in the approval's transaction. When an earlier
+     * version already has a feature, no run is queued: the spec gets a note for the human instead (cleared otherwise).
+     */
+    private async planOnApproval(m: EntityManager, spec: Spec, approval: SpecApproval): Promise<void> {
+        const project = await m.findOneBy(Project, { id: spec.projectId });
+        if (!project?.autoPlan) return;
+        const planned = await m.find(Feature, { where: { specId: spec.id }, select: { id: true, title: true, specVersion: true }, order: { specVersion: 'DESC' } });
+        const pinned = planned.find((f) => f.specVersion !== null && f.specVersion <= approval.version);
+        if (pinned?.specVersion === approval.version) return; // this very version already has its feature
+        if (pinned) {
+            await m.update(Spec, { id: spec.id }, { planNote: `v${approval.version} approved; feature ${pinned.title} is pinned to v${pinned.specVersion}` });
+            return;
+        }
+        await m.update(Spec, { id: spec.id }, { planNote: null });
+        await this.insertPlanningRun(m, spec, approval, 'auto', null);
+    }
+
+    /** Inserts an open run; false when another open run for the version already exists (the partial unique index decides). */
+    private async insertPlanningRun(m: EntityManager, spec: Spec, approval: SpecApproval, trigger: 'auto' | 'manual', requestedById: string | null): Promise<boolean> {
+        const id = randomUUID();
+        await m.createQueryBuilder().insert().into(SpecPlanningRun).values({
+            id, specId: spec.id, version: approval.version, approvalId: approval.id, projectId: spec.projectId,
+            status: 'queued', attempts: 0, trigger, requestedById,
+        }).orIgnore().execute();
+        return m.existsBy(SpecPlanningRun, { id });
     }
 
     /**
@@ -399,10 +458,11 @@ export class SpecService {
     }
 
     private async detail(spec: Spec, caller: AuthUser | null): Promise<SpecDetailResponseDto> {
-        const [versions, approvals, recordings] = await Promise.all([
+        const [versions, approvals, recordings, planningRuns] = await Promise.all([
             this.versionRepository.find({ where: { specId: spec.id }, order: { version: 'DESC' } }),
             this.approvalRepository.find({ where: { specId: spec.id } }),
             this.recordingRepository.find({ where: { specId: spec.id } }),
+            this.planningRepository.find({ where: { specId: spec.id }, order: { createdAt: 'DESC', id: 'DESC' } }),
         ]);
         const jobs = recordings.length
             ? await this.jobRepository.find({ where: { id: In([...new Set(recordings.map((r) => r.jobId))]) } })
@@ -410,12 +470,15 @@ export class SpecService {
         const jobById = new Map(jobs.map((j) => [j.id, j]));
         const approvalByVersion = new Map(approvals.map((a) => [a.version, a]));
         const recordingByVersion = new Map(recordings.map((r) => [r.version, r]));
+        const planningByVersion = new Map<number, SpecPlanningRun>();
+        for (const run of planningRuns) if (!planningByVersion.has(run.version)) planningByVersion.set(run.version, run); // newest first
 
         const dtoVersions: SpecVersionResponseDto[] = versions.map((v) => {
             const parsed = parseSpec(v.body);
             const reasons = approvalBlockers(parsed);
             const approval = approvalByVersion.get(v.version);
             const recording = recordingByVersion.get(v.version);
+            const planning = planningByVersion.get(v.version);
             return {
                 id: v.id,
                 version: v.version,
@@ -428,6 +491,7 @@ export class SpecService {
                 eligibility: { eligible: reasons.length === 0, reasons },
                 approval: approval ? this.mapper.approvalToDTO(approval) : null,
                 recording: recording ? this.recordingDto(recording, jobById.get(recording.jobId)) : null,
+                planning: planning ? this.mapper.planningToDTO(planning) : null,
             };
         });
         const current = dtoVersions.find((v) => v.version === spec.currentVersion);

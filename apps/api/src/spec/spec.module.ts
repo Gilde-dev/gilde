@@ -11,6 +11,9 @@ import { ProjectModule } from '../project/project.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { UserModule } from '../user/user.module.js';
 
+import { SpecPlanningRun } from './spec-planning-run.entity.js';
+import { SpecPlanningService } from './spec-planning.service.js';
+import { Project } from '../project/project.entity.js';
 import { SpecApproval } from './spec-approval.entity.js';
 import { SpecController } from './spec.controller.js';
 import { Spec } from './spec.entity.js';
@@ -21,7 +24,7 @@ import { SpecVersion } from './spec-version.entity.js';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([Spec, SpecVersion, SpecApproval, SpecRecording, Job, IntakeItem, Feature]),
+        TypeOrmModule.forFeature([Spec, SpecVersion, SpecApproval, SpecRecording, SpecPlanningRun, Project, Job, IntakeItem, Feature]),
         PassportModule.register({}),
         IntakeModule,
         JobModule,
@@ -30,7 +33,7 @@ import { SpecVersion } from './spec-version.entity.js';
         UserModule,
     ],
     controllers: [SpecController],
-    providers: [SpecMapper, SpecService],
-    exports: [SpecService],
+    providers: [SpecMapper, SpecService, SpecPlanningService],
+    exports: [SpecService, SpecPlanningService],
 })
 export class SpecModule { }
