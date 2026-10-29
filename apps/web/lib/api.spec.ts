@@ -123,7 +123,7 @@ describe('update clients send complete PUT bodies', () => {
 
   it('never contains undefined keys', async () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { description: undefined, budgetSoftPct: undefined })));
-    expect(Object.keys(r.body)).toHaveLength(12);
+    expect(Object.keys(r.body)).toHaveLength(13);
     expect(r.raw).not.toContain('undefined');
   });
 });
