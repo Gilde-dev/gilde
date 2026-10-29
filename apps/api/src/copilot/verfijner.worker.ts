@@ -30,15 +30,25 @@ const RUN_TIMEOUT_MS = 10 * 60_000;
 export class VerfijnerWorker {
     private readonly logger = new Logger('Verfijner');
     private running = false;
+    /** The setup of the pass in progress: read again at the start of every tick. */
+    private setup: RefineSetup;
+    private readonly source: () => Promise<RefineSetup | null>;
 
+    /**
+     * `setup` is read on each tick when it is a function (null: the Verfijner is not on, nothing runs), so a changed
+     * setting or a newly created bot user needs no restart. A plain setup is used as it is.
+     */
     constructor(
-        private readonly setup: RefineSetup,
+        setup: RefineSetup | (() => Promise<RefineSetup | null>),
         private readonly mastra: Pick<Mastra, 'getAgent'>,
         private readonly refine: IntakeRefineService,
         private readonly budget: Pick<BudgetService, 'status'>,
         private readonly comments?: Pick<IntakeCommentService, 'sync'>,
         private readonly runLog?: Pick<AgentRunRecorder, 'begin'>,
-    ) { }
+    ) {
+        this.source = typeof setup === 'function' ? setup : async () => setup;
+        this.setup = typeof setup === 'function' ? (undefined as never) : setup;
+    }
 
     @Cron('0 * * * * *')
     async scheduled(): Promise<void> {
@@ -55,6 +65,9 @@ export class VerfijnerWorker {
         this.running = true;
         const ran: string[] = [];
         try {
+            const setup = await this.source();
+            if (!setup) return ran;
+            this.setup = setup;
             for (const candidate of await this.refine.nextPerProject()) {
                 if (!(await this.allowed(candidate.projectId, now))) continue;
                 const item = await this.refine.begin(candidate);

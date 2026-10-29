@@ -290,6 +290,48 @@ pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verken
 pnpm --filter @gilde/api user:mark-bot --email verkenner@example.com
 ```
 
+## Agent settings
+
+The runtime settings of the agents live in the database (table `agent_settings`, one row per agent: `gilde` (the co-pilot), `verkenner`, `verfijner`,
+`werkmeester`, `mcp` and `coding`), not in environment variables. Each record holds `enabled`, the bot user (Verkenner, Verfijner and Werkmeester only, chosen
+from the users marked as bots), the `openai/<model>` (a bot agent without one follows the co-pilot's model) and that agent's limits and schedule. Decision and
+reasons: [ADR 0017](docs/adr/0017-agent-settings-in-the-database-env-as-seed-and-ceiling.md); requirements: `docs/specs/agents-page-and-runtime-settings.md`.
+
+| Agent | Settings (key: default) | Seeded from |
+|---|---|---|
+| `gilde` | `maxSteps: 30` | `COPILOT_MODEL`, `COPILOT_MAX_STEPS` |
+| `verkenner` | `maxWakesPerDay: 6`, `dailySuggestions: 3`, `summaryHourUtc: 6`, `patternMinSize: 4` | `SCOUT_ENABLED`, `SCOUT_USER_EMAIL`, `SCOUT_MODEL`, `SCOUT_MAX_WAKES_PER_DAY`, `SCOUT_DAILY_SUGGESTIONS`, `SCOUT_SUMMARY_HOUR_UTC`, `SCOUT_PATTERN_MIN_SIZE` |
+| `verfijner` | `dailyLimit: 10` | `REFINE_ENABLED`, `REFINE_USER_EMAIL`, `REFINE_MODEL`, `REFINE_DAILY_LIMIT` |
+| `werkmeester` | `dailyLimit: 5` | `PLAN_ENABLED`, `PLAN_USER_EMAIL`, `PLAN_MODEL`, `PLAN_DAILY_LIMIT` |
+| `mcp` | `dailyJobLimit: 20`, `dailyFeatureLimit: 5`, `toolTimeoutMs: 5000`, `toolResultMaxChars: 8000` | `MCP_DAILY_JOB_LIMIT`, `MCP_DAILY_FEATURE_LIMIT`, `MCP_TOOL_TIMEOUT_MS`, `MCP_TOOL_RESULT_MAX_CHARS` |
+| `coding` | `lessonsTopK: 5`, `lessonsMinScore: 0.5`, `lessonsTimeoutMs: 3000` | `DISPATCH_LESSONS_TOP_K`, `DISPATCH_LESSONS_MIN_SCORE`, `DISPATCH_LESSONS_TIMEOUT_MS` |
+
+- **The environment is the seed.** On startup an agent without a record gets one from the variables in the last column (`*_USER_EMAIL` becomes the user id of that
+  account). An existing record is **never** overwritten from the environment: changing `SCOUT_MODEL` afterwards does nothing, change the setting instead. An invalid
+  number seeds the default, and for the Verkenner, Verfijner, Werkmeester and MCP seeds the agent switched off.
+- **The environment is the ceiling.** `AGENTS_DISABLED` (comma-separated agent ids, or `all`; an unknown id stops the API at startup) forces those agents off whatever the
+  database says, and the status is `disabled_by_env`. `MCP_ENABLED` must still be `true` for the MCP server to run; `MCP_ENABLED=false` keeps it off whatever its record says. An
+  agent that `AGENTS_DISABLED` names at startup is left out of the process, so enabling it again needs a restart without that name.
+- **Environment only:** secrets (`OPENAI_API_KEY`, `EXECUTOR_SECRET_KEY`, `JWT_SECRET`, the GitHub App, Slack and OTel tokens), infrastructure (`DATABASE_URL`,
+  `MEMORY_EMBEDDING_*`, `AGENT_INSTRUCTIONS_PATH`) and `MCP_ENABLED`.
+- **Status** per agent: `on`; `off` (not enabled); `misconfigured` with a reason (invalid settings, no bot user chosen, the user was deleted or is not a bot, no model, no
+  `OPENAI_API_KEY`); or `disabled_by_env`. A misconfigured agent does not run.
+- **No restart.** The Verfijner and Werkmeester workers read the settings on every tick (so does the dispatcher for the lesson limits, the MCP server for its quota and
+  the Verkenner's signal path), and the agents resolve their model and step limit when a run starts. A bot user created *after* the API started is picked up on the next tick.
+  Only a change of `AGENTS_DISABLED` (environment) needs a restart.
+
+API (all under `/api/v1/agents`):
+
+| Route | Who | |
+|---|---|---|
+| `GET /api/v1/agents`, `GET /api/v1/agents/:id` | any authenticated user | settings (no secrets), `status`, `reason`, `effectiveModel`, the bot user's name and email, the field definitions |
+| `GET /api/v1/agents/bot-users` | any authenticated user | users marked as bots, for the picker |
+| `PUT /api/v1/agents/:id/settings` | verified human | full replacement of `{ enabled, botUserId, model, settings }`; a `400` with `issues[{ path, message }]` for field errors; audited |
+| `GET /api/v1/agents/:id/audit` | any authenticated user | who changed which field from which value to which, newest first |
+
+Writes need an interactive JWT of a human: API keys, bot accounts and the scout account get a `403`. The Verkenner, Verfijner and Werkmeester accept only a user that is marked as a bot;
+create one with `pnpm --filter @gilde/api user:create --email <email> --name <name> --bot` (or `user:mark-bot`).
+
 ## Verkenner (scout agent)
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory
@@ -297,9 +339,9 @@ events to well-supported follow-up suggestions. It lives in the same Mastra inst
 Postgres in production, LibSQL locally) and memory. **Status:** complete: gated registration, project threads, read tools, the verified signal APIs,
 event publishing, wake budgets, the daily summary, bounded `suggestJob` triage suggestions, and the Suggested badge and metrics on the board. Design notes: [ADR 0007](docs/adr/0007-verkenner-scout-may-create-triage-jobs.md).
 
-**Configuration** (all in the API environment; see `apps/api/.env.example`):
+**Configuration.** These settings live in the database ([Agent settings](#agent-settings)); the variables below only seed the record on the first start (see `apps/api/.env.example`):
 
-| Variable | Meaning |
+| Variable (seed) | Meaning |
 |---|---|
 | `SCOUT_ENABLED` | must be exactly `true`; anything else (or unset) keeps the scout off |
 | `SCOUT_USER_EMAIL` | email of an **existing bot account** (`is_bot`) the scout acts as; a non-bot or unknown user keeps the scout off |
@@ -322,7 +364,7 @@ pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verken
 pnpm --filter @gilde/api user:mark-bot --email verkenner@example.com
 ```
 
-The account **must be a bot**, like the Verfijner's: jobs the scout suggests are owned by their creator unless a human queues them, so a non-bot scout account would own jobs for which dispatch waits on an executor that cannot exist. Without `is_bot` the scout stays off (the API still starts) and reports the reason. Then set `SCOUT_ENABLED=true` and `SCOUT_USER_EMAIL=verkenner@example.com` and restart the API.
+The account **must be a bot**, like the Verfijner's: jobs the scout suggests are owned by their creator unless a human queues them, so a non-bot scout account would own jobs for which dispatch waits on an executor that cannot exist. Without `is_bot` the scout stays off (the API still starts) and reports the reason. Then choose it as the Verkenner's bot user and switch the Verkenner on in its agent settings (`PUT /api/v1/agents/verkenner/settings`); no restart is needed. On a first start without a record, `SCOUT_ENABLED=true` and `SCOUT_USER_EMAIL=verkenner@example.com` seed exactly that.
 
 **Identity and isolation.** The memory resource is the bot user's id and there is one thread per project, `verkenner:<projectId>`,
 created by the server. A scout run receives its project from a server-issued binding that is attached when a notification starts the run
@@ -463,12 +505,12 @@ without the co-pilot sidebar. It is a new external interface, see [ADR 0010](doc
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MCP_ENABLED` | off | Only the literal `true` enables `POST /api/v1/mcp`. Off, the path is a plain 404, also without credentials. |
-| `MCP_DAILY_JOB_LIMIT` | `20` | Jobs one user may create through MCP per UTC day, across all projects and keys. A planned feature's jobs count here. |
-| `MCP_DAILY_FEATURE_LIMIT` | `5` | Features one user may create through MCP per UTC day. |
+| `MCP_ENABLED` | off | Environment only, and the ceiling. Only the literal `true` enables `POST /api/v1/mcp`. Off, the path is a plain 404, also without credentials. With it on, the `mcp` agent's `enabled` setting switches the server on and off at runtime (`503` while off). |
+| `MCP_DAILY_JOB_LIMIT` | `20` | Seed value of the setting `dailyJobLimit`: jobs one user may create through MCP per UTC day, across all projects and keys. A planned feature's jobs count here. |
+| `MCP_DAILY_FEATURE_LIMIT` | `5` | Seed value of `dailyFeatureLimit`: features one user may create through MCP per UTC day. |
 
-The limits are non-negative integers; `0` disables creating that kind. An empty, negative, fractional or non-numeric value stops the API at
-startup instead of lifting the limit. MCP needs no LLM and no co-pilot configuration.
+The limits are non-negative integers; `0` disables creating that kind. An empty, negative, fractional or non-numeric seed value switches the MCP server's record off
+instead of lifting the limit, and the settings API rejects such a value. MCP needs no LLM and no co-pilot configuration.
 
 Authentication is the normal global guard: a personal API key (`gk_...`, create one at `/settings/api-keys`) or a JWT. Every tool call
 re-reads the account: deleted users, bot accounts and the scout account (`SCOUT_USER_EMAIL`) are refused, and with `AUTH_ENABLED=false`
@@ -687,7 +729,9 @@ nothing is approved, planned or queued automatically. Design notes: [ADR 0013](d
 pnpm --filter @gilde/api user:create --email verfijner@example.com --name Verfijner --bot
 ```
 
-| Variable | Meaning |
+The variables below only seed the agent's record on the first start; afterwards the settings are changed on the agent ([Agent settings](#agent-settings)), without a restart.
+
+| Variable (seed) | Meaning |
 | --- | --- |
 | `REFINE_ENABLED` | Must be literally `true`. |
 | `REFINE_USER_EMAIL` | The existing bot user the agent acts as. A human account, or an unknown email, leaves the Verfijner off. |
@@ -723,7 +767,9 @@ spec's recording job. A human still reviews the plan and queues the jobs; nothin
 pnpm --filter @gilde/api user:create --email werkmeester@example.com --name Werkmeester --bot
 ```
 
-| Variable | Meaning |
+The variables below only seed the agent's record on the first start; afterwards the settings are changed on the agent ([Agent settings](#agent-settings)), without a restart.
+
+| Variable (seed) | Meaning |
 | --- | --- |
 | `PLAN_ENABLED` | Must be literally `true`. |
 | `PLAN_USER_EMAIL` | The existing bot user the agent acts as, separate from the Verkenner's and the Verfijner's. A human account, or an unknown email, leaves the Werkmeester off. |
@@ -1084,8 +1130,8 @@ advisory: they never override the task, acceptance criteria, repo instructions o
   other projects and personal co-pilot memory are never sent.
 - **Query and bounds.** The query is the job title, task, acceptance criteria and the repo stacks (at most 2000 characters). Lessons below the
   relevance threshold are left out rather than filling a quota; duplicates are removed. At most 5 lessons, 800 characters each and 3000 in total.
-  Environment: `DISPATCH_LESSONS_TOP_K` (default and maximum 5; `0` switches lessons off), `DISPATCH_LESSONS_MIN_SCORE` (0 to 1, default 0.5) and
-  `DISPATCH_LESSONS_TIMEOUT_MS` (hard timeout, default 3000, at least 100).
+  Settings of the `coding` agent, seeded from the environment: `lessonsTopK` (`DISPATCH_LESSONS_TOP_K`; default and maximum 5; `0` switches lessons off), `lessonsMinScore`
+  (`DISPATCH_LESSONS_MIN_SCORE`; 0 to 1, default 0.5) and `lessonsTimeoutMs` (`DISPATCH_LESSONS_TIMEOUT_MS`; hard timeout, default 3000, at least 100), read for every dispatch.
 - **Fail-open.** A timeout, rate limit, missing `OPENAI_API_KEY` or index, vector error or no match gives no lessons and one bounded (200 characters)
   warning in the API log. The job still fires: no failed run, no parked job, no repo pause and no extra attempt. Dispatch never embeds or indexes
   inline; it only reads what the history reconciliation already indexed.

@@ -19,6 +19,7 @@ import { WorkspaceModule } from '../workspace/workspace.module.js';
 import { IntakeModule } from '../intake/intake.module.js';
 import { FeaturePlanService } from '../copilot/feature-plan.service.js';
 
+import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import { McpController } from './mcp.controller.js';
 import { mcpConfig, type McpConfig } from './mcp.config.js';
 import { McpService } from './mcp.service.js';
@@ -50,8 +51,12 @@ export class McpModule {
                 FeaturePlanService,
                 {
                     provide: McpQuotaService,
-                    useFactory: (ds: DataSource, c: McpConfig) => new McpQuotaService(ds, c),
-                    inject: [DataSource, MCP_CONFIG],
+                    // The daily limits are runtime settings of the MCP agent, read on every reservation (the env values are the fallback).
+                    useFactory: (ds: DataSource, c: McpConfig, agents: AgentRuntimeService) => new McpQuotaService(ds, {
+                        get dailyJobLimit() { return agents.peek('mcp')?.settings.dailyJobLimit ?? c.dailyJobLimit; },
+                        get dailyFeatureLimit() { return agents.peek('mcp')?.settings.dailyFeatureLimit ?? c.dailyFeatureLimit; },
+                    }),
+                    inject: [DataSource, MCP_CONFIG, AgentRuntimeService],
                 },
                 McpService,
             ],

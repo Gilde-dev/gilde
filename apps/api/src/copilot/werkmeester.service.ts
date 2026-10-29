@@ -31,25 +31,35 @@ export type PlanRunResult =
 export class WerkmeesterService {
     private readonly logger = new Logger('Werkmeester');
 
+    /**
+     * `setup` is a function when the Werkmeester's settings are live: it is read for every binding and run (null: not on).
+     */
     constructor(
-        private readonly setup: PlanSetup | null,
+        private readonly setupSource: PlanSetup | null | (() => Promise<PlanSetup | null>),
         private readonly mastra: Pick<Mastra, 'getAgent'>,
         private readonly specs: Pick<SpecService, 'getDetail'>,
         private readonly repos: Pick<RepoService, 'listForProject'>,
     ) { }
 
-    get enabled(): boolean {
-        return this.setup !== null;
+    private setup(): Promise<PlanSetup | null> {
+        const source = this.setupSource;
+        return typeof source === 'function' ? source() : Promise.resolve(source);
+    }
+
+    async enabled(): Promise<boolean> {
+        return (await this.setup()) !== null;
     }
 
     /** A server-issued binding to one approved spec version, as the bot user. Throws while the Werkmeester is off. */
-    bind(target: { projectId: string; specId: string; version: number; approvalId: string }, attempt: number): PlanBinding {
-        if (!this.setup) throw new Error('The Werkmeester is not enabled');
-        return issuePlanBinding(this.setup.user.id, target, attempt);
+    async bind(target: { projectId: string; specId: string; version: number; approvalId: string }, attempt: number): Promise<PlanBinding> {
+        const setup = await this.setup();
+        if (!setup) throw new Error('The Werkmeester is not enabled');
+        return issuePlanBinding(setup.user.id, target, attempt);
     }
 
     async plan(binding: PlanBinding, log?: AgentRunHandle): Promise<PlanRunResult> {
-        if (!this.setup) return { outcome: 'failed', reason: 'The Werkmeester is not enabled' };
+        const setup = await this.setup();
+        if (!setup) return { outcome: 'failed', reason: 'The Werkmeester is not enabled' };
         if (!isIssuedPlanBinding(binding)) return { outcome: 'failed', reason: 'The planning run has no server-issued binding' };
         try {
             const detail = await this.specs.getDetail(binding.specId, null);
@@ -63,7 +73,7 @@ export class WerkmeesterService {
                 slug: detail.slug, title: version.title, version: version.version, body: version.body, criteria: version.criteria,
                 repos: repos.map((r) => ({ id: r.id, fullName: r.fullName, isSpecRepo: r.id === detail.repoId, stacks: r.stacks, testCommands: r.testCommands })),
             }, randomBytes(8).toString('hex'));
-            const options = planStreamOptions(this.setup.user, binding);
+            const options = planStreamOptions(setup.user, binding);
             if (log) attachRun(options.requestContext, log);
             const output = await this.mastra.getAgent(PLAN_AGENT_ID).stream(prompt, {
                 ...options,

@@ -19,7 +19,7 @@ import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 import type { UsageService } from '../usage/usage.service.js';
 import { withEmbeddingUsage } from '../usage/usage-context.js';
 
-import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig } from './copilot.config.js';
+import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig, type RunSettings } from './copilot.config.js';
 import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId, type CopilotUser } from './copilot.context.js';
 import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
@@ -118,6 +118,8 @@ export interface ScoutSetup {
     config: Extract<ScoutConfig, { enabled: true }>;
     user: CopilotUser;
     model?: unknown;
+    /** Resolves the model and step limit per run (see RunSettings); throws while the agent is not on. */
+    resolve?: RunSettings;
     /** Native delivery policy of the scout. Without it (unit tests) the default decision is used. */
     gate?: ScoutDispatchGate;
     /** Creates the scout's triage suggestions (the suggestJob tool). */
@@ -129,6 +131,8 @@ export interface RefineSetup {
     config: Extract<RefineConfig, { enabled: true }>;
     user: CopilotUser;
     model?: unknown;
+    /** Resolves the model and step limit per run (see RunSettings); throws while the agent is not on. */
+    resolve?: RunSettings;
     /** Saves the draft specs (the saveRefinedSpec tool). Without it (unit tests of the agent) every save is refused. */
     writer?: Pick<RefinedSpecWriter, 'save'>;
 }
@@ -138,6 +142,8 @@ export interface PlanSetup {
     config: Extract<PlanConfig, { enabled: true }>;
     user: CopilotUser;
     model?: unknown;
+    /** Resolves the model and step limit per run (see RunSettings); throws while the agent is not on. */
+    resolve?: RunSettings;
     /** Creates the plans (the proposePlan tool). Without it (unit tests of the agent) every proposal is refused. */
     proposer?: Pick<PlanProposer, 'propose'>;
 }
@@ -240,6 +246,25 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
     });
 }
 
+/**
+ * The model and default options of an agent: static, or resolved when each run starts (a test's `override` model wins and
+ * keeps everything static).
+ */
+function runSettings(agentId: string, override: unknown, staticModel: string, maxSteps: number | undefined, resolve: RunSettings | undefined, usage: Pick<UsageService, 'record'> | undefined, runLog: RunLog | undefined) {
+    const processors = runLog ? { outputProcessors: [runLogProcessor(staticModel)] } : {};
+    if (override || !resolve) {
+        return { ...processors, model: (override ?? staticModel) as `openai/${string}`, defaultOptions: copilotDefaultOptions(maxSteps, undefined, usage && { service: usage, model: staticModel }, agentId, runLog && { log: runLog, model: staticModel }) as never };
+    }
+    return {
+        ...processors,
+        model: (async () => (await resolve()).model) as unknown as `openai/${string}`,
+        defaultOptions: (async () => {
+            const { model, maxSteps: steps } = await resolve();
+            return copilotDefaultOptions(steps, undefined, usage && { service: usage, model }, agentId, runLog && { log: runLog, model });
+        }) as never,
+    };
+}
+
 type McpToolSource = Pick<NonNullable<CopilotServices['mcpTools']>, 'buildTools'> | undefined;
 
 /**
@@ -275,13 +300,11 @@ function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra
         name: PLAN_AGENT_ID,
         description: 'Werkmeester, the planner: turns one approved spec version into a draft feature with triage jobs. Runs unattended, bound to one spec version; not reachable over HTTP.',
         instructions: WERKMEESTER_INSTRUCTIONS,
-        model: (plan.model ?? plan.config.model) as `openai/${string}`,
         // Exactly its own allowlisted tools: no MCP tools, nothing else.
         tools: ({ requestContext }) => recordTools(planBinding(requestContext) ? own : {}) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
         memory: createScoutMemory(memoryInfra, usage),
-        ...(runLog ? { outputProcessors: [runLogProcessor(plan.config.model)] } : {}),
-        defaultOptions: copilotDefaultOptions(plan.config.maxSteps, undefined, usage && { service: usage, model: plan.config.model }, PLAN_AGENT_ID, runLog && { log: runLog, model: plan.config.model }) as never,
+        ...runSettings(PLAN_AGENT_ID, plan.model, plan.config.model, plan.config.maxSteps, plan.resolve, usage, runLog),
     });
 }
 
@@ -292,24 +315,21 @@ function createRefineAgent(refine: RefineSetup, services: CopilotServices, memor
         name: REFINE_AGENT_ID,
         description: 'Verfijner, the refiner: turns one labelled GitHub issue into a draft spec. Runs unattended, bound to one intake item; not reachable over HTTP.',
         instructions: VERFIJNER_INSTRUCTIONS,
-        model: (refine.model ?? refine.config.model) as `openai/${string}`,
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
         tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, refineBinding(requestContext)?.projectId, 'unattended')) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
         memory: createScoutMemory(memoryInfra, usage),
-        ...(runLog ? { outputProcessors: [runLogProcessor(refine.config.model)] } : {}),
-        defaultOptions: copilotDefaultOptions(refine.config.maxSteps, undefined, usage && { service: usage, model: refine.config.model }, REFINE_AGENT_ID, runLog && { log: runLog, model: refine.config.model }) as never,
+        ...runSettings(REFINE_AGENT_ID, refine.model, refine.config.model, refine.config.maxSteps, refine.resolve, usage, runLog),
     });
 }
 
 function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, runLog?: RunLog): Agent {
-    const own = createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, scout.config.patternMinSize);
+    const own = createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, () => scout.config.patternMinSize);
     return new Agent({
         id: SCOUT_AGENT_ID,
         name: SCOUT_AGENT_ID,
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
         instructions: VERKENNER_INSTRUCTIONS,
-        model: (scout.model ?? scout.config.model) as `openai/${string}`,
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
         tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, scoutBinding(requestContext)?.projectId, 'unattended')) as never,
         memory: createScoutMemory(memoryInfra, usage),
@@ -324,8 +344,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
                 },
             },
         },
-        ...(runLog ? { outputProcessors: [runLogProcessor(scout.config.model)] } : {}),
-        defaultOptions: copilotDefaultOptions(scout.config.maxSteps, undefined, usage && { service: usage, model: scout.config.model }, SCOUT_AGENT_ID, runLog && { log: runLog, model: scout.config.model }) as never,
+        ...runSettings(SCOUT_AGENT_ID, scout.model, scout.config.model, scout.config.maxSteps, scout.resolve, usage, runLog),
     });
 }
 
@@ -341,13 +360,11 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
             const reference = await repoContext.build(requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined);
             return reference ? `${COPILOT_INSTRUCTIONS}\n\n${reference}` : COPILOT_INSTRUCTIONS;
         },
-        // OpenAI through the Mastra model router; the provider is only chosen by COPILOT_MODEL.
-        model: config.model as `openai/${string}`,
+        // OpenAI through the Mastra model router; the provider is only chosen by the model setting.
         // Plus the allowed tools of the selected project's MCP servers; the write ones always ask for approval.
         tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined, 'copilot')) as never,
         memory: createCopilotMemory(memoryInfra, usage),
-        ...(runLog ? { outputProcessors: [runLogProcessor(config.model)] } : {}),
-        defaultOptions: copilotDefaultOptions(config.maxSteps, undefined, usage && { service: usage, model: config.model }, COPILOT_AGENT_ID, runLog && { log: runLog, model: config.model }) as never,
+        ...runSettings(COPILOT_AGENT_ID, undefined, config.model, config.maxSteps, config.resolve, usage, runLog),
     });
 }
 

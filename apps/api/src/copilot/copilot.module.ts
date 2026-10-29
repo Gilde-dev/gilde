@@ -47,11 +47,13 @@ import type { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 
 import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { UsageService } from '../usage/usage.service.js';
-import { copilotConfig, type CopilotConfig } from './copilot.config.js';
+import { AGENTS_READY, AgentRuntimeService } from '../agent/agent-runtime.service.js';
+import type { CopilotConfig } from './copilot.config.js';
+import { extend, isOn, livePlanSetup, liveRefineSetup, liveScoutSetup } from './live-setups.js';
 import { CopilotController } from './copilot.controller.js';
 import { CopilotThreadsService } from './copilot-threads.service.js';
 import { createMastra, MASTRA_PREFIX, type PlanSetup, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
@@ -65,19 +67,16 @@ import { ScoutActivityService } from './scout-activity.service.js';
 import { ScoutWakeDay } from './scout-wake-day.entity.js';
 import { ScoutWakeBudgetService } from './scout-wake-budget.service.js';
 import { ScoutWakeReader } from './scout-wake.reader.js';
-import { resolveScoutState, type ScoutState } from './verkenner.setup.js';
 import { ScoutThreads } from './verkenner.threads.js';
 import { IntakeModule } from '../intake/intake.module.js';
 import { IntakeCommentService } from '../intake/intake-comment.service.js';
 import { IntakeRefineService } from '../intake/intake-refine.service.js';
-import { resolveRefineSetup } from './verfijner.setup.js';
 import { RefinedSpecWriter } from './verfijner.save.js';
 import { VerfijnerWorker } from './verfijner.worker.js';
 import { PlanningWorker } from './planning.worker.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import { NotificationModule } from '../notification/notification.module.js';
 import { SpecPlanningService } from '../spec/spec-planning.service.js';
-import { resolvePlanSetup } from './werkmeester.setup.js';
 import { PlanProposer } from './werkmeester.propose.js';
 import { WerkmeesterService } from './werkmeester.service.js';
 import { RepoContextService } from './repo-context.service.js';
@@ -111,50 +110,56 @@ export class ScoutLifecycle implements OnModuleDestroy {
         RepoContextService,
         FeaturePlanService,
         {
+            // What the co-pilot agent is built from. The model and step limit are resolved per run from the settings in the
+            // database (a restart is not needed to change them); only AGENTS_DISABLED, being environment, leaves it out.
             provide: COPILOT_CONFIG,
-            useFactory: (): CopilotConfig => {
-                const config = copilotConfig();
-                if (!config.enabled) {
-                    new Logger('Copilot').warn(`Co-pilot disabled: ${config.reason}. Its routes answer 503.`);
+            useFactory: (runtime: AgentRuntimeService): CopilotConfig => {
+                if (runtime.isDisabledByEnv('gilde')) {
+                    new Logger('Copilot').warn('Co-pilot disabled by AGENTS_DISABLED. Its routes answer 503.');
+                    return { enabled: false, model: null, reason: 'AGENTS_DISABLED names the co-pilot' };
                 }
-                return config;
+                const gilde = runtime.peek('gilde');
+                return { enabled: true, model: gilde?.model ?? '', maxSteps: gilde?.settings.maxSteps, resolve: runtime.resolver('gilde') };
             },
+            inject: [AgentRuntimeService, AGENTS_READY],
         },
         {
-            // The scout is off unless SCOUT_ENABLED=true and everything it needs exists. Never throws: a problem is logged
-            // (without secrets) and the API starts without the scout.
-            provide: SCOUT_STATE,
-            useFactory: (users: UserService): Promise<ScoutState> => resolveScoutState(users),
-            inject: [UserService],
+            // Live views of the bot agents: null only when AGENTS_DISABLED names the agent (environment, so fixed until a restart).
+            // Whether an agent may run now, with which model and limits, is decided from the database per run and per tick.
+            provide: SCOUT_SETUP,
+            useFactory: (runtime: AgentRuntimeService): ScoutSetup | null => (runtime.isDisabledByEnv('verkenner') ? null : liveScoutSetup(runtime)),
+            inject: [AgentRuntimeService, AGENTS_READY],
         },
-        { provide: SCOUT_SETUP, useFactory: (state: ScoutState): ScoutSetup | null => state.setup, inject: [SCOUT_STATE] },
-        { provide: SCOUT_DISABLED_REASON, useFactory: (scout: ScoutSetup | null, state: ScoutState): string | null => (scout ? null : state.disabledReason), inject: [SCOUT_SETUP, SCOUT_STATE] },
         {
-            // The Verfijner is off unless REFINE_ENABLED=true and everything it needs exists (a bot user among it). Never
-            // throws: a problem is logged (without secrets) and the API starts, with intake items staying `new`.
             provide: REFINE_SETUP,
-            useFactory: (users: UserService): Promise<RefineSetup | null> => resolveRefineSetup(users),
-            inject: [UserService],
+            useFactory: (runtime: AgentRuntimeService): RefineSetup | null => (runtime.isDisabledByEnv('verfijner') ? null : liveRefineSetup(runtime)),
+            inject: [AgentRuntimeService, AGENTS_READY],
         },
         {
-            // The Werkmeester is off unless PLAN_ENABLED=true and everything it needs exists (a bot user among it). Never
-            // throws: a problem is logged (without secrets) and the API starts without it.
             provide: PLAN_SETUP,
-            useFactory: (users: UserService): Promise<PlanSetup | null> => resolvePlanSetup(users),
-            inject: [UserService],
+            useFactory: (runtime: AgentRuntimeService): PlanSetup | null => (runtime.isDisabledByEnv('werkmeester') ? null : livePlanSetup(runtime)),
+            inject: [AgentRuntimeService, AGENTS_READY],
         },
         {
             // Null-safe: also constructed while the scout is off, where every suggestion is refused with scout_off.
             provide: ScoutSuggestionService,
-            useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null, patterns: LessonPatternService, projects: ProjectService) =>
-                new ScoutSuggestionService(ds, jobs, features, lessons, runs, repos, scout && { user: scout.user, dailySuggestions: scout.config.dailySuggestions, patternMinSize: scout.config.patternMinSize }, undefined, patterns, projects),
-            inject: [DataSource, JobService, FeatureService, LessonService, RunService, RepoService, SCOUT_SETUP, LessonPatternService, ProjectService],
+            useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null, patterns: LessonPatternService, projects: ProjectService, runtime: AgentRuntimeService) =>
+                new ScoutSuggestionService(ds, jobs, features, lessons, runs, repos, scout && (() => (!scout.resolve || isOn(runtime, 'verkenner') ? { user: scout.user, dailySuggestions: scout.config.dailySuggestions, patternMinSize: scout.config.patternMinSize } : null)), undefined, patterns, projects),
+            inject: [DataSource, JobService, FeatureService, LessonService, RunService, RepoService, SCOUT_SETUP, LessonPatternService, ProjectService, AgentRuntimeService],
         },
         {
             provide: ScoutActivityService,
-            useFactory: (suggestions: Repository<ScoutSuggestion>, wakes: ScoutWakeReader, projects: ProjectService, users: UserService, scout: ScoutSetup | null, disabledReason: string | null) =>
-                new ScoutActivityService(suggestions, wakes, projects, users, { enabled: scout !== null, model: scout?.config.model ?? null, userId: scout?.user.id ?? null, disabledReason }),
-            inject: [getRepositoryToken(ScoutSuggestion), ScoutWakeReader, ProjectService, UserService, SCOUT_SETUP, SCOUT_DISABLED_REASON],
+            useFactory: (suggestions: Repository<ScoutSuggestion>, wakes: ScoutWakeReader, projects: ProjectService, users: UserService, runtime: AgentRuntimeService, setup: ScoutSetup | null) =>
+                new ScoutActivityService(suggestions, wakes, projects, users, setup && !setup.resolve
+                    // A fixed setup (tests) is reported as it is.
+                    ? { enabled: true, model: setup.config.model, userId: setup.user.id, disabledReason: null }
+                    : {
+                        get enabled() { return isOn(runtime, 'verkenner'); },
+                        get model() { const a = runtime.peek('verkenner'); return a?.status === 'on' ? a.effectiveModel : null; },
+                        get userId() { return runtime.peek('verkenner')?.botUserId ?? null; },
+                        get disabledReason() { const a = runtime.peek('verkenner'); return a && (a.status === 'misconfigured' || a.status === 'disabled_by_env') ? a.reason : null; },
+                    }),
+            inject: [getRepositoryToken(ScoutSuggestion), ScoutWakeReader, ProjectService, UserService, AgentRuntimeService, SCOUT_SETUP],
         },
         { provide: SCOUT_GATE, useFactory: (): ScoutDispatchGate => new ScoutDispatchGate() },
         {
@@ -189,7 +194,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 runs: AgentRunRecorder,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans, mcpTools };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) }, plan && { ...plan, proposer: new PlanProposer(specs, plans) }, runs);
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && extend(scout, { gate, suggestions }), refine && extend(refine, { writer: new RefinedSpecWriter(specs, refineItems, refine.user) }), plan && extend(plan, { proposer: new PlanProposer(specs, plans) }), runs);
             },
             inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService, PLAN_SETUP, AgentRunRecorder],
         },
@@ -214,49 +219,52 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 features: FeatureService,
                 repos: RepoService,
                 budgetService: BudgetService,
+                runtime: AgentRuntimeService,
             ): ScoutSignalService | null => {
                 if (!scout || !threads) return null;
-                const budget = new ScoutWakeBudgetService(days, { maxWakesPerDay: scout.config.maxWakesPerDay, summaryHourUtc: scout.config.summaryHourUtc });
+                // Live: the limits and the summary hour are read at the moment of use.
+                const budget = new ScoutWakeBudgetService(days, { get maxWakesPerDay() { return scout.config.maxWakesPerDay; }, get summaryHourUtc() { return scout.config.summaryHourUtc; } });
                 const service = new ScoutSignalService({
                     mastra, threads, receipts, budget, jobs, features, repos,
                     inbox: async () => (await memory.storage.getStore('notifications')) as never,
-                    summaryHourUtc: scout.config.summaryHourUtc,
+                    get summaryHourUtc() { return scout.config.summaryHourUtc; },
                     globalBudgetHard: async () => {
                         const { global } = await budgetService.status();
                         return global.day.state === 'hard' || global.week.state === 'hard';
                     },
                 });
                 gate.bind({ now: () => budget.now(), summaryAt: (now) => service.summaryAt(now), allowSummary: (projectId) => service.allowSummary(projectId) });
-                publisher.register(service.sink);
+                // While the scout is not on (switched off, misconfigured), events are dropped before they reach the inbox.
+                publisher.register(async (projectId, event) => { if (!scout.resolve || isOn(runtime, 'verkenner')) await service.sink(projectId, event); });
                 return service;
             },
-            inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService, BudgetService],
+            inject: [SCOUT_SETUP, COPILOT_MASTRA, SCOUT_THREADS, SCOUT_GATE, ScoutSignalPublisher, MEMORY_INFRASTRUCTURE, getRepositoryToken(ScoutSignalReceipt), getRepositoryToken(ScoutWakeDay), JobService, FeatureService, RepoService, BudgetService, AgentRuntimeService],
         },
         {
-            // Null (and nothing scheduled) while the Verfijner is off.
+            // Null (and nothing scheduled) only when AGENTS_DISABLED names the Verfijner; otherwise it reads its setup on every tick.
             provide: REFINE_WORKER,
-            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService, comments: IntakeCommentService, runs: AgentRunRecorder): VerfijnerWorker | null =>
-                (refine ? new VerfijnerWorker(refine, mastra, items, budget, comments, runs) : null),
-            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService, AgentRunRecorder],
+            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService, comments: IntakeCommentService, runtime: AgentRuntimeService, runs: AgentRunRecorder): VerfijnerWorker | null =>
+                (refine ? new VerfijnerWorker(refine.resolve ? () => runtime.refineSetup() : refine, mastra, items, budget, comments, runs) : null),
+            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService, AgentRuntimeService, AgentRunRecorder],
         },
         {
-            // Null (and nothing scheduled) while the Werkmeester is off; queued runs wait until it is on.
+            // Null (and nothing scheduled) only when AGENTS_DISABLED names the Werkmeester; otherwise it reads its setup on every tick and queued runs wait until it is on.
             provide: PLAN_WORKER,
-            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService, notifications: NotificationCaptureService, runs: AgentRunRecorder): PlanningWorker | null =>
-                (plan ? new PlanningWorker(plan, werkmeester, planning, budget, notifications, runs) : null),
-            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService, NotificationCaptureService, AgentRunRecorder],
+            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService, notifications: NotificationCaptureService, runtime: AgentRuntimeService, runs: AgentRunRecorder): PlanningWorker | null =>
+                (plan ? new PlanningWorker(plan.resolve ? () => runtime.planSetup() : plan, werkmeester, planning, budget, notifications, runs) : null),
+            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService, NotificationCaptureService, AgentRuntimeService, AgentRunRecorder],
         },
         {
-            // Always provided; `enabled` is false (and plan() fails) while the Werkmeester is off.
+            // Always provided; reads the Werkmeester's setup for every binding and run, and plan() fails while it is not on.
             provide: WerkmeesterService,
-            useFactory: (plan: PlanSetup | null, mastra: Mastra, specs: SpecService, repos: RepoService): WerkmeesterService => new WerkmeesterService(plan, mastra, specs, repos),
-            inject: [PLAN_SETUP, COPILOT_MASTRA, SpecService, RepoService],
+            useFactory: (plan: PlanSetup | null, mastra: Mastra, specs: SpecService, repos: RepoService, runtime: AgentRuntimeService): WerkmeesterService => new WerkmeesterService(plan && (plan.resolve ? () => runtime.planSetup() : plan), mastra, specs, repos),
+            inject: [PLAN_SETUP, COPILOT_MASTRA, SpecService, RepoService, AgentRuntimeService],
         },
         CopilotThreadsService,
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

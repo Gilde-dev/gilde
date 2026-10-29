@@ -9,6 +9,7 @@ import { DataSource } from 'typeorm';
 
 import { AppModule } from './../src/app.module.js';
 import { configureBodyParsing } from './../src/common/body-parser.js';
+import { AgentRuntimeService } from './../src/agent/agent-runtime.service.js';
 import { COPILOT_CONFIG, REFINE_SETUP, REFINE_WORKER } from './../src/copilot/copilot.tokens.js';
 import { refineConfig } from './../src/copilot/verfijner.config.js';
 import { scriptedModel, validSpecBody, type ScriptedStep } from './../src/copilot/verfijner.testing.js';
@@ -160,13 +161,14 @@ describe('Verfijner (e2e), worker path with a fake model', () => {
 });
 
 describe('Verfijner (e2e), off', () => {
-  it('leaves the API running and items new when REFINE_ENABLED is not set', async () => {
+  it('leaves the API running and items new while the agent settings do not switch the Verfijner on', async () => {
     const app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication();
     app.setGlobalPrefix('/api');
     await app.init();
     try {
-      expect(app.get(REFINE_SETUP, { strict: false })).toBeNull();
-      expect(app.get(REFINE_WORKER, { strict: false })).toBeNull();
+      // The setup and the worker exist; whether the agent is on is decided from its settings on every tick, here: not on.
+      expect((await app.get(AgentRuntimeService).effective('verfijner')).status).not.toBe('on');
+      expect(await app.get<VerfijnerWorker>(REFINE_WORKER, { strict: false }).tick()).toEqual([]);
       await request(app.getHttpServer()).get('/api/health').expect(200);
     } finally {
       await app.close();

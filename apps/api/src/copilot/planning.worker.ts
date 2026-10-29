@@ -19,15 +19,25 @@ import type { WerkmeesterService } from './werkmeester.service.js';
 export class PlanningWorker {
     private readonly logger = new Logger('Werkmeester');
     private running = false;
+    /** The setup of the pass in progress: read again at the start of every tick. */
+    private setup: PlanSetup;
+    private readonly source: () => Promise<PlanSetup | null>;
 
+    /**
+     * `setup` is read on each tick when it is a function (null: the Werkmeester is not on, queued runs wait), so a changed
+     * setting or a newly created bot user needs no restart. A plain setup is used as it is.
+     */
     constructor(
-        private readonly setup: PlanSetup,
+        setup: PlanSetup | (() => Promise<PlanSetup | null>),
         private readonly werkmeester: Pick<WerkmeesterService, 'bind' | 'plan'>,
         private readonly planning: SpecPlanningService,
         private readonly budget: Pick<BudgetService, 'status'>,
         private readonly notifications?: Pick<NotificationCaptureService, 'specPlanned' | 'specPlanFailed'>,
         private readonly runLog?: Pick<AgentRunRecorder, 'begin'>,
-    ) { }
+    ) {
+        this.source = typeof setup === 'function' ? setup : async () => setup;
+        this.setup = typeof setup === 'function' ? (undefined as never) : setup;
+    }
 
     @Cron('0 * * * * *')
     async scheduled(): Promise<void> {
@@ -44,6 +54,9 @@ export class PlanningWorker {
         this.running = true;
         const ran: string[] = [];
         try {
+            const setup = await this.source();
+            if (!setup) return ran;
+            this.setup = setup;
             await this.planning.recoverStale(now);
             for (const candidate of await this.planning.nextPerProject()) {
                 if (!(await this.allowed(candidate.projectId, now))) continue;
@@ -89,7 +102,7 @@ export class PlanningWorker {
                 log?.end({ outcome: 'skipped', reason: `Version ${run.version} is already planned` });
                 return;
             }
-            const binding = this.werkmeester.bind({ projectId: run.projectId, specId: run.specId, version: run.version, approvalId: run.approvalId }, run.attempts);
+            const binding = await this.werkmeester.bind({ projectId: run.projectId, specId: run.specId, version: run.version, approvalId: run.approvalId }, run.attempts);
             const result = await this.werkmeester.plan(binding, log);
             if (result.outcome === 'planned') {
                 if (await this.planning.planned(run.id, result.featureId)) await this.notifications?.specPlanned(run, result.featureId);

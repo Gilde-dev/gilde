@@ -10,6 +10,7 @@ import type { Repository } from 'typeorm';
 
 import { AppModule } from './../src/app.module.js';
 import { configureBodyParsing } from './../src/common/body-parser.js';
+import { AgentRuntimeService } from './../src/agent/agent-runtime.service.js';
 import { COPILOT_CONFIG, PLAN_SETUP } from './../src/copilot/copilot.tokens.js';
 import { scriptedModel, type ScriptedStep } from './../src/copilot/verfijner.testing.js';
 import { planConfig } from './../src/copilot/werkmeester.config.js';
@@ -95,8 +96,8 @@ describe('Werkmeester (e2e), service path with a fake model', () => {
     return { detail, target: { projectId, specId: created.id as string, version: 1, approvalId: approvalId } };
   };
 
-  it('is on with the bot user', () => {
-    expect(service.enabled).toBe(true);
+  it('is on with the bot user', async () => {
+    expect(await service.enabled()).toBe(true);
   });
 
   let featureId: string;
@@ -105,7 +106,7 @@ describe('Werkmeester (e2e), service path with a fake model', () => {
   it('plans an approved version: fixable error, then a draft feature pinned to the version with triage jobs waiting for the recording job', async () => {
     const { detail, target } = await approvedSpec();
     recordingJobId = detail.versions[0].recording.jobId;
-    const result = await service.plan(service.bind(target, 1));
+    const result = await service.plan(await service.bind(target, 1));
     expect(result).toMatchObject({ outcome: 'planned' });
     featureId = (result as { featureId: string }).featureId;
 
@@ -130,14 +131,14 @@ describe('Werkmeester (e2e), service path with a fake model', () => {
 
   it('skips a version that already has a pinned feature, without creating anything', async () => {
     const before = await repo(Feature).count();
-    const result = await service.plan(service.bind({ projectId, specId, version: 1, approvalId }, 1));
+    const result = await service.plan(await service.bind({ projectId, specId, version: 1, approvalId }, 1));
     expect(result).toMatchObject({ outcome: 'skipped', reason: expect.stringContaining('already has a feature pinned') });
     expect(await repo(Feature).count()).toBe(before);
   });
 
   it('keeps the spec, version and approval of the binding even when the model passes others', async () => {
     const { target } = await approvedSpec();
-    const result = await service.plan(service.bind(target, 1));
+    const result = await service.plan(await service.bind(target, 1));
     expect(result).toMatchObject({ outcome: 'planned' });
     const feature = await repo(Feature).findOneByOrFail({ id: (result as { featureId: string }).featureId });
     expect(feature).toMatchObject({ projectId, specId: target.specId, specVersion: 1 });
@@ -160,13 +161,14 @@ describe('Werkmeester (e2e), service path with a fake model', () => {
 });
 
 describe('Werkmeester (e2e), off', () => {
-  it('leaves the API running, with a service that is not enabled, when PLAN_ENABLED is not set', async () => {
+  it('leaves the API running, with a service that is not enabled, while the agent settings do not switch the Werkmeester on', async () => {
     const app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication();
     app.setGlobalPrefix('/api');
     await app.init();
     try {
-      expect(app.get(PLAN_SETUP, { strict: false })).toBeNull();
-      expect(app.get(WerkmeesterService, { strict: false }).enabled).toBe(false);
+      // The setup is a live view; whether the agent is on is decided from its settings, here: not on.
+      expect((await app.get(AgentRuntimeService).effective('werkmeester')).status).not.toBe('on');
+      expect(await app.get(WerkmeesterService, { strict: false }).enabled()).toBe(false);
       await request(app.getHttpServer()).get('/api/health').expect(200);
     } finally {
       await app.close();
