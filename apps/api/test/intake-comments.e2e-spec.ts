@@ -144,21 +144,29 @@ describe('Intake status comment and answers (e2e), mocked GitHubPort and fake mo
   });
 
   it('takes a member answer, refines again with it as delimited data and updates the same comment', async () => {
+    advance(2 * 60_000);
     await answer(10, 'MEMBER').expect(200);
     expect(await item()).toMatchObject({ status: 'new', commentCount: 1 });
+    await until(() => upserts.length > 1);
+    expect(upserts).toHaveLength(2); // the status comment says so before the refine runs
+    expect(upserts[1].commentId).toBe('9001');
+    expect(upserts[1].body).toContain('Answers received, updating the spec.');
+    expect(upserts[1].body).toContain('1. Which delimiter?');
     await answer(10, 'MEMBER').expect(200); // re-delivery
     expect((await item()).commentCount).toBe(1);
+    await new Promise((r) => setTimeout(r, 50));
+    expect(upserts).toHaveLength(2);
 
     advance(2 * 60_000);
     expect(await worker.tick()).toHaveLength(1);
     const prompt = JSON.stringify(prompts[2]);
     expect(prompt).toContain('BEGIN ISSUE COMMENTS');
     expect(prompt).toContain('Use semicolons.');
-    expect(upserts).toHaveLength(2);
-    expect(upserts[1].commentId).toBe('9001');
-    expect(upserts[1].body).toContain('version 2');
-    expect(upserts[1].body).toContain('**ready to approve**');
-    expect(upserts[1].body).not.toContain('Which delimiter?');
+    expect(upserts).toHaveLength(3);
+    expect(upserts[2].commentId).toBe('9001');
+    expect(upserts[2].body).toContain('version 2');
+    expect(upserts[2].body).toContain('**ready to approve**');
+    expect(upserts[2].body).not.toContain('Which delimiter?');
     expect(await item()).toMatchObject({ status: 'drafted' });
     // The unchanged answer does not refine again.
     expect(await worker.tick()).toEqual([]);
@@ -169,7 +177,6 @@ describe('Intake status comment and answers (e2e), mocked GitHubPort and fake mo
     failWith = new GitHubRequestError('GitHub PATCH failed: 403', 403);
     advance(2 * 60_000);
     await http.post(`/api/v1/specs/${before.specId}/approve`).send({ expectedVersion: 2 }).expect(200);
-    await until(() => false || upserts.length > 2);
     let current = before;
     for (let i = 0; i < 50 && !current.commentError; i++) { await new Promise((r) => setTimeout(r, 20)); current = await item(); }
     expect(current.commentError).toContain('Issues: write');
@@ -179,8 +186,29 @@ describe('Intake status comment and answers (e2e), mocked GitHubPort and fake mo
     failWith = null;
     advance(2 * 60_000);
     await comments.sync(before.id);
-    expect(upserts).toHaveLength(3);
-    expect(upserts[2].body).toContain('**approved**');
+    expect(upserts).toHaveLength(4);
+    expect(upserts[3].body).toContain('**approved**');
     expect(await item()).toMatchObject({ commentError: null });
+  });
+
+  it('removes a stored answer when its comment is deleted and re-queues the item; unknown ids change nothing', async () => {
+    const del = (id: number) => deliver('issue_comment', { action: 'deleted', issue: { number: 5, html_url: issueUrl }, comment: { id, body: 'x', author_association: 'MEMBER' }, sender: { type: 'User' } }).expect(200);
+    await del(424242);
+    await del(9001); // Gilde's own status comment
+    expect(await item()).toMatchObject({ status: 'drafted', commentCount: 1 });
+    await del(10);
+    expect(await item()).toMatchObject({ status: 'new', commentCount: 0 });
+  });
+
+  it('updates the single status comment when the issue is closed, once', async () => {
+    advance(2 * 60_000);
+    await deliver('issues', { action: 'closed', issue: { ...issue, state: 'closed' } }).expect(200);
+    await until(() => upserts.length > 4);
+    expect(upserts).toHaveLength(5);
+    expect(upserts[4].commentId).toBe('9001');
+    expect(upserts[4].body).toContain('This issue is no longer being refined by Gilde (issue closed).');
+    advance(2 * 60_000);
+    await comments.sync((await item()).id);
+    expect(upserts).toHaveLength(5);
   });
 });

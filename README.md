@@ -591,12 +591,18 @@ answer the open questions by replying on the issue instead of editing its body.
   planned, or refine failed with a short reason), the number of acceptance criteria with a one-line summary, and the open questions
   verbatim as a numbered list. It never contains the spec body. It is refreshed after every refine outcome, when the spec is approved and
   when a feature is planned from it; unchanged content is not rewritten and there is at most one write per item per minute (a held-back
-  write follows within a minute).
+  write follows within a minute). When a counted answer arrives it says **Answers received, updating the spec** right away, with the
+  previous open questions marked as being updated; the next refine outcome replaces it with the normal status. When the item is
+  withdrawn (issue closed or label removed) or ignored in Gilde, the same comment is updated once to say that the issue is no longer
+  being refined by Gilde, with the reason; a relabel, reopen or retry brings the normal status back on the next outcome. An item that
+  never had a status comment gets none. A failed comment write is recorded as `commentError` and never blocks the item.
 - **Answers.** Reply to the issue, for example `1. Use semicolons.`. Comments (created or edited) from **OWNER, MEMBER or COLLABORATOR**
   count, the same trust level as the label. Comments from anyone else, from bots and from the app itself are ignored and never stored.
   A counted comment (at most 4000 characters each, the 20 most recent) is stored on the item and sets it back to `new` (an `ignored`
   item stays ignored), so the Verfijner drafts a new version with the answers worked in and the answered questions removed. The comments
   are untrusted data for the agent, like the body. An unchanged re-delivery does not refine again.
+  Deleting a stored answer on GitHub removes it from the item and sets the item back to `new` (an `ignored` item stays ignored), so the
+  next draft is made without it; deleting an unknown or untrusted comment, or Gilde's own status comment, changes nothing.
 - **Permission.** Writing comments needs **Issues: write** on the GitHub App (it had *Issues: read*); also subscribe to the **Issue
   comment** event. Without the permission, or when GitHub refuses, the item gets a short `commentError` (shown on `/intake`), the spec
   and refine result are kept, and the comment is tried again at the next outcome. It never fails a refine.
