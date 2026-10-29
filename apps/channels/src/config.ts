@@ -11,6 +11,8 @@ export const NOTIFICATION_KINDS = [
   'budget.soft',
   'budget.hard',
   'executor.exhausted',
+  'spec.planned',
+  'spec.plan_failed',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

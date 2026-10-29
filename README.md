@@ -722,6 +722,20 @@ v2") for a human to decide. Once a minute the worker starts the oldest queued ru
 after 2 attempts, `failed` with a short reason. Queued runs wait while the Werkmeester is off. Planned features are drafts with triage jobs;
 nothing is queued or dispatched automatically.
 
+**The full flow.** Approve a spec version (a verified human, on the spec page) → its recording job is created and, once merged, writes
+`docs/specs/<slug>.md` → the Werkmeester plans it: automatically when the project has **Plan approved specs automatically** (`autoPlan`,
+Settings → Projects → Policies, off by default), otherwise when a verified human clicks **Plan from spec** on the approved version → a draft
+feature with its jobs in triage, pinned to that version and waiting for the recording job → a human reviews the plan and queues the jobs.
+Nothing is queued or dispatched by the Werkmeester.
+
+**Where you see it.** The spec page has a *Planning* section per approved version: the latest run's status (`queued`, `in progress`, `planned`
+with a link to the feature, `skipped` or `failed` with the reason), the note for a newer approved version ("v3 approved; feature X is pinned to
+v2"), and the **Plan from spec** button. The button is disabled, with the reason shown, when the version is not approved (or not the approved
+one), the spec is archived, a run is queued or in progress, a feature is already pinned to it, or the caller is not a verified human; a 403 or
+409 from the server is shown as is. `spec.planned` (feature title and link) and `spec.plan_failed` (short reason) go through the notification
+outbox and the Slack formatter of `apps/channels`. When the spec was drafted from an issue, the issue's status comment shows **planned** like for
+a feature planned by a human, because the Werkmeester creates its plan through the same `FeaturePlanService`.
+
 ## GitHub webhooks (local)
 
 GitHub delivers webhooks to a [smee.io](https://smee.io) channel; the `webhooks` compose service forwards them to the API on your machine. Only webhook deliveries are forwarded, so the API itself stays private.
@@ -1020,6 +1034,8 @@ Gilde stores platform-neutral factory events for exactly one consumer process (`
 | `revision.waiting` | `ProposalService.record` saved a proposed revision | `revision.waiting:<source run>:<target job>:<digest of title, task, criteria, dependsOn and reason>` |
 | `budget.soft` / `budget.hard` | `BudgetAlertService` (scheduled every minute, and the dispatcher at a hard stop) found a soft or hard period | `budget.<kind>:<global or project id>:<day or week>:<UTC period start>`; no job, PR or repo data |
 | `executor.exhausted` | the dispatcher marked an executor exhausted after a usage-limit fire | `executor.exhausted:<executor id>:<reset time ISO>`; no job, PR or repo data |
+| `spec.planned` | `PlanningWorker` stored a run as `planned` (the draft feature from the Werkmeester) | `spec.planned:<planning run>`; the feature title and link, the number of jobs; no job, PR or repo data |
+| `spec.plan_failed` | a planning run used its 2 attempts and ended `failed` (not for a retry) | `spec.plan_failed:<planning run>`; spec title, version and the short reason with tokens redacted |
 | `feature.ready_to_close` | a check after a job merge, a job cancel, a job's feature change, a feature start or a feature reopen found `buildProgress(...).readyToClose` | `feature.ready_to_close:<feature>:<digest of the sorted ids of the counted, non-cancelled jobs>` |
 
 - Replays (webhook redelivery, reconciler passes) hit the unique key and are ignored. A new attempt or a new head sha is a new occurrence. Clearing and re-setting the same gate on the same head, or reopening a feature with the same ready job set, does not notify again; a different ready job set does.

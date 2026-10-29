@@ -15,6 +15,8 @@ const HEADINGS: Record<NotificationKind, string> = {
   'budget.soft': ':warning: Budget warning',
   'budget.hard': ':no_entry: Budget limit reached',
   'executor.exhausted': ':hourglass_flowing_sand: Executor exhausted',
+  'spec.planned': ':clipboard: Spec planned',
+  'spec.plan_failed': ':x: Spec planning failed',
 };
 
 /** Escapes Slack control characters and defuses @channel/@here/@everyone and user-group mentions. */
@@ -99,6 +101,21 @@ function formatBudget(n: GildeNotification, publicUrl: string): string {
   return lines.join('\n');
 }
 
+/**
+ * Werkmeester outcome: planned links the draft feature (nothing is queued yet); a failure gives the short reason and links the
+ * spec when the envelope names it. No job or PR lines.
+ */
+function formatSpecPlan(n: GildeNotification, publicUrl: string): string {
+  const title = truncate(n.title, MAX_TITLE);
+  const reason = escapeSlack(truncate(n.reason, MAX_REASON)) || '_no details_';
+  if (n.kind === 'spec.planned') {
+    const url = n.featureId ? `${publicUrl}/features/${encodeURIComponent(n.featureId)}` : null;
+    return [`*${HEADINGS[n.kind]}*`, url ? `*${link(url, title)}*` : `*${escapeSlack(title)}*`, `Plan: ${reason}`,
+      ...(url ? [`Review and queue the jobs: ${link(url, 'Open feature in Gilde')}`] : [])].join('\n');
+  }
+  return [`*${HEADINGS[n.kind]}*`, `*${escapeSlack(title)}*`, `Reason: ${reason}`, 'Nothing was created. Plan it again from the spec page.'].join('\n');
+}
+
 /** Deterministic mrkdwn text for one notification; no LLM involved. */
 export function formatSlack(n: GildeNotification, { publicUrl }: OutboundContext): string {
   if (isBudget(n)) return formatBudget(n, publicUrl);
@@ -106,6 +123,7 @@ export function formatSlack(n: GildeNotification, { publicUrl }: OutboundContext
     // No job, repo or PR: the reason names the executor, its owner and the reset time.
     return [`*${HEADINGS[n.kind]}*`, escapeSlack(truncate(n.reason, MAX_REASON)) || '_no details_', `Manage: ${link(`${publicUrl}/settings/executors`, 'Open executors in Gilde')}`].join('\n');
   }
+  if (n.kind === 'spec.planned' || n.kind === 'spec.plan_failed') return formatSpecPlan(n, publicUrl);
   const url = deepLink(n, publicUrl);
   const title = truncate(n.title, MAX_TITLE);
   const lines = [`*${HEADINGS[n.kind]}*`, url ? `*${link(url, title)}*` : `*${escapeSlack(title)}*`];

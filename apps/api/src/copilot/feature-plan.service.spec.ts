@@ -27,6 +27,13 @@ describe('FeaturePlanService intake status comment hook', () => {
         expect(sync).toHaveBeenCalledExactlyOnceWith(specId);
     });
 
+    it('refreshes the comment the same way for a plan made by the Werkmeester bot', async () => {
+        withSpecLock.mockResolvedValue({ created: true, featureId: 'f' });
+        const result = await service.create(draft({ specId, specApproval: { version: 1, approvalId: '00000000-0000-4000-8000-000000000004' } }), { id: 'werkmeester-bot' });
+        expect(result.created).toBe(true);
+        expect(sync).toHaveBeenCalledExactlyOnceWith(specId);
+    });
+
     it('does nothing for a plan without a spec', async () => {
         transaction.mockResolvedValue({ created: true, featureId: 'f' });
         await service.create(draft(), null);

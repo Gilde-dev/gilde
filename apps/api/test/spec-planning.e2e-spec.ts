@@ -12,6 +12,8 @@ import { PlanningWorker } from './../src/copilot/planning.worker.js';
 import { planConfig } from './../src/copilot/werkmeester.config.js';
 import { WerkmeesterService } from './../src/copilot/werkmeester.service.js';
 import { Feature } from './../src/feature/feature.entity.js';
+import { NotificationCaptureService } from './../src/notification/notification-capture.service.js';
+import { Notification } from './../src/notification/notification.entity.js';
 import { SpecPlanningRun } from './../src/spec/spec-planning-run.entity.js';
 import { SpecPlanningService } from './../src/spec/spec-planning.service.js';
 import { createApiKey, createTestUser, tokenFor, type TestUser } from './helpers/auth.js';
@@ -29,6 +31,7 @@ describe('Werkmeester planning runs (e2e)', () => {
   const fake = { bind: vi.fn(), plan: vi.fn() };
   const as = (u: TestUser) => request.agent(app.getHttpServer()).set({ Authorization: `Bearer ${tokenFor(app, u)}` });
   const runs = () => app.get<Repository<SpecPlanningRun>>(getRepositoryToken(SpecPlanningRun));
+  const notifications = () => app.get<Repository<Notification>>(getRepositoryToken(Notification));
   const features = () => app.get<Repository<Feature>>(getRepositoryToken(Feature));
 
   beforeEach(async () => {
@@ -66,7 +69,7 @@ describe('Werkmeester planning runs (e2e)', () => {
   const worker = (dailyLimit = '5') => {
     const config = planConfig({ PLAN_ENABLED: 'true', PLAN_USER_EMAIL: 'w@example.com', PLAN_MODEL: 'openai/m', OPENAI_API_KEY: 'k', PLAN_DAILY_LIMIT: dailyLimit });
     if (!config.enabled) throw new Error('test setup');
-    return new PlanningWorker({ config, user: { id: randomUUID(), name: 'W', email: 'w@example.com' } } as never, fake as never, app.get(SpecPlanningService), app.get(BudgetService));
+    return new PlanningWorker({ config, user: { id: randomUUID(), name: 'W', email: 'w@example.com' } } as never, fake as never, app.get(SpecPlanningService), app.get(BudgetService), app.get(NotificationCaptureService));
   };
 
   describe('autoPlan', () => {
@@ -194,6 +197,30 @@ describe('Werkmeester planning runs (e2e)', () => {
       expect(await worker().tick()).toHaveLength(1);
       expect(fake.bind).toHaveBeenCalledWith(expect.objectContaining({ projectId, specId: spec.id, version: 1 }), 1);
       expect((await detail(spec.id)).versions[0].planning).toMatchObject({ status: 'planned', attempts: 1, featureId: planned.id });
+    });
+
+    it('sends spec.planned through the outbox once the run is planned', async () => {
+      const spec = await queue();
+      const planned = await features().save(features().create({ projectId, title: 'New feature', spec: '' } as never));
+      fake.plan.mockResolvedValue({ outcome: 'planned', featureId: planned.id });
+      await worker().tick();
+      const run = await runs().findOneByOrFail({ specId: spec.id });
+      expect(await notifications().findOneByOrFail({ occurrenceKey: `spec.planned:${run.id}` })).toMatchObject({
+        kind: 'spec.planned', projectId, featureId: planned.id, title: 'New feature', status: 'pending',
+      });
+    });
+
+    it('sends spec.plan_failed only when the last attempt failed, with the short reason', async () => {
+      const spec = await queue();
+      fake.plan.mockResolvedValue({ outcome: 'failed', reason: 'No plan, Bearer abc123secret' });
+      await worker().tick();
+      const run = await runs().findOneByOrFail({ specId: spec.id });
+      expect(await notifications().countBy({ occurrenceKey: `spec.plan_failed:${run.id}` })).toBe(0);
+      await worker().tick();
+      const sent = await notifications().findOneByOrFail({ occurrenceKey: `spec.plan_failed:${run.id}` });
+      expect(sent).toMatchObject({ kind: 'spec.plan_failed', projectId, title: 'A spec v1' });
+      expect(sent.reason).toContain('No plan');
+      expect(sent.reason).not.toContain('abc123secret');
     });
 
     it('skips a version that got a feature while queued, without calling the agent', async () => {

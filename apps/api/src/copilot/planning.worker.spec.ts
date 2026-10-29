@@ -13,11 +13,12 @@ const run = (over: Record<string, unknown> = {}) => ({ id: randomUUID(), specId:
 describe('PlanningWorker', () => {
     const planning = {
         recoverStale: vi.fn(), nextPerProject: vi.fn(), runsToday: vi.fn(), begin: vi.fn(), pinnedFeature: vi.fn(),
-        planned: vi.fn(), skipped: vi.fn(), failed: vi.fn(),
+        planned: vi.fn(), skipped: vi.fn(), failed: vi.fn(), specTitle: vi.fn(),
     };
     const werkmeester = { bind: vi.fn(), plan: vi.fn() };
     const budget = { status: vi.fn() };
-    const worker = () => new PlanningWorker({ config, user: BOT } as unknown as PlanSetup, werkmeester as never, planning as never, budget as never);
+    const notifications = { specPlanned: vi.fn(), specPlanFailed: vi.fn() };
+    const worker = () => new PlanningWorker({ config, user: BOT } as unknown as PlanSetup, werkmeester as never, planning as never, budget as never, notifications as never);
 
     beforeEach(() => {
         vi.resetAllMocks();
@@ -26,6 +27,8 @@ describe('PlanningWorker', () => {
         planning.begin.mockImplementation(async (r: { attempts: number }) => ({ ...r, attempts: r.attempts + 1 }));
         planning.pinnedFeature.mockResolvedValue(null);
         planning.failed.mockResolvedValue('queued');
+        planning.planned.mockResolvedValue(true);
+        planning.specTitle.mockResolvedValue('Dark mode');
         werkmeester.bind.mockImplementation((t: object) => ({ ...t, issued: true }));
         budget.status.mockResolvedValue({ hardBlocked: false });
     });
@@ -39,6 +42,29 @@ describe('PlanningWorker', () => {
         expect(werkmeester.bind).toHaveBeenCalledWith({ projectId: 'p1', specId: a.specId, version: 1, approvalId: a.approvalId }, 1);
         expect(planning.planned).toHaveBeenCalledWith(a.id, 'f1');
         expect(planning.planned).toHaveBeenCalledWith(b.id, 'f1');
+    });
+
+    it('notifies spec.planned once the run is stored as planned, and not when another worker finished it', async () => {
+        const r = run();
+        planning.nextPerProject.mockResolvedValue([r]);
+        werkmeester.plan.mockResolvedValue({ outcome: 'planned', featureId: 'f1' });
+        await worker().tick();
+        expect(notifications.specPlanned).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: r.id, projectId: 'p1' }), 'f1');
+        notifications.specPlanned.mockClear();
+        planning.planned.mockResolvedValue(false);
+        await worker().tick();
+        expect(notifications.specPlanned).not.toHaveBeenCalled();
+    });
+
+    it('notifies spec.plan_failed only for the final failure, not for a retry', async () => {
+        const r = run();
+        planning.nextPerProject.mockResolvedValue([r]);
+        werkmeester.plan.mockResolvedValue({ outcome: 'failed', reason: 'no plan' });
+        await worker().tick();
+        expect(notifications.specPlanFailed).not.toHaveBeenCalled();
+        planning.failed.mockResolvedValue('failed');
+        await worker().tick();
+        expect(notifications.specPlanFailed).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ id: r.id }), 'Dark mode', 1, 'no plan');
     });
 
     it('stays within the daily limit', async () => {

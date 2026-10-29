@@ -85,6 +85,41 @@ export class NotificationCaptureService {
     }
 
     /**
+     * The Werkmeester planned a spec version into a draft feature. One occurrence per run; the text names the feature and
+     * the number of jobs, nothing from the spec body.
+     */
+    specPlanned(run: { id: string; projectId: string }, featureId: string): Promise<boolean> {
+        return this.notifications.recordQuietly(async () => {
+            const feature = await this.features.findOneBy({ id: featureId });
+            if (!feature) return null;
+            const jobs = await this.jobs.countBy({ featureId: feature.id });
+            return {
+                occurrenceKey: `spec.planned:${run.id}`,
+                kind: 'spec.planned',
+                projectId: run.projectId,
+                featureId: feature.id,
+                title: feature.title,
+                repos: [],
+                reason: `Draft feature with ${jobs} job${jobs === 1 ? '' : 's'} in triage; review the plan and queue the jobs`,
+                prLinks: [],
+            };
+        });
+    }
+
+    /** A planning run used its attempts and failed. `reason` is the short stored reason, redacted here as well. */
+    specPlanFailed(run: { id: string; projectId: string }, specTitle: string, version: number, reason: string): Promise<boolean> {
+        return this.notifications.recordQuietly({
+            occurrenceKey: `spec.plan_failed:${run.id}`,
+            kind: 'spec.plan_failed',
+            projectId: run.projectId,
+            title: `${specTitle} v${version}`,
+            repos: [],
+            reason: sanitizeReason(reason),
+            prLinks: [],
+        });
+    }
+
+    /**
      * A revision was proposed for `target` by the run behind `prJob`'s PR. The key uses the proposal content, so
      * re-parsing the same proposal is one event and an edited proposal is a new one.
      */

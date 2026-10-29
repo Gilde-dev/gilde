@@ -249,4 +249,91 @@ describe('SpecDetailView', () => {
       await waitFor(() => expect(unarchive).toHaveBeenCalledWith('s1'));
     });
   });
+
+  describe('planning', () => {
+    const run = (over: Partial<NonNullable<SpecDetail['versions'][number]['planning']>> = {}) => ({
+      id: 'pr1', version: 1, status: 'queued' as const, attempts: 0, featureId: null, reason: null, trigger: 'manual' as const,
+      requestedById: 'u1', createdAt: '2026-01-03T00:00:00.000Z', updatedAt: '2026-01-03T00:00:00.000Z', ...over,
+    });
+    const approvedSpec = (planning: ReturnType<typeof run> | null, over: Partial<SpecDetail> = {}) =>
+      specDetail({ status: 'approved', approvedVersion: 1, currentVersion: 1, versions: [specVersion(1, { approval, planning })], ...over });
+
+    it('offers Plan from spec on an approved version and queues a run', async () => {
+      const get = setup(approvedSpec(null));
+      const plan = vi.spyOn(api, 'planSpec').mockResolvedValue(approvedSpec(run()));
+      render(<SpecDetailView />);
+      expect(await screen.findByText('No planning run yet.')).toBeInTheDocument();
+      expect(screen.getByText(/Nothing is queued automatically/)).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Plan from spec' }));
+      await waitFor(() => expect(plan).toHaveBeenCalledWith('s1'));
+      await waitFor(() => expect(get.mock.calls.length).toBeGreaterThan(1));
+    });
+
+    it.each([
+      ['queued', 'Planning queued', 'already queued'],
+      ['running', 'Planning in progress', 'already in progress'],
+    ] as const)('shows a %s run and disables the button with the reason', async (status, label, reason) => {
+      setup(approvedSpec(run({ status })));
+      render(<SpecDetailView />);
+      expect(await screen.findByText(label)).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Plan from spec' })).toBeDisabled();
+      expect(screen.getByText(new RegExp(reason))).toBeInTheDocument();
+    });
+
+    it('links the feature of a planned version and disables planning again', async () => {
+      setup(approvedSpec(run({ status: 'planned', featureId: 'f9' })));
+      render(<SpecDetailView />);
+      expect(await screen.findByText('Planned', { selector: 'span' })).toBeInTheDocument();
+      expect(screen.getByRole('link', { name: 'Open the feature' })).toHaveAttribute('href', '/features/f9?project=p');
+      expect(screen.getByRole('button', { name: 'Plan from spec' })).toBeDisabled();
+      expect(screen.getByText(/already planned: a feature is pinned/)).toBeInTheDocument();
+    });
+
+    it('shows the reason of a skipped and of a failed run; a failed run can be planned again', async () => {
+      setup(approvedSpec(run({ status: 'failed', attempts: 2, reason: 'The agent finished without proposing a plan' })));
+      render(<SpecDetailView />);
+      expect(await screen.findByText('Planning failed')).toBeInTheDocument();
+      expect(screen.getByText('The agent finished without proposing a plan')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: 'Plan from spec' })).toBeEnabled();
+    });
+
+    it('shows a skipped run with its reason', async () => {
+      setup(approvedSpec(run({ status: 'skipped', reason: 'Version 1 is already planned: feature "X" is pinned to it', featureId: 'f1' })));
+      render(<SpecDetailView />);
+      expect(await screen.findByText('Planning skipped')).toBeInTheDocument();
+      expect(screen.getByText(/feature "X" is pinned to it/, { selector: 'span' })).toBeInTheDocument();
+    });
+
+    it('shows the note for a newer approved version', async () => {
+      setup(approvedSpec(null, { planNote: 'v3 approved; feature X is pinned to v2', approvedVersion: 1 }));
+      render(<SpecDetailView />);
+      expect(await screen.findByRole('status', { name: '' })).toHaveTextContent('v3 approved; feature X is pinned to v2');
+    });
+
+    it('says an unapproved version cannot be planned and has no button', async () => {
+      setup(specDetail());
+      render(<SpecDetailView />);
+      expect(await screen.findByText('Only an approved version can be planned.')).toBeInTheDocument();
+      expect(screen.queryByRole('button', { name: 'Plan from spec' })).toBeNull();
+    });
+
+    it('disables the button with the reason for non-humans and archived specs', async () => {
+      setup(approvedSpec(null, { mayApprove: false, archivedAt: '2026-01-05T00:00:00.000Z' }));
+      render(<SpecDetailView />);
+      expect(await screen.findByRole('button', { name: 'Plan from spec' })).toBeDisabled();
+      expect(screen.getByText('Only a verified human can plan from a spec.')).toBeInTheDocument();
+      expect(screen.getByText(/archived; unarchive it before planning/)).toBeInTheDocument();
+    });
+
+    it('shows 403 and 409 clearly', async () => {
+      setup(approvedSpec(null));
+      const plan = vi.spyOn(api, 'planSpec').mockRejectedValueOnce(new ApiError('no', 403, 'Forbidden'));
+      render(<SpecDetailView />);
+      fireEvent.click(await screen.findByRole('button', { name: 'Plan from spec' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent(/only a verified human signed in interactively/);
+      plan.mockRejectedValueOnce(new ApiError('conflict', 409, 'Version 1 already has a planning run that is queued'));
+      fireEvent.click(screen.getByRole('button', { name: 'Plan from spec' }));
+      await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/cannot be planned.*already has a planning run/));
+    });
+  });
 });
