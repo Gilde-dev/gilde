@@ -18,6 +18,7 @@ import { User } from '../user/user.entity.js';
 import { WebhookDelivery } from '../webhook/webhook-delivery.entity.js';
 import { commentMarker, renderStatusComment, safeCommentError, type IntakeCommentView } from './intake-comment.js';
 import { IntakeCommentService } from './intake-comment.service.js';
+import { refineSha } from './intake-issue.js';
 import { IntakeItem } from './intake-item.entity.js';
 
 const SECRET_BODY = 'FULL-SPEC-BODY-SECRET sk-live-123';
@@ -57,6 +58,22 @@ describe('renderStatusComment', () => {
 
     it('never carries a spec body, even if one leaks into the view fields it does not use', () => {
         expect(renderStatusComment({ ...view(), ...{ body: SECRET_BODY } } as IntakeCommentView)).not.toContain('SECRET');
+    });
+
+    it('renders answers received with the previous questions marked as being updated', () => {
+        const text = renderStatusComment(view({ status: 'answers received' }));
+        expect(text).toContain('**answers received**');
+        expect(text).toContain('Answers received, updating the spec.');
+        expect(text).toContain('Previous open questions (being updated)');
+        expect(text).toContain('1. Which delimiter?');
+        expect(text).not.toContain('Reply to this issue');
+    });
+
+    it('renders a withdrawn item with its reason and no spec details', () => {
+        const text = renderStatusComment({ itemId: 'item-1', status: 'no longer refined', spec: view().spec, failure: null, reason: 'label removed' });
+        expect(text.startsWith(commentMarker('item-1'))).toBe(true);
+        expect(text).toContain('This issue is no longer being refined by Gilde (label removed).');
+        expect(text).not.toContain('Which delimiter');
     });
 
     it('maps errors to short safe sentences', () => {
@@ -193,6 +210,72 @@ describe('IntakeCommentService', () => {
         advance(2 * 60_000);
         await setBody(specBody('None'));
         await expect(service.syncForSpec(spec.id)).resolves.toBeUndefined();
+    });
+
+    describe('answers, withdrawn and ignored', () => {
+        const answer = { id: '1', author: 'maint', body: 'semicolons', createdAt: '2026-10-29T09:00:00Z' };
+        const texts = () => upsert.mock.calls.map((c) => c[2].body as string);
+
+        it('says answers received right away, no-ops on a repeat, and the refine outcome replaces it', async () => {
+            await service.sync(item.id);
+            await items.update({ id: item.id }, { status: 'new', refinedSha256: 'old', comments: [answer] });
+            advance(2 * 60_000);
+            await service.sync(item.id);
+            expect(texts()[1]).toContain('Answers received, updating the spec.');
+            expect(texts()[1]).toContain('Previous open questions (being updated)');
+            advance(2 * 60_000);
+            await service.sync(item.id);
+            expect(upsert).toHaveBeenCalledTimes(2);
+            await setBody(specBody('None'));
+            await items.update({ id: item.id }, { status: 'drafted', refinedSha256: refineSha(await reload()) });
+            advance(2 * 60_000);
+            await service.sync(item.id);
+            expect(texts()[2]).toContain('**ready to approve**');
+            expect(texts()[2]).not.toContain('Answers received');
+        });
+
+        it('holds the answers received update to one write per minute', async () => {
+            await service.sync(item.id);
+            await items.update({ id: item.id }, { status: 'new', refinedSha256: 'old', comments: [answer] });
+            advance(10_000);
+            await service.sync(item.id);
+            expect(upsert).toHaveBeenCalledTimes(1);
+            expect((await reload()).statusCommentPending).toBe(true);
+        });
+
+        it.each([
+            ['withdrawn', ['gilde:refine'], 'issue closed'],
+            ['withdrawn', [], 'label removed'],
+            ['ignored', ['gilde:refine'], 'ignored in Gilde'],
+        ] as const)('updates the comment once for %s (%s) and returns to the normal status afterwards', async (status, labels, reason) => {
+            await service.sync(item.id);
+            await items.update({ id: item.id }, { status, labels: [...labels] });
+            advance(2 * 60_000);
+            await service.sync(item.id);
+            await service.sync(item.id);
+            expect(upsert).toHaveBeenCalledTimes(2);
+            expect(texts()[1]).toContain(`This issue is no longer being refined by Gilde (${reason}).`);
+            expect(upsert.mock.calls[1][2]).toMatchObject({ commentId: '9001', marker: commentMarker(item.id) });
+            await items.update({ id: item.id }, { status: 'drafted', labels: ['gilde:refine'] });
+            advance(2 * 60_000);
+            await service.sync(item.id);
+            expect(texts()[2]).toContain('**waiting for answers**');
+        });
+
+        it.each(['withdrawn', 'ignored'] as const)('writes no comment for a %s item that never had one', async (status) => {
+            await items.update({ id: item.id }, { status });
+            await service.sync(item.id);
+            expect(upsert).not.toHaveBeenCalled();
+        });
+
+        it('records commentError instead of throwing when the withdrawn update fails', async () => {
+            await service.sync(item.id);
+            await items.update({ id: item.id }, { status: 'withdrawn' });
+            upsert.mockRejectedValueOnce(new GitHubRequestError('GitHub PATCH failed: 403', 403));
+            advance(2 * 60_000);
+            await expect(service.sync(item.id)).resolves.toBeUndefined();
+            expect(await reload()).toMatchObject({ status: 'withdrawn', commentError: expect.stringContaining('Issues: write') });
+        });
     });
 
     it('does nothing without GitHub credentials', async () => {

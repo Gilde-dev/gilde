@@ -12,6 +12,7 @@ import {
     commentMarker, commentSha, goalSummary, INTAKE_COMMENT_INTERVAL_MS, renderStatusComment, safeCommentError, safeFailure,
     type IntakeCommentView,
 } from './intake-comment.js';
+import { hasIntakeLabel, refineSha } from './intake-issue.js';
 import { IntakeItem } from './intake-item.entity.js';
 
 /**
@@ -67,7 +68,9 @@ export class IntakeCommentService {
 
     private async write(itemId: string): Promise<void> {
         const item = await this.items.findOne({ where: { id: itemId }, relations: { repo: true } });
-        if (!item?.repo || item.status === 'withdrawn' || !this.github.isConfigured()) return;
+        if (!item?.repo || !this.github.isConfigured()) return;
+        // a withdrawn or ignored item only gets its existing comment updated; one that never had a comment gets none
+        if ((item.status === 'withdrawn' || item.status === 'ignored') && !item.statusCommentId) return;
         const view = await this.view(item);
         if (!view) return;
         const body = renderStatusComment(view);
@@ -96,6 +99,10 @@ export class IntakeCommentService {
 
     /** What the comment says now; null when there is nothing to say yet (no draft and no failure). */
     private async view(item: IntakeItem): Promise<IntakeCommentView | null> {
+        if (item.status === 'withdrawn' || item.status === 'ignored') {
+            const reason = item.status === 'ignored' ? 'ignored in Gilde' : hasIntakeLabel(item.labels ?? []) ? 'issue closed' : 'label removed';
+            return { itemId: item.id, status: 'no longer refined', spec: null, failure: null, reason };
+        }
         const spec = item.specId ? await this.specs.findOneBy({ id: item.specId }) : null;
         const version = spec ? await this.versions.findOneBy({ specId: spec.id, version: spec.currentVersion }) : null;
         const parsed = version ? parseSpec(version.body) : null;
@@ -107,7 +114,10 @@ export class IntakeCommentService {
         if (item.status === 'failed') return { itemId: item.id, status: 'refine failed', spec: shown, failure: safeFailure(item.lastError) };
         if (!spec || !shown) return null;
         const planned = (await this.features.countBy({ specId: spec.id })) > 0;
+        const answered = (item.status === 'new' || item.status === 'refining') && !!item.comments?.length
+            && !!item.refinedSha256 && item.refinedSha256 !== refineSha(item);
         const status = planned ? 'planned'
+            : answered && spec.approvedVersion !== spec.currentVersion ? 'answers received'
             : spec.approvedVersion === spec.currentVersion ? 'approved'
                 : shown.openQuestions.length ? 'waiting for answers'
                     : item.status === 'drafted' ? 'ready to approve'

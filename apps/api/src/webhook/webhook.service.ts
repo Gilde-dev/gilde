@@ -231,6 +231,10 @@ export class WebhookService {
     private async onIntakeComment(repo: { id: string }, payload: WebhookPayload): Promise<string> {
         const { issue, comment } = payload;
         if (!this.intake || !issue || comment?.id === undefined) return `ignored: issue_comment on issue #${issue?.number}`;
+        if (payload.action === 'deleted') {
+            const removed = await this.intake.removeComment(repo, issue.number, String(comment.id));
+            return removed === 'no item' ? `ignored: issue_comment on issue #${issue.number}` : `intake comment ${removed} for issue #${issue.number}`;
+        }
         if (payload.action !== 'created' && payload.action !== 'edited') return `ignored: issue_comment ${payload.action ?? '(no action)'}`;
         const own = payload.sender?.type === 'Bot' || comment.user?.type === 'Bot' || !!this.credentials?.isOwnApp(comment.performed_via_github_app?.id);
         if (own) return `ignored: issue_comment on issue #${issue.number} by a bot`;
