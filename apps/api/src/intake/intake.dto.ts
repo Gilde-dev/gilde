@@ -55,7 +55,18 @@ export const IntakeItemResponseSchema = z.object({
 });
 export type IntakeItemResponseDto = z.infer<typeof IntakeItemResponseSchema>;
 
+/** A stored member comment, as the Verfijner sees it (same order, same cap), with its link on GitHub. */
+export const IntakeCommentResponseSchema = z.object({
+    id: z.string(),
+    author: z.string(),
+    body: z.string(),
+    createdAt: z.string(),
+    url: z.string(),
+});
+export type IntakeCommentResponseDto = z.infer<typeof IntakeCommentResponseSchema>;
+
 export const IntakeItemDetailResponseSchema = IntakeItemResponseSchema.extend({
+    comments: z.array(IntakeCommentResponseSchema),
     body: z.string(),
     bodyTruncated: z.boolean(),
     bodySha256: z.string(),

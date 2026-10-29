@@ -586,7 +586,7 @@ comments only the ones that count as answers are stored (below); assignees and o
 Once the Verfijner has drafted a spec, Gilde writes **one status comment** on the issue as the GitHub App and keeps it up to date; you
 answer the open questions by replying on the issue instead of editing its body.
 
-- **The status comment** is found by a hidden marker (`<!-- gilde:intake:<item id> -->`) and edited in place, never duplicated. It shows
+- **The status comment** is found by a hidden marker (`<!-- gilde:intake:<item id> -->`) and edited in place, never duplicated. It shows With a lost stored id it is found again only when the marker comment was written by Gilde's own identity: the app's bot, or in PAT mode the token's user (read once from `GET /user`, cached). A marker comment by anyone else is ignored and never edited.
   the spec title and version (link to `/specs/<id>` on `WEB_ORIGIN`), the status (draft, waiting for answers, ready to approve, approved,
   planned, or refine failed with a short reason), the number of acceptance criteria with a one-line summary, and the open questions
   verbatim as a numbered list. It never contains the spec body. It is refreshed after every refine outcome, when the spec is approved and
