@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, JoinColumn, ManyToOne, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 import { User } from '../user/user.entity.js';
+import type { RunKind } from '../run/run-status.js';
 import { JOB_STATUSES, type JobStatus } from './job-state.js';
 
 @Entity({ name: 'jobs' })
@@ -110,6 +111,39 @@ export class Job {
         default: false
     })
     mergedBlocked: boolean;
+
+    /** True while GitHub reports the open PR cannot be merged cleanly into its base (mergeable_state dirty). */
+    @Column({
+        name: 'merge_conflict',
+        default: false
+    })
+    mergeConflict: boolean;
+
+    /** When GitHub last gave a definite mergeable answer for the PR; null before the first one. */
+    @Column({
+        name: 'merge_conflict_checked_at',
+        type: Date,
+        nullable: true
+    })
+    mergeConflictCheckedAt: Date | null;
+
+    /** The kind of the round the job waits for in the queue; null is a normal attempt. Reset whenever the job is queued otherwise. */
+    @Column({
+        name: 'next_round_kind',
+        type: 'varchar',
+        length: 16,
+        nullable: true
+    })
+    nextRoundKind: RunKind | null;
+
+    /** The PR head an automatic conflict-fix round was started for; at most one per head. */
+    @Column({
+        name: 'auto_fix_head_sha',
+        type: 'varchar',
+        length: 64,
+        nullable: true
+    })
+    autoFixHeadSha: string | null;
 
     /** Set on a job made by "Recreate job": the merged-without-work job it replaces. Unique, so a job has one replacement. */
     @Column({

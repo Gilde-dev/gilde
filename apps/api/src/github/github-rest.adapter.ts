@@ -14,6 +14,7 @@ interface PullJson {
     html_url: string;
     body: string | null;
     head: { sha: string; ref: string };
+    mergeable_state?: string | null;
 }
 
 interface WorkflowRunsJson {
@@ -182,6 +183,7 @@ const toPull = (p: PullJson): GitHubPull => ({
     headRef: p.head.ref,
     htmlUrl: p.html_url,
     body: p.body,
+    mergeableState: p.mergeable_state ?? null,
 });
 
 const toIssue = (i: IssueJson): GitHubIssue => ({

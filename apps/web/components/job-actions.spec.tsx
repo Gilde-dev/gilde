@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError, JOB_STATUSES, type Job, type JobStatus, type JobSyncResult } from '@/lib/api';
 import { describeSync } from '@/lib/job-actions';
@@ -222,5 +222,46 @@ describe('JobActions sync from GitHub', () => {
     sync.mockRejectedValueOnce(new ApiError('x', 403, 'A verified human is required'));
     fireEvent.click(screen.getByRole('button', { name: 'Sync from GitHub' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Only a signed-in person can sync jobs from GitHub'));
+  });
+});
+
+describe('JobActions merge conflicts', () => {
+  const conflicted = (status: JobStatus, over: Partial<Job> = {}) => ({ id: 'j1', status, prNumber: 7, mergeConflict: true, ...over }) as Job;
+
+  it.each(JOB_STATUSES)('offers Fix merge conflicts for %s only on an open PR with a conflict', (status) => {
+    render(<JobActions job={conflicted(status)} onChanged={() => {}} />);
+    expect(!!screen.queryByRole('button', { name: 'Fix merge conflicts' })).toBe(status === 'pr_open' || status === 'awaiting_review');
+  });
+
+  it('hides it without a conflict or without a PR', () => {
+    const { rerender } = render(<JobActions job={conflicted('awaiting_review', { mergeConflict: false })} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Fix merge conflicts' })).toBeNull();
+    rerender(<JobActions job={conflicted('awaiting_review', { prNumber: null })} onChanged={() => {}} />);
+    expect(screen.queryByRole('button', { name: 'Fix merge conflicts' })).toBeNull();
+  });
+
+  it('confirms first, says it starts a session on the owner\'s executor, then sends the job back', async () => {
+    const fix = vi.spyOn(api, 'fixConflicts').mockResolvedValue({} as Job);
+    const onChanged = vi.fn();
+    render(<JobActions job={conflicted('pr_open')} onChanged={onChanged} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fix merge conflicts' }));
+    expect(fix).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toHaveTextContent("starts a session on the job's owner's executor");
+    expect(screen.getByRole('dialog')).toHaveTextContent('does not use one of the job');
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Fix merge conflicts' }));
+    await waitFor(() => expect(onChanged).toHaveBeenCalled());
+    expect(fix).toHaveBeenCalledWith('j1');
+    expect(await screen.findByRole('status')).toHaveTextContent('Sent back to the agent to merge the default branch');
+  });
+
+  it('shows a clean message when the API refuses a non-human and when the job changed', async () => {
+    const fix = vi.spyOn(api, 'fixConflicts').mockRejectedValueOnce(new ApiError('x', 403, 'A verified human is required'));
+    render(<JobActions job={conflicted('pr_open')} onChanged={() => {}} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Fix merge conflicts' }));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Fix merge conflicts' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a signed-in person can fix merge conflicts');
+    fix.mockRejectedValueOnce(new ApiError('x', 409, 'The PR has no known merge conflict'));
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Fix merge conflicts' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('The PR has no known merge conflict'));
   });
 });

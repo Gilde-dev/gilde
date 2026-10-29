@@ -8,6 +8,7 @@ import { RepoManifestService } from '../repo/repo-manifest.service.js';
 import { LessonService } from '../lesson/lesson.service.js';
 import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
+import type { RunKind } from '../run/run-status.js';
 import { NotificationCaptureService, type ParkCause } from '../notification/notification-capture.service.js';
 import { ProposalService } from '../revision/proposal.service.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
@@ -176,7 +177,7 @@ export class JobEventsService {
     async prClosed(job: Job, prNumber: number, merged: boolean): Promise<string> {
         const event: JobEvent = merged ? 'merged' : 'closed';
         const wasPending = job.status === 'queued' || job.status === 'dispatched';
-        const to = await this.transition(job, event, {});
+        const to = await this.transition(job, event, { mergeConflict: false });
         if (!to) return `ignored: job ${job.status} cannot take ${event}`;
         // Stamp the end of the job's last run so time-to-merge can be measured.
         const last = await this.findRun(job.id, null);
@@ -233,12 +234,13 @@ export class JobEventsService {
     }
 
     /** Requeues the job on the existing PR while attempts are left, else parks it. PR, branch and head sha are kept. */
-    async retryOrParkJob(job: Job, reason: string, cause: ParkCause = 'failure'): Promise<Job['status'] | null> {
-        const project = await this.projects.findOneBy({ id: job.projectId });
-        const event = retryOrPark(job.attempts, project?.maxAttempts ?? job.attempts);
+    async retryOrParkJob(job: Job, reason: string, cause: ParkCause = 'failure', kind: RunKind = 'attempt'): Promise<Job['status'] | null> {
+        // A conflict-fix round uses no attempt, so it is always requeued; every other round is limited by maxAttempts.
+        const project = kind === 'conflict_fix' ? null : await this.projects.findOneBy({ id: job.projectId });
+        const event = kind === 'conflict_fix' ? 'retry' : retryOrPark(job.attempts, project?.maxAttempts ?? job.attempts);
         const to = await this.transition(job, event, {
             lastReason: reason,
-            ...(event === 'retry' ? { queuedAt: new Date() } : {}),
+            ...(event === 'retry' ? { queuedAt: new Date(), nextRoundKind: kind === 'conflict_fix' ? kind : null } : {}),
         });
         if (to) this.logger.log(`Job ${job.id} ${event} (attempt ${job.attempts}): ${reason}`);
         if (to === 'parked') await this.lessons?.onJobEnded(job.id, to, reason);
@@ -278,7 +280,9 @@ export class JobEventsService {
     private async transition(job: Job, event: JobEvent, changes: Partial<Job>): Promise<Job['status'] | null> {
         const to = nextStatus(job.status, event);
         if (!to) return null;
-        const res = await this.jobs.update({ id: job.id, status: job.status }, { ...changes, status: to });
+        // Only retryOrParkJob queues a conflict-fix round; any other way into the queue is a normal attempt.
+        const reset = to === 'queued' && changes.nextRoundKind === undefined ? { nextRoundKind: null } : {};
+        const res = await this.jobs.update({ id: job.id, status: job.status }, { ...changes, ...reset, status: to });
         if (res.affected !== 1) {
             this.logger.warn(`Job ${job.id} changed concurrently; ignoring ${event}`);
             return null;

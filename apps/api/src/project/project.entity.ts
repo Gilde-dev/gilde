@@ -53,6 +53,13 @@ export class Project {
     })
     paused: boolean;
 
+    /** Start one automatic conflict-fix round per PR head when an agent PR gets merge conflicts. */
+    @Column({
+        name: 'auto_fix_conflicts',
+        default: false
+    })
+    autoFixConflicts: boolean;
+
     /** Estimated-USD limit per UTC day for this project's agent runs; null = no limit, 0 = stop immediately. */
     @Column({
         name: 'daily_budget_usd',

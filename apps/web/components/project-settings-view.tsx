@@ -117,6 +117,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
   const [maxAttempts, setMaxAttempts] = useState(String(project.maxAttempts));
   const [timeout, setTimeoutMinutes] = useState(String(project.runTimeoutMinutes));
   const [retry, setRetry] = useState(project.retryOnChangesRequested);
+  const [autoFix, setAutoFix] = useState(project.autoFixConflicts);
   return (
     <SettingsForm
       project={project}
@@ -126,6 +127,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
         maxAttempts: Number(maxAttempts),
         runTimeoutMinutes: Number(timeout),
         retryOnChangesRequested: retry,
+        autoFixConflicts: autoFix,
       })}
     >
       {(error) => (
@@ -142,6 +144,15 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={retry} onChange={(e) => setRetry(e.target.checked)} />
             Retry when changes are requested
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={autoFix} onChange={(e) => setAutoFix(e.target.checked)} />
+            <span>
+              Fix merge conflicts automatically
+              <span className="block text-muted-foreground">
+                When an agent PR conflicts with the default branch, send it back once per PR head to merge the branch in. This uses no attempt.
+              </span>
+            </span>
           </label>
         </>
       )}
