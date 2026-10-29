@@ -23,10 +23,11 @@ import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
 import type { RepoContextService } from './repo-context.service.js';
 import { SCOUT_AGENT_ID, type ScoutConfig } from './verkenner.config.js';
 import { scoutDeliveryDecider, type ScoutDispatchGate } from './scout-delivery-policy.js';
-import { scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
+import { scoutBinding, scoutProjectOfThread, scoutStreamOptions } from './verkenner.context.js';
 import { VERKENNER_INSTRUCTIONS } from './verkenner.instructions.js';
 import { createScoutTools } from './verkenner.tools.js';
 import { REFINE_AGENT_ID, type RefineConfig } from './verfijner.config.js';
+import { refineBinding } from './verfijner.context.js';
 import { VERFIJNER_INSTRUCTIONS } from './verfijner.instructions.js';
 import type { RefinedSpecWriter } from './verfijner.save.js';
 import { createRefineTools } from './verfijner.tools.js';
@@ -206,6 +207,21 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
     });
 }
 
+type McpToolSource = Pick<NonNullable<CopilotServices['mcpTools']>, 'buildTools'> | undefined;
+
+/**
+ * The agent's own tools plus the MCP tools of one project, per request. The project comes from the request context (never
+ * from tool input); without one, or when the MCP layer fails, the agent just has its own tools.
+ */
+async function withMcpTools<T extends Record<string, unknown>>(own: T, mcp: McpToolSource, projectId: string | null | undefined, audience: 'copilot' | 'unattended'): Promise<T> {
+    if (!mcp || !projectId) return own;
+    try {
+        return { ...(await mcp.buildTools(projectId, audience, Object.keys(own))), ...own };
+    } catch {
+        return own;
+    }
+}
+
 /** Used when no suggestion service is wired (unit tests of the agent): every suggestion is refused and nothing is created. */
 const REFUSING_SUGGESTIONS: Pick<ScoutSuggestionService, 'suggest'> = {
     suggest: async () => ({ created: false, stop: true, refusal: { reason: 'scout_off', message: 'Suggestions are not available.' } }),
@@ -216,13 +232,15 @@ const REFUSING_WRITER: Pick<RefinedSpecWriter, 'save'> = {
 };
 
 function createRefineAgent(refine: RefineSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+    const own = createRefineTools(services, refine.writer ?? REFUSING_WRITER);
     return new Agent({
         id: REFINE_AGENT_ID,
         name: REFINE_AGENT_ID,
         description: 'Verfijner, the refiner: turns one labelled GitHub issue into a draft spec. Runs unattended, bound to one intake item; not reachable over HTTP.',
         instructions: VERFIJNER_INSTRUCTIONS,
         model: (refine.model ?? refine.config.model) as `openai/${string}`,
-        tools: createRefineTools(services, refine.writer ?? REFUSING_WRITER),
+        // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
+        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, refineBinding(requestContext)?.projectId, 'unattended') as never,
         // One thread per attempt; thread-scoped memory like the scout's.
         memory: createScoutMemory(memoryInfra, usage),
         defaultOptions: copilotDefaultOptions(refine.config.maxSteps, undefined, usage && { service: usage, model: refine.config.model }, REFINE_AGENT_ID) as never,
@@ -230,13 +248,15 @@ function createRefineAgent(refine: RefineSetup, services: CopilotServices, memor
 }
 
 function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+    const own = createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, scout.config.patternMinSize);
     return new Agent({
         id: SCOUT_AGENT_ID,
         name: SCOUT_AGENT_ID,
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
         instructions: VERKENNER_INSTRUCTIONS,
         model: (scout.model ?? scout.config.model) as `openai/${string}`,
-        tools: createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, scout.config.patternMinSize),
+        // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
+        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, scoutBinding(requestContext)?.projectId, 'unattended') as never,
         memory: createScoutMemory(memoryInfra, usage),
         // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
         // server-issued project binding of the notification's own thread. The project is parsed from the thread id.
@@ -254,6 +274,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
 }
 
 function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, services: CopilotServices, memoryInfra: MemoryInfrastructure, repoContext?: RepoContextService, usage?: Pick<UsageService, 'record'>): Agent {
+    const own = createCopilotTools(services);
     return new Agent({
         id: COPILOT_AGENT_ID,
         name: COPILOT_AGENT_ID,
@@ -266,7 +287,8 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
         },
         // OpenAI through the Mastra model router; the provider is only chosen by COPILOT_MODEL.
         model: config.model as `openai/${string}`,
-        tools: createCopilotTools(services),
+        // Plus the allowed tools of the selected project's MCP servers; the write ones always ask for approval.
+        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined, 'copilot') as never,
         memory: createCopilotMemory(memoryInfra, usage),
         defaultOptions: copilotDefaultOptions(config.maxSteps, undefined, usage && { service: usage, model: config.model }) as never,
     });

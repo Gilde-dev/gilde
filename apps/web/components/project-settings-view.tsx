@@ -9,6 +9,7 @@ import { errorText } from '@/lib/job-actions';
 import { usePolling, type Polling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
+import { McpServersTab } from './mcp-servers-tab';
 import { PauseToggle } from './pause-toggle';
 import { ReposSection } from './repos-section';
 import { Badge } from './ui/badge';
@@ -335,6 +336,7 @@ export function ProjectSettingsView() {
           <TabsTrigger value="policies">Policies</TabsTrigger>
           <TabsTrigger value="budget">Budget</TabsTrigger>
           <TabsTrigger value="skills">Skills library</TabsTrigger>
+          <TabsTrigger value="mcp">MCP servers</TabsTrigger>
           <TabsTrigger value="danger">Danger zone</TabsTrigger>
         </TabsList>
         <TabsContent value="general" className="pt-4">
@@ -348,6 +350,9 @@ export function ProjectSettingsView() {
         </TabsContent>
         <TabsContent value="skills" className="pt-4">
           <SkillsForm project={p} repos={repos.data ?? []} onSaved={project.refresh} />
+        </TabsContent>
+        <TabsContent value="mcp" className="pt-4">
+          <McpServersTab projectId={p.id} />
         </TabsContent>
         <TabsContent value="danger" className="pt-4">
           <div className="max-w-xl space-y-2 rounded-lg border border-danger/40 p-4">
