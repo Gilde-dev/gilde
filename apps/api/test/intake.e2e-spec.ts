@@ -5,6 +5,7 @@ import request from 'supertest';
 
 import { AppModule } from './../src/app.module.js';
 import { configureBodyParsing } from './../src/common/body-parser.js';
+import { GITHUB_PORT } from './../src/github/github.port.js';
 import { authedAgent, createApiKey, createTestUser } from './helpers/auth.js';
 
 const SECRET = 'intake-webhook-secret';
@@ -15,7 +16,10 @@ describe('Issue intake (e2e)', () => {
 
   beforeAll(async () => {
     process.env.GITHUB_APP_WEBHOOK_SECRET = SECRET;
-    app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication({ bodyParser: false });
+    // The sweep lists issues of every repo in the shared database; the real adapter would call GitHub (slow, and a timeout) when a token is set.
+    const github = { isConfigured: () => false };
+    app = (await Test.createTestingModule({ imports: [AppModule] }).overrideProvider(GITHUB_PORT).useValue(github).compile())
+      .createNestApplication({ bodyParser: false });
     app.setGlobalPrefix('/api');
     configureBodyParsing(app);
     await app.init();
