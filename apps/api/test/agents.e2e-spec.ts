@@ -3,6 +3,10 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 
 import { AppModule } from './../src/app.module.js';
+import { REFINE_TOOL_NAMES } from './../src/copilot/verfijner.tools.js';
+import { SCOUT_TOOL_NAMES } from './../src/copilot/verkenner.tools.js';
+import { PLAN_TOOL_NAMES } from './../src/copilot/werkmeester.tools.js';
+import { MCP_TOOL_NAMES } from './../src/mcp/mcp.tools.js';
 import { AgentRuntimeService } from './../src/agent/agent-runtime.service.js';
 import { UserService } from './../src/user/user.service.js';
 import { createApiKey, createTestUser, tokenFor } from './helpers/auth.js';
@@ -46,6 +50,8 @@ describe('Agent settings (e2e)', () => {
     await http().get('/api/v1/agents/gilde').expect(401);
     await http().get('/api/v1/agents/bot-users').expect(401);
     await http().get('/api/v1/agents/gilde/audit').expect(401);
+    await http().get('/api/v1/agents/gilde/tools').expect(401);
+    await http().get('/api/v1/agents/slack').expect(401);
     await http().put('/api/v1/agents/gilde/settings').send({}).expect(401);
   });
 
@@ -159,6 +165,43 @@ describe('Agent settings (e2e)', () => {
       expect(off).toMatchObject({ enabled: false, model: null });
       expect(off.disabledReason).toContain('is not marked as a bot');
       expect(await app.get(AgentRuntimeService).scoutSetup()).toBeNull();
+    });
+  });
+
+  describe('tools and the Slack bot', () => {
+    type Tools = { agent: string; kind: string; tools: Array<{ name: string; access: string; needsApproval: boolean }>; note: string | null; projectTools: unknown[] };
+    const tools = async (id: string) => (await http().get(`/api/v1/agents/${id}/tools`).set(bearer(token)).expect(200)).body as Tools;
+
+    it('lists the exact allowlist of each agent, the same names the agents are built with', async () => {
+      const names = async (id: string) => (await tools(id)).tools.map((t) => t.name).sort();
+      expect(await names('verkenner')).toEqual([...SCOUT_TOOL_NAMES].sort());
+      expect(await names('verfijner')).toEqual([...REFINE_TOOL_NAMES].sort());
+      expect(await names('werkmeester')).toEqual([...PLAN_TOOL_NAMES].sort());
+      expect(await names('mcp')).toEqual([...MCP_TOOL_NAMES].sort());
+      const copilot = await tools('gilde');
+      expect(copilot.kind).toBe('allowlist');
+      expect(copilot.tools.filter((t) => t.needsApproval).map((t) => t.name).sort()).toEqual(['createJob', 'createPlannedFeature', 'draftSpec']);
+    });
+
+    it('explains that coding agents use their routine\'s tools, and answers 404 for an unknown agent', async () => {
+      const coding = await tools('coding');
+      expect(coding).toMatchObject({ kind: 'routine', tools: [], projectTools: [] });
+      expect(coding.note).toContain('routine');
+      await http().get('/api/v1/agents/nobody/tools').set(bearer(token)).expect(404);
+    });
+
+    it('reports the Slack bot from bot users with an API key and the notification kinds', async () => {
+      const before = (await http().get('/api/v1/agents/slack').set(bearer(token)).expect(200)).body;
+      // The e2e database is shared with other files, so only this test's own bot is asserted below.
+      expect(before).toMatchObject({ id: 'slack', label: 'Slack bot' });
+      expect(before.notificationKinds).toContain('job.awaiting_review');
+      const b = await bot('Slack Bot');
+      const key = await createApiKey(app, b);
+      await http().get('/api/v1/auth/me').set(bearer(key)).expect(200);
+      const after = (await http().get('/api/v1/agents/slack').set(bearer(token)).expect(200)).body;
+      expect(after.status).toBe('on');
+      expect(after.botUsers.find((u: { email: string }) => u.email === b.email)).toMatchObject({ name: 'Slack Bot', lastUsedAt: expect.any(String) });
+      expect(JSON.stringify(after)).not.toContain(key);
     });
   });
 

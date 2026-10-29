@@ -2,6 +2,7 @@
 
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import {
+  Bot,
   BookOpen,
   ChartColumn,
   FileText,
@@ -51,6 +52,7 @@ const NAV: NavItem[] = [
   { href: '/lessons', label: 'Lessons', icon: BookOpen },
   { href: '/skills', label: 'Skills', icon: Sparkles },
   { href: '/metrics', label: 'Metrics', icon: ChartColumn },
+  { href: '/agents', label: 'Agents', icon: Bot },
 ];
 const SETTINGS: NavItem[] = [
   { href: '/settings/projects', label: 'Projects', icon: FolderKanban },

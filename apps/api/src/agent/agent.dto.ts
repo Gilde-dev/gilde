@@ -63,3 +63,49 @@ export const AgentAuditEntrySchema = z.object({
     createdAt: z.string(),
 });
 export type AgentAuditEntryDto = z.infer<typeof AgentAuditEntrySchema>;
+
+export const AgentToolSchema = z.object({
+    name: z.string(),
+    description: z.string(),
+    access: z.enum(['read', 'write']),
+    /** Whether a human has to confirm each call (the co-pilot's writes); the unattended agents' bounded writes need none. */
+    needsApproval: z.boolean(),
+});
+export type AgentToolDto = z.infer<typeof AgentToolSchema>;
+
+export const AgentProjectToolServerSchema = z.object({
+    serverId: z.string(),
+    serverName: z.string(),
+    tools: z.array(z.object({ name: z.string(), mode: z.enum(['read', 'write']), needsApproval: z.boolean() })),
+});
+
+/** The tools of the project MCP servers an agent gets when it works in a project. */
+export const AgentProjectToolsSchema = z.object({
+    projectId: z.string(),
+    projectName: z.string(),
+    servers: z.array(AgentProjectToolServerSchema),
+});
+export type AgentProjectToolsDto = z.infer<typeof AgentProjectToolsSchema>;
+
+export const AgentToolsSchema = z.object({
+    agent: z.enum(AGENT_IDS),
+    /** `allowlist`: the agent's own tools; `routine`: the coding agents use their routine's tools, which Gilde does not control. */
+    kind: z.enum(['allowlist', 'routine']),
+    tools: z.array(AgentToolSchema),
+    /** Plain-text explanation shown with the list, e.g. what the agent can never do. */
+    note: z.string().nullable(),
+    /** Per project: the attached project MCP tools. Empty for agents that get none. */
+    projectTools: z.array(AgentProjectToolsSchema),
+});
+export type AgentToolsDto = z.infer<typeof AgentToolsSchema>;
+
+export const SlackBotSchema = z.object({
+    id: z.literal('slack'),
+    label: z.string(),
+    status: z.enum(['on', 'off']),
+    reason: z.string(),
+    /** Bot users that have an API key which is not revoked or expired: the account the channels app acts as. */
+    botUsers: z.array(AgentBotUserSchema.extend({ lastUsedAt: z.string().nullable() })),
+    notificationKinds: z.array(z.string()),
+});
+export type SlackBotDto = z.infer<typeof SlackBotSchema>;

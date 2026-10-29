@@ -986,6 +986,118 @@ export function mcpServerReplacement(s: McpServer, changes: Partial<ReplaceMcpSe
   };
 }
 
+export const AGENT_IDS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'mcp', 'coding'] as const;
+export type AgentId = (typeof AGENT_IDS)[number];
+export const AGENT_STATUSES = ['on', 'off', 'misconfigured', 'disabled_by_env'] as const;
+export type AgentStatus = (typeof AGENT_STATUSES)[number];
+
+export interface AgentBotUser {
+  id: string;
+  name: string;
+  email: string;
+}
+
+export interface AgentSettingField {
+  key: string;
+  label: string;
+  kind: 'int' | 'number';
+  min: number;
+  max: number;
+  default: number;
+}
+
+export interface Agent {
+  id: AgentId;
+  label: string;
+  status: AgentStatus;
+  reason: string | null;
+  enabled: boolean;
+  model: string | null;
+  effectiveModel: string | null;
+  hasModel: boolean;
+  hasBotUser: boolean;
+  botUserId: string | null;
+  botUser: AgentBotUser | null;
+  settings: Record<string, number>;
+  fields: AgentSettingField[];
+  updatedAt: string;
+}
+
+/** Mirrors ReplaceAgentSettingsSchema: PUT replaces everything, so build it with `agentReplacement` from the latest loaded agent. */
+export interface ReplaceAgentSettingsInput {
+  enabled: boolean;
+  botUserId: string | null;
+  model: string | null;
+  settings: Record<string, number>;
+}
+
+export function agentReplacement(a: Agent, changes: Partial<ReplaceAgentSettingsInput> = {}): ReplaceAgentSettingsInput {
+  return { enabled: a.enabled, botUserId: a.botUserId, model: a.model, settings: a.settings, ...changes };
+}
+
+export interface AgentAuditEntry {
+  id: string;
+  agent: AgentId;
+  field: string;
+  oldValue: string | null;
+  newValue: string | null;
+  changedBy: { id: string; name: string | null; email: string | null };
+  createdAt: string;
+}
+
+export interface AgentTool {
+  name: string;
+  description: string;
+  access: 'read' | 'write';
+  needsApproval: boolean;
+}
+
+export interface AgentProjectTools {
+  projectId: string;
+  projectName: string;
+  servers: { serverId: string; serverName: string; tools: { name: string; mode: McpToolMode; needsApproval: boolean }[] }[];
+}
+
+export interface AgentTools {
+  agent: AgentId;
+  kind: 'allowlist' | 'routine';
+  tools: AgentTool[];
+  note: string | null;
+  projectTools: AgentProjectTools[];
+}
+
+export interface SlackBot {
+  id: 'slack';
+  label: string;
+  status: 'on' | 'off';
+  reason: string;
+  botUsers: (AgentBotUser & { lastUsedAt: string | null })[];
+  notificationKinds: string[];
+}
+
+export interface AgentRunSummary {
+  id: string;
+  triggerKind: string;
+  outcome: 'ok' | 'error' | 'refused' | 'skipped' | null;
+  startedAt: string;
+}
+
+export interface AgentRunPage {
+  items: AgentRunSummary[];
+  page: number;
+  pageSize: number;
+  total: number;
+}
+
+export function agentRunsQuery(params: { from?: string; page?: number; pageSize?: number } = {}): string {
+  const q = new URLSearchParams();
+  if (params.from) q.set('from', params.from);
+  if (params.page) q.set('page', String(params.page));
+  if (params.pageSize) q.set('pageSize', String(params.pageSize));
+  const text = q.toString();
+  return text ? `?${text}` : '';
+}
+
 export class ApiError extends Error {
   constructor(
     message: string,
@@ -1309,6 +1421,17 @@ export const api = {
   createApiKey: (input: { name: string; expiresInDays?: number }) =>
     request<CreatedApiKey>('/v1/api-keys', 'POST', input),
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
+  listAgents: () => request<Agent[]>('/v1/agents'),
+  getAgent: (agentId: string) => request<Agent>(`/v1/agents/${id(agentId)}`),
+  listAgentBotUsers: () => request<AgentBotUser[]>('/v1/agents/bot-users'),
+  replaceAgentSettings: (agentId: string, input: ReplaceAgentSettingsInput) =>
+    request<Agent>(`/v1/agents/${id(agentId)}/settings`, 'PUT', input),
+  listAgentAudit: (agentId: string) => request<AgentAuditEntry[]>(`/v1/agents/${id(agentId)}/audit`),
+  getAgentTools: (agentId: string) => request<AgentTools>(`/v1/agents/${id(agentId)}/tools`),
+  getSlackBot: () => request<SlackBot>('/v1/agents/slack'),
+  /** The run log; callers treat a failure as "no runs" so the overview works without it. */
+  listAgentRuns: (agentId: string, params?: { from?: string; page?: number; pageSize?: number }) =>
+    request<AgentRunPage>(`/v1/agents/${id(agentId)}/runs${agentRunsQuery(params)}`),
   listExecutors: () => request<Executor[]>('/v1/executors'),
   createExecutor: (input: CreateExecutorInput) => request<Executor>('/v1/executors', 'POST', input),
   replaceExecutor: (executorId: string, input: ReplaceExecutorInput) =>

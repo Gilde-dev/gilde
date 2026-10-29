@@ -2,11 +2,15 @@ import { Global, Logger, Module } from '@nestjs/common';
 import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
+import { ApiKeyModule } from '../api-key/api-key.module.js';
+import { ProjectModule } from '../project/project.module.js';
+import { ProjectMcpModule } from '../project-mcp/project-mcp.module.js';
 import { UserModule } from '../user/user.module.js';
 
 import { AGENT_ENV, AGENTS_READY, AgentRuntimeService } from './agent-runtime.service.js';
 import { AgentSettingsAudit } from './agent-settings-audit.entity.js';
 import { AgentSettings } from './agent-settings.entity.js';
+import { AgentToolsService } from './agent-tools.service.js';
 import { AgentSettingsService } from './agent-settings.service.js';
 import { AgentController } from './agent.controller.js';
 import { AgentMapper } from './agent.mapper.js';
@@ -17,13 +21,14 @@ import { AgentMapper } from './agent.mapper.js';
  */
 @Global()
 @Module({
-    imports: [PassportModule.register({}), TypeOrmModule.forFeature([AgentSettings, AgentSettingsAudit]), UserModule],
+    imports: [PassportModule.register({}), TypeOrmModule.forFeature([AgentSettings, AgentSettingsAudit]), UserModule, ApiKeyModule, ProjectModule, ProjectMcpModule],
     controllers: [AgentController],
     providers: [
         { provide: AGENT_ENV, useValue: process.env },
         AgentRuntimeService,
         AgentSettingsService,
         AgentMapper,
+        AgentToolsService,
         {
             // Seeds the missing records from the environment before anything that is built from the settings at startup.
             provide: AGENTS_READY,

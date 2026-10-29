@@ -1,0 +1,213 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { ApiError, api, type AgentAuditEntry } from '@/lib/api';
+import { agent, agentTools, slackBot } from './agent.fixture';
+import { AgentDetailView } from './agent-detail';
+
+const nav = vi.hoisted(() => ({ params: { id: 'verfijner' } as Record<string, string> }));
+vi.mock('next/navigation', () => ({
+  useParams: () => nav.params,
+  useSearchParams: () => new URLSearchParams('project=p1'),
+  usePathname: () => '/agents/verfijner',
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+}));
+vi.mock('next/link', () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) => (
+    <a href={href} {...rest}>
+      {children}
+    </a>
+  ),
+}));
+
+const audit = (over: Partial<AgentAuditEntry> = {}): AgentAuditEntry => ({
+  id: 'a1', agent: 'verfijner', field: 'settings.dailyLimit', oldValue: '20', newValue: '10',
+  changedBy: { id: 'u1', name: 'Pascal', email: 'p@x.test' }, createdAt: '2026-10-29T09:00:00.000Z', ...over,
+});
+
+beforeEach(() => {
+  nav.params = { id: 'verfijner' };
+  vi.spyOn(api, 'listAgentBotUsers').mockResolvedValue([
+    { id: 'b1', name: 'Refiner', email: 'refiner@bots.test' },
+    { id: 'b2', name: 'Planner', email: 'planner@bots.test' },
+  ]);
+  vi.spyOn(api, 'listAgentAudit').mockResolvedValue([]);
+});
+afterEach(() => vi.restoreAllMocks());
+
+describe('AgentDetailView: Configuration', () => {
+  it('shows the stored settings and saves a full replacement built from the loaded agent', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());
+    render(<AgentDetailView />);
+    const form = within(await screen.findByRole('form', { name: 'Settings' }));
+    expect(form.getByLabelText('Enabled')).toBeChecked();
+    expect(form.getByLabelText('Bot user')).toHaveValue('b1');
+    expect(form.getByLabelText('Model')).toHaveValue('openai/gpt-5-mini');
+    expect(form.getByLabelText('Runs per project per day')).toHaveValue(10);
+
+    fireEvent.change(form.getByLabelText('Bot user'), { target: { value: 'b2' } });
+    fireEvent.change(form.getByLabelText('Runs per project per day'), { target: { value: '15' } });
+    fireEvent.click(form.getByLabelText('Enabled'));
+    fireEvent.click(form.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith('verfijner', { enabled: false, botUserId: 'b2', model: 'openai/gpt-5-mini', settings: { dailyLimit: 15 } }),
+    );
+    expect(await screen.findByText(/Saved\. The change is in effect now/)).toBeInTheDocument();
+  });
+
+  it('offers only bots from the picker, plus the stored one', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ botUserId: 'old', botUser: { id: 'old', name: 'Old', email: 'old@x.test' } }));
+    render(<AgentDetailView />);
+    const select = await screen.findByLabelText('Bot user');
+    expect(within(select).getAllByRole('option').map((o) => o.textContent)).toEqual([
+      'None', 'Refiner (refiner@bots.test)', 'Planner (planner@bots.test)', 'Old (old@x.test)',
+    ]);
+  });
+
+  it('shows field errors next to the fields and nothing else', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'replaceAgentSettings').mockRejectedValue(
+      new ApiError('x', 400, 'Validation failed', [
+        { path: 'settings.dailyLimit', message: 'Must be at least 1' },
+        { path: 'model', message: 'Must be an OpenAI model id in the form openai/<model>' },
+        { path: 'botUserId', message: 'Choose a user that is marked as a bot' },
+      ]),
+    );
+    render(<AgentDetailView />);
+    const form = within(await screen.findByRole('form', { name: 'Settings' }));
+    fireEvent.change(form.getByLabelText('Runs per project per day'), { target: { value: '0' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save settings' }));
+    expect(await form.findByText('Must be at least 1')).toBeInTheDocument();
+    expect(form.getByText(/Must be an OpenAI model id/)).toBeInTheDocument();
+    expect(form.getByText('Choose a user that is marked as a bot')).toBeInTheDocument();
+    expect(form.getByLabelText('Runs per project per day')).toHaveAttribute('aria-invalid', 'true');
+    expect(form.queryByText(/Only a signed-in person/)).not.toBeInTheDocument();
+  });
+
+  it('explains a 403 as human-only', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'replaceAgentSettings').mockRejectedValue(new ApiError('x', 403, 'Forbidden'));
+    render(<AgentDetailView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Save settings' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Only a signed-in person can change agent settings. API keys and bot accounts cannot.');
+  });
+
+  it('shows an agent disabled by the environment read-only, with the reason', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ status: 'disabled_by_env', reason: 'AGENTS_DISABLED names this agent' }));
+    render(<AgentDetailView />);
+    expect(await screen.findByText(/Disabled by the environment: AGENTS_DISABLED names this agent/)).toBeInTheDocument();
+    expect(await screen.findByLabelText('Runs per project per day')).toBeDisabled();
+    expect(screen.getByLabelText('Enabled')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Save settings' })).not.toBeInTheDocument();
+  });
+
+  it('shows why a misconfigured agent does not run', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ status: 'misconfigured', reason: 'The chosen bot user no longer exists' }));
+    render(<AgentDetailView />);
+    expect(await screen.findByText(/Misconfigured: The chosen bot user no longer exists/)).toBeInTheDocument();
+  });
+
+  it('lists the audit trail with who, field, old and new value', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'listAgentAudit').mockResolvedValue([audit(), audit({ id: 'a2', field: 'enabled', oldValue: 'false', newValue: 'true', changedBy: { id: 'u9', name: null, email: null } })]);
+    render(<AgentDetailView />);
+    const trail = within(await screen.findByRole('region', { name: 'Audit trail' }));
+    const row = within(await trail.findByRole('row', { name: /settings\.dailyLimit/ }));
+    expect(row.getByText('Pascal')).toBeInTheDocument();
+    expect(row.getByText('20')).toBeInTheDocument();
+    expect(row.getByText('10')).toBeInTheDocument();
+    expect(trail.getByText('u9')).toBeInTheDocument();
+  });
+
+  it('shows the dispatch lesson settings for coding agents, with no enabled switch and no bot or model', async () => {
+    nav.params = { id: 'coding' };
+    vi.spyOn(api, 'getAgent').mockResolvedValue(
+      agent({ id: 'coding', label: 'Coding agents', hasBotUser: false, botUser: null, botUserId: null, hasModel: false, model: null, effectiveModel: null, settings: { lessonsTopK: 5 },
+        fields: [{ key: 'lessonsTopK', label: 'Lessons per job', kind: 'int', min: 0, max: 5, default: 5 }] }),
+    );
+    const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());
+    render(<AgentDetailView />);
+    const form = within(await screen.findByRole('form', { name: 'Settings' }));
+    expect(form.getByLabelText('Lessons per job')).toHaveValue(5);
+    expect(form.queryByLabelText('Enabled')).not.toBeInTheDocument();
+    expect(form.queryByLabelText('Bot user')).not.toBeInTheDocument();
+    expect(form.queryByLabelText('Model')).not.toBeInTheDocument();
+    expect(screen.getByText(/switched off per executor/)).toBeInTheDocument();
+    fireEvent.click(form.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() => expect(put).toHaveBeenCalledWith('coding', { enabled: true, botUserId: null, model: null, settings: { lessonsTopK: 5 } }));
+  });
+
+  it('shows loading and an error with retry', async () => {
+    const get = vi.spyOn(api, 'getAgent').mockRejectedValueOnce(new ApiError('x', 500, 'Database is down'));
+    render(<AgentDetailView />);
+    expect(screen.getByRole('status', { name: 'Loading agent' })).toBeInTheDocument();
+    expect(await screen.findByRole('alert')).toHaveTextContent('Database is down');
+    get.mockResolvedValue(agent());
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(await screen.findByRole('form', { name: 'Settings' })).toBeInTheDocument();
+  });
+});
+
+describe('AgentDetailView: Tools', () => {
+  const openTools = async () => fireEvent.click(await screen.findByRole('tab', { name: 'Tools' }));
+
+  it('lists the allowlist with read/write and approval, and the attached project MCP tools', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'getAgentTools').mockResolvedValue(
+      agentTools({
+        tools: [
+          { name: 'listSpecs', description: 'List the specs.', access: 'read', needsApproval: false },
+          { name: 'createJob', description: 'Create a triage job.', access: 'write', needsApproval: true },
+          { name: 'proposePlan', description: 'Propose a plan.', access: 'write', needsApproval: false },
+        ],
+        projectTools: [{ projectId: 'p1', projectName: 'Shop', servers: [{ serverId: 's1', serverName: 'Docs', tools: [{ name: 'search', mode: 'read', needsApproval: false }, { name: 'post', mode: 'write', needsApproval: true }] }] }],
+      }),
+    );
+    render(<AgentDetailView />);
+    await openTools();
+    const list = within(await screen.findByRole('region', { name: 'Tools' }));
+    const item = (name: string) => within(list.getByText(name).closest('li')!);
+    expect(item('listSpecs').getByText('Read')).toBeInTheDocument();
+    expect(item('createJob').getByText('Write')).toBeInTheDocument();
+    expect(item('createJob').getByText('Asks for confirmation')).toBeInTheDocument();
+    expect(item('proposePlan').getByText('No confirmation')).toBeInTheDocument();
+    const mcp = within(screen.getByRole('region', { name: 'Project MCP tools' }));
+    expect(mcp.getByText('Shop')).toBeInTheDocument();
+    expect(mcp.getByText('Docs')).toBeInTheDocument();
+    expect(mcp.getByText('post').parentElement).toHaveTextContent('Asks for confirmation');
+  });
+
+  it('explains that coding agents use their routine\'s own tools', async () => {
+    nav.params = { id: 'coding' };
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ id: 'coding', label: 'Coding agents', hasBotUser: false, botUser: null, hasModel: false, fields: [] }));
+    vi.spyOn(api, 'getAgentTools').mockResolvedValue(agentTools({ agent: 'coding', kind: 'routine', tools: [], note: 'Coding agents run in each user\'s own Claude Code routine and use the tools of that routine.' }));
+    render(<AgentDetailView />);
+    await openTools();
+    expect(await screen.findByText(/use the tools of that routine/)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'Tools' })).not.toBeInTheDocument();
+  });
+
+  it('shows an error with retry', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'getAgentTools').mockRejectedValue(new ApiError('x', 500, 'No tools today'));
+    render(<AgentDetailView />);
+    await openTools();
+    expect(await screen.findByText('No tools today')).toBeInTheDocument();
+  });
+});
+
+describe('AgentDetailView: Slack bot', () => {
+  it('shows the bot account and the notification kinds on Configuration and Tools', async () => {
+    nav.params = { id: 'slack' };
+    vi.spyOn(api, 'getSlackBot').mockResolvedValue(slackBot());
+    render(<AgentDetailView />);
+    const account = within(await screen.findByRole('region', { name: 'Bot account' }));
+    expect(account.getByText('slacky@bots.test')).toBeInTheDocument();
+    const kinds = within(screen.getByRole('region', { name: 'Notification kinds' }));
+    expect(kinds.getByText('job.awaiting_review')).toBeInTheDocument();
+    expect(kinds.getByText('budget.hard')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Tools' }));
+    expect(await screen.findByText(/no tools of its own/)).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Notification kinds' })).toBeInTheDocument();
+  });
+});

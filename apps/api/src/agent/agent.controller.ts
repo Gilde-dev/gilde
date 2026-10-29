@@ -6,8 +6,9 @@ import { JwtHumanGuard } from '../auth/jwt-human.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import { isAgentId, type AgentId } from './agent-ids.js';
+import { AgentToolsService } from './agent-tools.service.js';
 import { AgentSettingsService } from './agent-settings.service.js';
-import { ReplaceAgentSettingsSchema, type AgentAuditEntryDto, type AgentBotUserDto, type AgentDto, type ReplaceAgentSettingsDto } from './agent.dto.js';
+import { ReplaceAgentSettingsSchema, type AgentAuditEntryDto, type AgentBotUserDto, type AgentDto, type AgentToolsDto, type ReplaceAgentSettingsDto, type SlackBotDto } from './agent.dto.js';
 import { AgentMapper } from './agent.mapper.js';
 
 function agentId(raw: string): AgentId {
@@ -21,7 +22,7 @@ function agentId(raw: string): AgentId {
  */
 @Controller('/v1/agents')
 export class AgentController {
-    constructor(private readonly settings: AgentSettingsService, private readonly mapper: AgentMapper) { }
+    constructor(private readonly settings: AgentSettingsService, private readonly mapper: AgentMapper, private readonly tools: AgentToolsService) { }
 
     @Get()
     async list(): Promise<AgentDto[]> {
@@ -34,9 +35,21 @@ export class AgentController {
         return this.settings.botUsers();
     }
 
+    /** The Slack bot (the channels app): its bot account and the notification kinds it delivers. It has no stored settings. */
+    @Get('slack')
+    slack(): Promise<SlackBotDto> {
+        return this.tools.slackBot();
+    }
+
     @Get(':id')
     async get(@Param('id') id: string): Promise<AgentDto> {
         return this.mapper.toDTO(await this.settings.get(agentId(id)));
+    }
+
+    /** The exact tool allowlist of an agent, built from the factories the agent itself uses. */
+    @Get(':id/tools')
+    toolsOf(@Param('id') id: string): Promise<AgentToolsDto> {
+        return this.tools.toolsFor(agentId(id));
     }
 
     @Put(':id/settings')
