@@ -34,6 +34,7 @@ let service: IntakeService;
 let webhook: WebhookService;
 let pages: Map<string, { issues: GitHubIssue[]; complete: boolean } | Error>;
 let configured: boolean;
+let syncSpy: ReturnType<typeof vi.fn>;
 let requireHuman: ReturnType<typeof vi.fn>;
 
 const issue = (over: Partial<IntakeIssue> = {}): IntakeIssue => ({
@@ -83,7 +84,7 @@ beforeEach(async () => {
         items, repos, github, installations,
         { assertExists: async () => undefined } as unknown as ProjectService,
         { requireVerifiedHuman: requireHuman } as unknown as UserService,
-        new IntakeMapper(),
+        new IntakeMapper(), undefined, undefined, { sync: syncSpy = vi.fn(async () => undefined) } as never,
     );
     const repoService = { findByFullName: (n: string) => repos.findOneBy({ fullName: n.toLowerCase() }) } as unknown as RepoService;
     webhook = new WebhookService(
@@ -274,11 +275,49 @@ describe('issue comments', () => {
 
     it('ignores comments on issues without an intake item, on withdrawn items, and other actions', async () => {
         expect(await webhook.handle('issue_comment', commentPayload('created', {}, {}, { number: 99 }))).toContain('ignored');
-        expect(await webhook.handle('issue_comment', commentPayload('deleted'))).toContain('ignored');
         await settle('withdrawn');
         expect(await webhook.handle('issue_comment', commentPayload('created'))).toContain('ignored');
         const [item] = await all();
         expect(item).toMatchObject({ comments: [], status: 'withdrawn' });
+    });
+
+    it('syncs the status comment when a counted comment is stored, not for an unchanged re-delivery or an ignored item', async () => {
+        await webhook.handle('issue_comment', commentPayload('created'));
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+        await webhook.handle('issue_comment', commentPayload('created'));
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+        await settle('ignored');
+        await webhook.handle('issue_comment', commentPayload('created', { id: 502 }));
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting a stored comment removes it and re-queues the item, and the sha loses the answer', async () => {
+        await webhook.handle('issue_comment', commentPayload('created'));
+        await webhook.handle('issue_comment', commentPayload('created', { id: 502, body: 'second' }));
+        await settle('drafted');
+        syncSpy.mockClear();
+        expect(await webhook.handle('issue_comment', commentPayload('deleted'))).toBe('intake comment removed for issue #7');
+        const [item] = await all();
+        expect(item!.comments.map((c) => c.id)).toEqual(['502']);
+        expect(item).toMatchObject({ status: 'new', refineAttempts: 0 });
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('deleting an unknown id, an untrusted comment, or on an ignored or withdrawn item changes nothing', async () => {
+        await webhook.handle('issue_comment', commentPayload('created'));
+        await settle('drafted');
+        syncSpy.mockClear();
+        expect(await webhook.handle('issue_comment', commentPayload('deleted', { id: 999 }))).toBe('intake comment unchanged for issue #7');
+        expect(await webhook.handle('issue_comment', commentPayload('deleted', { id: 999, author_association: 'NONE' }))).toBe('intake comment unchanged for issue #7');
+        expect(await webhook.handle('issue_comment', commentPayload('deleted', { id: 999 }, {}, { number: 99 }))).toContain('ignored');
+        expect((await all())[0]).toMatchObject({ status: 'drafted' });
+        await settle('ignored');
+        await webhook.handle('issue_comment', commentPayload('deleted'));
+        const [ignored] = await all();
+        expect(ignored).toMatchObject({ status: 'ignored', comments: [] });
+        await settle('withdrawn');
+        expect(await webhook.handle('issue_comment', commentPayload('deleted'))).toContain('ignored');
+        expect(syncSpy).not.toHaveBeenCalled();
     });
 
     it('keeps an ignored item ignored but stores the comment', async () => {
@@ -405,6 +444,21 @@ describe('ignore and retry', () => {
         await expect(service.ignore(id, human)).rejects.toBeInstanceOf(ConflictException);
         await items.update({ id }, { status: 'refining' });
         await expect(service.ignore(id, human)).rejects.toBeInstanceOf(ConflictException);
+    });
+
+    it('syncs the status comment on ignore, retry, close, relabel and unlabel', async () => {
+        const id = await seed('drafted');
+        await service.ignore(id, human);
+        await service.retry(id, human);
+        expect(syncSpy).toHaveBeenCalledTimes(2);
+        syncSpy.mockClear();
+        expect(await service.applyIssue(repo, issue({ open: false }))).toBe('withdrawn');
+        expect(await service.applyIssue(repo, issue({ open: false }))).toBe('unchanged');
+        expect(syncSpy).toHaveBeenCalledTimes(1);
+        await service.applyIssue(repo, issue());
+        expect(syncSpy).toHaveBeenCalledTimes(2);
+        await service.applyIssue(repo, issue({ labels: [] }));
+        expect(syncSpy).toHaveBeenCalledTimes(3);
     });
 
     it('lists by status with the repo name and hides the body in the list', async () => {

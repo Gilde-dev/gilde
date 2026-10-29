@@ -13,13 +13,14 @@ import { Spec } from '../spec/spec.entity.js';
 import { SpecVersion } from '../spec/spec-version.entity.js';
 import { parseSpec } from '../spec/spec-parser.js';
 import { UserService } from '../user/user.service.js';
+import { IntakeCommentService } from './intake-comment.service.js';
 import { IntakeItem, type IntakeComment } from './intake-item.entity.js';
 import { capBody, hasIntakeLabel, intakeLabel, issueSha, withComment, type IntakeIssue } from './intake-issue.js';
 import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSpecSummaryDto, IntakeSweepResultDto, ListIntakeQueryDto } from './intake.dto.js';
 import { IntakeMapper } from './intake.mapper.js';
 
 export type IntakeChange = 'created' | 'updated' | 'withdrawn' | 'unchanged' | 'ignored';
-export type IntakeCommentChange = 'stored' | 'unchanged' | 'no item' | 'ignored';
+export type IntakeCommentChange = 'stored' | 'removed' | 'unchanged' | 'no item' | 'ignored';
 
 @Injectable()
 export class IntakeService {
@@ -36,7 +37,13 @@ export class IntakeService {
         private readonly mapper: IntakeMapper,
         @Optional() @InjectRepository(Spec) private readonly specs?: Repository<Spec>,
         @Optional() @InjectRepository(SpecVersion) private readonly specVersions?: Repository<SpecVersion>,
+        @Optional() private readonly statusComments?: IntakeCommentService,
     ) { }
+
+    /** Refreshes the status comment after a transition. Best effort and never awaited: it cannot fail the transition. */
+    private syncComment(itemId: string): void {
+        void this.statusComments?.sync(itemId);
+    }
 
     private async specSummaries(rows: IntakeItem[]): Promise<Map<string, IntakeSpecSummaryDto>> {
         const ids = [...new Set(rows.flatMap((r) => (r.specId ? [r.specId] : [])))];
@@ -77,6 +84,7 @@ export class IntakeService {
             throw new ConflictException(`Intake item is ${item.status} and cannot be ignored`);
         }
         await this.items.update({ id, status: item.status }, { status: 'ignored' });
+        this.syncComment(id);
         return this.getById(id);
     }
 
@@ -88,6 +96,7 @@ export class IntakeService {
             throw new ConflictException(`Intake item is ${item.status}; only failed or ignored items can be retried`);
         }
         await this.items.update({ id, status: item.status }, { status: 'new', lastError: null, refineAttempts: 0, refinedSha256: null });
+        this.syncComment(id);
         return this.getById(id);
     }
 
@@ -104,6 +113,7 @@ export class IntakeService {
             if (!existing) return 'unchanged';
             if (existing.status === 'withdrawn') return 'unchanged';
             await this.items.update({ id: existing.id }, { status: 'withdrawn', labels: issue.labels });
+            this.syncComment(existing.id);
             return 'withdrawn';
         }
 
@@ -135,6 +145,7 @@ export class IntakeService {
             ...fields, status,
             ...(status === 'new' && (changed || existing.status !== 'new') ? { lastError: null, refineAttempts: 0 } : {}),
         });
+        if (existing.status === 'withdrawn' && status === 'new') this.syncComment(existing.id);
         return status === 'ignored' ? 'ignored' : 'updated';
     }
 
@@ -154,7 +165,27 @@ export class IntakeService {
             comments,
             ...(item.status === 'ignored' ? {} : { status: 'new', lastError: null, refineAttempts: 0 }),
         });
+        if (item.status !== 'ignored') this.syncComment(item.id);
         return 'stored';
+    }
+
+    /**
+     * A deleted comment of the issue: when it is a stored counted comment of the item it is removed and the item goes back to
+     * `new` (not when ignored) so the next draft is made without it. An unknown id (untrusted, never stored, or Gilde's own
+     * status comment) changes nothing.
+     */
+    async removeComment(repo: Pick<Repo, 'id'>, issueNumber: number, commentId: string): Promise<IntakeCommentChange> {
+        const item = await this.items.findOneBy({ source: 'github_issue', repoId: repo.id, number: issueNumber });
+        if (!item) return 'no item';
+        if (item.status === 'withdrawn') return 'ignored';
+        const comments = item.comments ?? [];
+        if (!comments.some((c) => c.id === commentId)) return 'unchanged';
+        await this.items.update({ id: item.id }, {
+            comments: comments.filter((c) => c.id !== commentId),
+            ...(item.status === 'ignored' ? {} : { status: 'new', lastError: null, refineAttempts: 0 }),
+        });
+        if (item.status !== 'ignored') this.syncComment(item.id);
+        return 'removed';
     }
 
     /** The manual sweep: verified humans only. */
@@ -219,6 +250,7 @@ export class IntakeService {
         });
         const ids = stale.filter((s) => !seen.includes(s.number)).map((s) => s.id);
         if (ids.length) await this.items.update({ id: In(ids) }, { status: 'withdrawn' });
+        for (const id of ids) this.syncComment(id);
         return ids.length;
     }
 

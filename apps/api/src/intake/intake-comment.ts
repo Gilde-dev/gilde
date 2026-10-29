@@ -7,7 +7,8 @@ export const INTAKE_COMMENT_INTERVAL_MS = 60_000;
 /** The hidden marker that finds Gilde's one status comment of an intake item. */
 export const commentMarker = (itemId: string): string => `<!-- gilde:intake:${itemId} -->`;
 
-export type IntakeCommentStatus = 'draft' | 'waiting for answers' | 'ready to approve' | 'approved' | 'planned' | 'refine failed';
+export type IntakeCommentStatus = 'draft' | 'waiting for answers' | 'ready to approve' | 'approved' | 'planned' | 'refine failed'
+    | 'answers received' | 'no longer refined';
 
 export interface IntakeCommentView {
     itemId: string;
@@ -16,21 +17,30 @@ export interface IntakeCommentView {
     spec: { title: string; version: number; link: string; criteria: number; summary: string | null; openQuestions: string[] } | null;
     /** For `refine failed`: a fixed, safe sentence. */
     failure: string | null;
+    /** For `no longer refined`: why (closed, label removed, ignored in Gilde). */
+    reason?: string | null;
 }
 
 /** Markdown, short: status, link, questions verbatim and how to answer. Never the spec body, secrets or other repos' data. */
 export function renderStatusComment(view: IntakeCommentView): string {
     const lines = [commentMarker(view.itemId), ''];
     const s = view.spec;
+    if (view.status === 'no longer refined') {
+        lines.push('**Gilde** · **no longer refined**', '', `This issue is no longer being refined by Gilde${view.reason ? ` (${view.reason})` : ''}.`);
+        return lines.join('\n');
+    }
     lines.push(s
         ? `**Gilde** · [${escapeLink(s.title)}](${s.link}) · version ${s.version} · **${view.status}**`
         : `**Gilde** · **${view.status}**`);
     if (view.failure) lines.push('', view.failure);
     if (s) {
         lines.push('', `${s.criteria} acceptance ${s.criteria === 1 ? 'criterion' : 'criteria'}${s.summary ? `: ${s.summary}` : '.'}`);
+        if (view.status === 'answers received') lines.push('', '**Answers received, updating the spec.**');
         if (s.openQuestions.length) {
-            lines.push('', '**Open questions**', '', ...s.openQuestions.map((q, i) => `${i + 1}. ${q.replace(/\s*\n\s*/g, ' ')}`));
-            lines.push('', 'Reply to this issue with your answers (for example `1. …`); Gilde will update the spec.');
+            const updating = view.status === 'answers received';
+            lines.push('', updating ? '**Previous open questions (being updated)**' : '**Open questions**', '',
+                ...s.openQuestions.map((q, i) => `${i + 1}. ${q.replace(/\s*\n\s*/g, ' ')}`));
+            if (!updating) lines.push('', 'Reply to this issue with your answers (for example `1. …`); Gilde will update the spec.');
         }
     }
     return lines.join('\n');
