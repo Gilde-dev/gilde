@@ -5,7 +5,7 @@ import { deepLink, escapeSlack, formatSlack } from './format-slack.js';
 
 const ctx = { publicUrl: 'https://gilde.example.com' };
 
-const JOB_KINDS = NOTIFICATION_KINDS.filter((k) => !k.startsWith('budget.') && k !== 'executor.exhausted');
+const JOB_KINDS = NOTIFICATION_KINDS.filter((k) => !k.startsWith('budget.') && k !== 'executor.exhausted' && !k.startsWith('spec.'));
 
 describe('formatSlack', () => {
   it.each(JOB_KINDS)('shows title, repo, reason, deep link and PR for %s', (kind) => {
@@ -61,6 +61,30 @@ describe('formatSlack executor.exhausted', () => {
     expect(text).toContain('until 2026-10-28T12:00:00.000Z');
     expect(text).toContain('https://gilde.example.com/settings/executors');
     expect(text).not.toContain('Repo');
+    expect(text).not.toContain('PR:');
+  });
+});
+
+describe('formatSlack spec planning', () => {
+  it('links the draft feature for spec.planned and has no job or PR lines', () => {
+    const text = formatSlack(notification({
+      kind: 'spec.planned', jobId: null, featureId: 'f1', repos: [], prLinks: [], title: 'Dark mode plan',
+      reason: 'Draft feature with 3 jobs in triage; review the plan and queue the jobs',
+    }), ctx);
+    expect(text).toContain('Spec planned');
+    expect(text).toContain('<https://gilde.example.com/features/f1|Dark mode plan>');
+    expect(text).toContain('3 jobs in triage');
+    expect(text).not.toContain('Repo');
+    expect(text).not.toContain('PR:');
+  });
+
+  it('gives the short reason for spec.plan_failed and escapes mentions', () => {
+    const text = formatSlack(notification({
+      kind: 'spec.plan_failed', jobId: null, featureId: null, repos: [], prLinks: [], title: 'Dark mode v2', reason: 'No plan <!channel> @here',
+    }), ctx);
+    expect(text).toContain('Spec planning failed');
+    expect(text).toContain('Dark mode v2');
+    expect(text).toContain('Reason: No plan &lt;!channel&gt; @\u200bhere');
     expect(text).not.toContain('PR:');
   });
 });

@@ -4,7 +4,7 @@ import { ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api, type IntakeItem, type Repo, type Spec, type SpecDetail, type SpecRecording, type SpecVersion } from '@/lib/api';
+import { ApiError, api, type IntakeItem, type Repo, type Spec, type SpecDetail, type SpecPlanningRun, type SpecRecording, type SpecVersion } from '@/lib/api';
 import { errorText, humanOnlyErrorText } from '@/lib/job-actions';
 import { safeUrl } from '@/lib/safe-url';
 import { relativeTime } from '@/lib/time';
@@ -80,6 +80,125 @@ function RecordingInfo({ recording, projectId }: { recording: SpecRecording; pro
             job {recording.dependsOnJobId.slice(0, 8)}
           </Link>
         </p>
+      )}
+    </section>
+  );
+}
+
+const PLANNING_LABEL: Record<SpecPlanningRun['status'], string> = {
+  queued: 'Planning queued',
+  running: 'Planning in progress',
+  planned: 'Planned',
+  skipped: 'Planning skipped',
+  failed: 'Planning failed',
+};
+const PLANNING_VARIANT = { queued: 'info', running: 'running', planned: 'success', skipped: 'neutral', failed: 'danger' } as const;
+
+/** What a failed "Plan from spec" means: 403 for non-humans, 409 when the version cannot be planned (now). */
+export function planErrorText(e: unknown): { message: string; stale: boolean } {
+  const detail = errorText(e);
+  if (e instanceof ApiError && e.status === 403) {
+    return { message: `You are not allowed to plan this spec: only a verified human signed in interactively can. ${detail}`, stale: false };
+  }
+  if (e instanceof ApiError && e.status === 409) return { message: `This version cannot be planned. ${detail} Refresh to see the latest state.`, stale: true };
+  return { message: detail, stale: false };
+}
+
+/** Why "Plan from spec" is unavailable for this version; empty when it can be clicked. */
+export function planDisabledReasons(spec: Pick<SpecDetail, 'archivedAt' | 'approvedVersion'>, version: SpecVersion, planned: boolean): string[] {
+  if (!version.approval) return ['Only an approved version can be planned.'];
+  const reasons: string[] = [];
+  if (spec.archivedAt) reasons.push('This spec is archived; unarchive it before planning.');
+  if (version.planning?.status === 'queued' || version.planning?.status === 'running') {
+    reasons.push(`Planning is already ${version.planning.status === 'queued' ? 'queued' : 'in progress'} for this version.`);
+  }
+  if (planned) reasons.push('This version is already planned: a feature is pinned to it.');
+  if (spec.approvedVersion !== version.version) reasons.push(`Only the approved version (v${spec.approvedVersion ?? '?'}) can be planned.`);
+  return reasons;
+}
+
+function PlanningSection({
+  spec,
+  version,
+  projectId,
+  onChanged,
+}: {
+  spec: SpecDetail;
+  version: SpecVersion;
+  projectId: string | null;
+  onChanged: () => Promise<void>;
+}) {
+  const [busy, setBusy] = useState(false);
+  const inFlight = useRef(false);
+  const [error, setError] = useState<{ message: string; stale: boolean } | null>(null);
+  const run = version.planning;
+  // A pinned feature (planned by hand or by the Werkmeester) blocks planning even when no run says so.
+  const planned = run?.status === 'planned' || (run?.status === 'skipped' && !!run.featureId) || !!version.recording?.pinnedByFeatureId;
+  const reasons = planDisabledReasons(spec, version, planned);
+  const approved = !!version.approval;
+  const feature = run?.featureId ?? version.recording?.pinnedByFeatureId ?? null;
+  const showNote = !!spec.planNote && version.version === spec.approvedVersion;
+
+  async function plan() {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      await api.planSpec(spec.id);
+    } catch (e) {
+      setError(planErrorText(e));
+    } finally {
+      try {
+        await onChanged();
+      } finally {
+        inFlight.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  if (!approved && !spec.planNote) {
+    return (
+      <section aria-label="Planning" className="space-y-1 text-sm">
+        <h4 className="font-semibold">Planning</h4>
+        <p className="text-muted-foreground">Only an approved version can be planned.</p>
+      </section>
+    );
+  }
+  return (
+    <section aria-label="Planning" className="space-y-2 text-sm">
+      <h4 className="font-semibold">Planning</h4>
+      {run ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant={PLANNING_VARIANT[run.status]}>{PLANNING_LABEL[run.status]}</Badge>
+          {feature && (
+            <Link href={withProject(`/features/${feature}`, projectId)} className="underline">
+              Open the feature
+            </Link>
+          )}
+          <span className="text-muted-foreground">{run.trigger === 'auto' ? 'Started on approval' : 'Started from the button'} · {relativeTime(run.updatedAt)}</span>
+          {run.reason && (run.status === 'skipped' || run.status === 'failed') && <span className={run.status === 'failed' ? 'text-danger' : 'text-muted-foreground'}>{run.reason}</span>}
+        </div>
+      ) : approved ? (
+        <p className="text-muted-foreground">No planning run yet.</p>
+      ) : null}
+      {showNote && <p role="status" className="text-warning">{spec.planNote}</p>}
+      {approved && (
+        <div className="space-y-2">
+          <Button size="sm" variant="outline" disabled={!spec.mayApprove || busy || reasons.length > 0} onClick={() => void plan()}>
+            {busy ? 'Planning…' : 'Plan from spec'}
+          </Button>
+          {(busy ? [] : [...(spec.mayApprove ? [] : ['Only a verified human can plan from a spec.']), ...reasons]).map((r, i) => (
+            <p key={i} className="text-muted-foreground">{r}</p>
+          ))}
+          <p className="text-muted-foreground">The plan lands as a draft feature with its jobs in triage. Nothing is queued automatically.</p>
+        </div>
+      )}
+      {error && (
+        <div role="alert" className="text-danger">
+          {error.message}
+        </div>
       )}
     </section>
   );
@@ -178,6 +297,8 @@ function VersionPanel({
       )}
 
       {version.recording && <RecordingInfo recording={version.recording} projectId={projectId} />}
+
+      <PlanningSection spec={spec} version={version} projectId={projectId} onChanged={onApproved} />
 
       {canShowApprove && (
         <div className="space-y-2">

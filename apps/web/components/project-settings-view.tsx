@@ -119,6 +119,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
   const [timeout, setTimeoutMinutes] = useState(String(project.runTimeoutMinutes));
   const [retry, setRetry] = useState(project.retryOnChangesRequested);
   const [autoFix, setAutoFix] = useState(project.autoFixConflicts);
+  const [autoPlan, setAutoPlan] = useState(project.autoPlan);
   return (
     <SettingsForm
       project={project}
@@ -129,6 +130,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
         runTimeoutMinutes: Number(timeout),
         retryOnChangesRequested: retry,
         autoFixConflicts: autoFix,
+        autoPlan,
       })}
     >
       {(error) => (
@@ -152,6 +154,16 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
               Fix merge conflicts automatically
               <span className="block text-muted-foreground">
                 When an agent PR conflicts with the default branch, send it back once per PR head to merge the branch in. This uses no attempt.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={autoPlan} onChange={(e) => setAutoPlan(e.target.checked)} />
+            <span>
+              Plan approved specs automatically
+              <span className="block text-muted-foreground">
+                When a spec version is approved, the Werkmeester drafts a plan. Plans land as draft features with their jobs in triage; nothing is queued
+                automatically. Without this you can still use Plan from spec on the spec page.
               </span>
             </span>
           </label>

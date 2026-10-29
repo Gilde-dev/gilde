@@ -73,6 +73,8 @@ import { resolveRefineSetup } from './verfijner.setup.js';
 import { RefinedSpecWriter } from './verfijner.save.js';
 import { VerfijnerWorker } from './verfijner.worker.js';
 import { PlanningWorker } from './planning.worker.js';
+import { NotificationCaptureService } from '../notification/notification-capture.service.js';
+import { NotificationModule } from '../notification/notification.module.js';
 import { SpecPlanningService } from '../spec/spec-planning.service.js';
 import { resolvePlanSetup } from './werkmeester.setup.js';
 import { PlanProposer } from './werkmeester.propose.js';
@@ -103,7 +105,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule, IntakeModule, ProjectMcpModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule, IntakeModule, ProjectMcpModule, NotificationModule],
     providers: [
         RepoContextService,
         FeaturePlanService,
@@ -238,9 +240,9 @@ export class ScoutLifecycle implements OnModuleDestroy {
         {
             // Null (and nothing scheduled) while the Werkmeester is off; queued runs wait until it is on.
             provide: PLAN_WORKER,
-            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService): PlanningWorker | null =>
-                (plan ? new PlanningWorker(plan, werkmeester, planning, budget) : null),
-            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService],
+            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService, notifications: NotificationCaptureService): PlanningWorker | null =>
+                (plan ? new PlanningWorker(plan, werkmeester, planning, budget, notifications) : null),
+            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService, NotificationCaptureService],
         },
         {
             // Always provided; `enabled` is false (and plan() fails) while the Werkmeester is off.

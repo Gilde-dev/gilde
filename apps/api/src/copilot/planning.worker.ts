@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
 import type { BudgetService } from '../budget/budget.service.js';
+import type { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import type { SpecPlanningRun } from '../spec/spec-planning-run.entity.js';
 import type { SpecPlanningService } from '../spec/spec-planning.service.js';
 
@@ -23,6 +24,7 @@ export class PlanningWorker {
         private readonly werkmeester: Pick<WerkmeesterService, 'bind' | 'plan'>,
         private readonly planning: SpecPlanningService,
         private readonly budget: Pick<BudgetService, 'status'>,
+        private readonly notifications?: Pick<NotificationCaptureService, 'specPlanned' | 'specPlanFailed'>,
     ) { }
 
     @Cron('0 * * * * *')
@@ -73,7 +75,9 @@ export class PlanningWorker {
             }
             const binding = this.werkmeester.bind({ projectId: run.projectId, specId: run.specId, version: run.version, approvalId: run.approvalId }, run.attempts);
             const result = await this.werkmeester.plan(binding);
-            if (result.outcome === 'planned') await this.planning.planned(run.id, result.featureId);
+            if (result.outcome === 'planned') {
+                if (await this.planning.planned(run.id, result.featureId)) await this.notifications?.specPlanned(run, result.featureId);
+            }
             else if (result.outcome === 'skipped') await this.planning.skipped(run.id, result.reason);
             else await this.finishFailed(run, result.reason);
         } catch (error) {
@@ -84,6 +88,7 @@ export class PlanningWorker {
     private async finishFailed(run: SpecPlanningRun, reason: string): Promise<void> {
         const status = await this.planning.failed(run.id, reason);
         this.logger.warn(`Planning spec ${run.specId} v${run.version} failed (${status ?? 'run changed'}): ${reason}`);
+        if (status === 'failed') await this.notifications?.specPlanFailed(run, await this.planning.specTitle(run.specId).catch(() => run.specId), run.version, reason);
     }
 }
 

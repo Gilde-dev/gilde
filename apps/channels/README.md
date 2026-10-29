@@ -37,7 +37,7 @@ deterministically in this package; the API only stores platform-neutral events (
 | Variable | |
 | --- | --- |
 | `NOTIFICATIONS_ENABLED` | `true` to start the worker. Default off |
-| `NOTIFICATION_KINDS` | Comma-separated kinds, default all eight: `job.awaiting_review,job.parked,job.approval_needed,revision.waiting,feature.ready_to_close,budget.soft,budget.hard,executor.exhausted` |
+| `NOTIFICATION_KINDS` | Comma-separated kinds, default all ten: `job.awaiting_review,job.parked,job.approval_needed,revision.waiting,feature.ready_to_close,budget.soft,budget.hard,executor.exhausted,spec.planned,spec.plan_failed` |
 | `NOTIFICATION_SLACK_CHANNEL_ID` | Required. Slack channel ID (`C…`) of #werkplaats |
 | `GILDE_PUBLIC_URL` | Required. Public URL of the web UI, used for deep links |
 | `NOTIFICATION_POLL_INTERVAL_MS` | Default 15000 |

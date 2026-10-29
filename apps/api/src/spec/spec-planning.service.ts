@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { In, LessThan, MoreThanOrEqual, Repository } from 'typeorm';
 
 import { Feature } from '../feature/feature.entity.js';
+import { Spec } from './spec.entity.js';
 
 import { OPEN_PLANNING_STATUSES, SpecPlanningRun } from './spec-planning-run.entity.js';
 
@@ -78,6 +79,11 @@ export class SpecPlanningService {
         let recovered = 0;
         for (const run of stale) if (await this.failed(run.id, 'The planning run did not finish')) recovered++;
         return recovered;
+    }
+
+    /** The title of the planned spec, for notifications; the id when the spec is gone. */
+    async specTitle(specId: string): Promise<string> {
+        return (await this.runs.manager.findOne(Spec, { where: { id: specId }, select: { id: true, title: true } }))?.title ?? specId;
     }
 
     openRuns(specId: string): Promise<SpecPlanningRun[]> {

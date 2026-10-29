@@ -21,11 +21,11 @@ vi.mock('./copilot-provider', () => ({ CopilotPageContext: () => null }));
 
 const project = {
   id: 'p1', slug: 'shop', name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3,
-  runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
+  runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
 } as Project;
 /** What a PUT carries for the fixture project: every updatable field, nothing else. */
 const FULL = {
-  name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false,
+  name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false,
   skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80,
 };
 const repos = [{ id: 'r1', fullName: 'o/api', stacks: [], testCommands: [], paused: false, maxConcurrentJobs: 1, defaultBranch: 'main' }] as unknown as Repo[];
@@ -87,6 +87,18 @@ describe('ProjectSettingsView', () => {
     fireEvent.change(limit, { target: { value: '30' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(await screen.findByText('Saved')).toBeInTheDocument();
+  });
+
+  it('saves the autoPlan toggle, off by default, and explains that nothing is queued automatically', async () => {
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
+    render(<ProjectSettingsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Policies' }));
+    const toggle = screen.getByLabelText(/Plan approved specs automatically/);
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText(/draft features with their jobs in triage; nothing is queued\s+automatically/)).toBeInTheDocument();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { ...FULL, autoPlan: true }));
   });
 
   it('saves the automatic conflict fix toggle, off by default', async () => {
