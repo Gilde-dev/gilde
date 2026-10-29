@@ -60,7 +60,7 @@ describe('Co-pilot (e2e), not configured', () => {
 
   it('the API starts and reports the co-pilot as disabled', async () => {
     await request(app.getHttpServer()).get('/api/health').expect(200);
-    await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: false, model: null }, refine: { enabled: false, model: null } });
+    await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: false, model: null } });
   });
 
   it('requires a token on the status route', () => request(app.getHttpServer()).get('/api/v1/copilot/status').expect(401));
@@ -96,7 +96,7 @@ describe('Co-pilot (e2e), configured', () => {
 
   it('reports the model', async () => {
     const user = await createTestUser(app);
-    await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${tokenFor(app, user)}`).expect({ enabled: true, model: 'openai/test-model', scout: { enabled: false, model: null }, refine: { enabled: false, model: null } });
+    await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${tokenFor(app, user)}`).expect({ enabled: true, model: 'openai/test-model', scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: false, model: null } });
   });
 
   it('is 401 on a Mastra route without a token', () => request(app.getHttpServer()).get('/api/v1/mastra/whoami').expect(401));
@@ -250,7 +250,7 @@ describe('Verkenner (e2e)', () => {
   });
 
   it('reports the scout on the status route next to the unchanged co-pilot fields', async () => {
-    await http().get('/api/v1/copilot/status').set(aliceAuth).expect(200).expect({ enabled: true, model: 'openai/test-model', scout: { enabled: true, model: 'openai/scout-model' }, refine: { enabled: false, model: null } });
+    await http().get('/api/v1/copilot/status').set(aliceAuth).expect(200).expect({ enabled: true, model: 'openai/test-model', scout: { enabled: true, model: 'openai/scout-model', disabledReason: null }, refine: { enabled: false, model: null } });
   });
 
   it('does not list the scout on the CopilotKit route', async () => {
@@ -298,7 +298,7 @@ describe('Verkenner (e2e), configured but unusable', () => {
     try {
       await request(app.getHttpServer()).get('/api/health').expect(200);
       const token = tokenFor(app, await createTestUser(app));
-      await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: false, model: null }, refine: { enabled: false, model: null } });
+      await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: 'SCOUT_USER_EMAIL nobody@example.com does not exist; create it with `user:create --email nobody@example.com --bot` and restart' }, refine: { enabled: false, model: null } });
       // No user was created for the scout.
       const users = await request(app.getHttpServer()).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`).expect(200);
       expect(users.body.email).not.toBe('nobody@example.com');
@@ -313,14 +313,14 @@ describe('Verkenner (e2e), configured but unusable', () => {
     process.env.SCOUT_MODEL = 'openai/scout-model';
     process.env.OPENAI_API_KEY = 'k';
     delete process.env.COPILOT_MODEL;
-    const stub = { findByEmail: async () => ({ id: 'bot-id', name: 'Bot', email: 'bot@example.com' }) };
+    const stub = { findByEmail: async () => ({ id: 'bot-id', name: 'Bot', email: 'bot@example.com' }), findIdentity: async () => ({ id: 'bot-id', isBot: true }) as never };
     const { resolveScoutSetup } = await import('./../src/copilot/verkenner.setup.js');
-    const setup = await resolveScoutSetup(stub, process.env, { log: () => undefined, warn: () => undefined });
+    const setup = await resolveScoutSetup(stub, process.env, { log: () => undefined, warn: () => undefined, error: () => undefined });
     const mastra = createMastra({ enabled: false, model: null, reason: 'COPILOT_MODEL is not set' }, {} as never, new LibSQLStore({ id: 'e2e-scout', url: 'file::memory:' }), undefined, undefined, undefined, setup);
     const app = await createApp({ config: { enabled: false, model: null, reason: 'COPILOT_MODEL is not set' }, mastra, scout: setup });
     try {
       const token = tokenFor(app, await createTestUser(app));
-      await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: true, model: 'openai/scout-model' }, refine: { enabled: false, model: null } });
+      await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: true, model: 'openai/scout-model', disabledReason: null }, refine: { enabled: false, model: null } });
       expect(Object.keys(mastra.listAgents())).toEqual(['verkenner']);
     } finally {
       await app.close();

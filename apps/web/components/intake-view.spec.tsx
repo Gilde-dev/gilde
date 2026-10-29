@@ -12,7 +12,7 @@ vi.mock('next/navigation', () => ({
 
 afterEach(() => vi.restoreAllMocks());
 
-const status = (refine: boolean): CopilotStatus => ({ enabled: true, model: 'm', scout: { enabled: false, model: null }, refine: { enabled: refine, model: refine ? 'm' : null } });
+const status = (refine: boolean): CopilotStatus => ({ enabled: true, model: 'm', scout: { enabled: false, model: null, disabledReason: null }, refine: { enabled: refine, model: refine ? 'm' : null } });
 
 function setup(items = [intakeItem()], refine = true) {
   vi.spyOn(api, 'listProjects').mockResolvedValue([{ id: 'p', name: 'P' }] as Project[]);

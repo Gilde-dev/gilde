@@ -107,6 +107,11 @@ export function ScoutSection({ projectId }: { projectId: string }) {
           {scout.error!.message}
         </p>
       )}
+      {a?.disabledReason && (
+        <p role="status" className="text-sm text-warning">
+          Verkenner disabled: {a.disabledReason}
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
         <StatCard label="Status" value={value((x) => (x.enabled ? 'On' : 'Off'))} hint={hint ?? (a?.enabled ? a.model ?? undefined : 'Not running; history stays visible')} />
         <StatCard label="Suggestions this week" value={value((x) => x.suggestionsThisWeek)} hint={hint} />

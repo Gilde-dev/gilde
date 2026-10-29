@@ -312,7 +312,7 @@ describe('ScoutSuggestionService', () => {
         it('reports the actual last wake, history while off, and the scout user without the bot email', async () => {
             const wake = new Date('2026-10-27T06:00:00Z');
             const off = await activity(wake, { enabled: false, model: null, userId: null }).get(p1.id);
-            expect(off).toEqual({ projectId: p1.id, enabled: false, model: null, scoutUserId: BOT, suggestionsThisWeek: 0, weekStart: '2026-10-26', lastWakeAt: wake.toISOString() });
+            expect(off).toEqual({ projectId: p1.id, enabled: false, model: null, disabledReason: null, scoutUserId: BOT, suggestionsThisWeek: 0, weekStart: '2026-10-26', lastWakeAt: wake.toISOString() });
             expect(JSON.stringify(off)).not.toContain('@');
         });
     });
