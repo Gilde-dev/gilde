@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { testMemoryInfrastructure } from '../memory/memory.testing.js';
+import { settleTestMemory, testMemoryInfrastructure } from '../memory/memory.testing.js';
 
 import { createMastra, type RefineSetup } from './copilot.mastra.js';
 import { REFINE_AGENT_ID, refineConfig } from './verfijner.config.js';
@@ -70,7 +70,10 @@ describe('VerfijnerWorker', () => {
         services.repos.getById.mockImplementation(async (id: string) => ({ id, projectId: P1, fullName: 'o/r', defaultBranch: 'main' }));
         fileList.mockResolvedValue([{ path: 'a.ts', type: 'file' }]);
     });
-    afterEach(() => rmSync(dir, { recursive: true, force: true }));
+    afterEach(async () => {
+        await settleTestMemory();
+        rmSync(dir, { recursive: true, force: true });
+    });
 
     const saveStep = (): ScriptedStep => ({ tool: 'saveRefinedSpec', input: { title: 'Export to CSV', body: validSpecBody(URL) } });
 
