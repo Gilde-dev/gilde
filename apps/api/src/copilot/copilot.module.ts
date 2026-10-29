@@ -29,6 +29,8 @@ import { RevisionModule } from '../revision/revision.module.js';
 import { RevisionService } from '../revision/revision.service.js';
 import { UserModule } from '../user/user.module.js';
 import { SpecModule } from '../spec/spec.module.js';
+import { ProjectMcpModule } from '../project-mcp/project-mcp.module.js';
+import { ProjectMcpToolsService } from '../project-mcp/project-mcp-tools.service.js';
 import { SpecService } from '../spec/spec.service.js';
 import { FeaturePlanService } from './feature-plan.service.js';
 import { UserService } from '../user/user.service.js';
@@ -96,7 +98,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
 
 /** Config and the Mastra instance, built in a provider so the tools receive the Nest services by injection. */
 @Module({
-    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule, IntakeModule],
+    imports: [TypeOrmModule.forFeature([ScoutSignalReceipt, ScoutWakeDay, ScoutSuggestion, ScoutSuggestionGuard]), BudgetModule, JobModule, RunModule, FeatureModule, RevisionModule, DispatchModule, MetricsModule, LessonModule, SkillModule, ProjectModule, RepoModule, GitHubModule, WorkspaceModule, HistoryModule, UserModule, SpecModule, IntakeModule, ProjectMcpModule],
     providers: [
         RepoContextService,
         FeaturePlanService,
@@ -167,11 +169,12 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 plans: FeaturePlanService,
                 refine: RefineSetup | null,
                 refineItems: IntakeRefineService,
+                mcpTools: ProjectMcpToolsService,
             ) => {
-                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans };
+                const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans, mcpTools };
                 return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService],
         },
         {
             provide: SCOUT_THREADS,

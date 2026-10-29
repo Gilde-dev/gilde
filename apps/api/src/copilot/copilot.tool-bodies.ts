@@ -19,6 +19,7 @@ import { HistorySearchSchema } from '../memory/history/history.dto.js';
 import type { HistorySearchService } from '../memory/history/history-search.service.js';
 import type { MetricsService } from '../metrics/metrics.service.js';
 import type { ProjectService } from '../project/project.service.js';
+import type { ProjectMcpToolsService } from '../project-mcp/project-mcp-tools.service.js';
 import type { RepoService } from '../repo/repo.service.js';
 import { REVISION_STATUSES } from '../revision/revision.entity.js';
 import type { RevisionService } from '../revision/revision.service.js';
@@ -99,6 +100,8 @@ export interface CopilotServices {
     history: HistorySearchService;
     specs: SpecService;
     plans: FeaturePlanService;
+    /** The project's MCP tools (co-pilot, Verkenner, Verfijner). Absent in unit tests that do not need them. */
+    mcpTools?: Pick<ProjectMcpToolsService, 'buildTools'>;
 }
 
 export const toolId = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);

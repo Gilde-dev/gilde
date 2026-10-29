@@ -88,8 +88,11 @@ export function toolLabel(name: string, parameters: unknown): string {
       return 'Checking the job';
     case 'createJob':
       return 'Creating a job';
-    default:
-      return name;
+    default: {
+      // A tool of a project's MCP server is named mcp__<server>__<tool>; show it as server.tool.
+      const mcp = /^mcp__([^_].*?)__(.+)$/.exec(name);
+      return mcp ? `${mcp[1]}.${mcp[2]}` : name;
+    }
   }
 }
 

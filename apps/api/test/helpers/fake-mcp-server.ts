@@ -10,6 +10,8 @@ export interface FakeMcpServer {
   url: string;
   /** Names of the tools that were actually called (a test must leave this empty). */
   calls: string[];
+  /** Arguments of each call, parallel to `calls`. */
+  callArgs: Record<string, unknown>[];
   /** Authorization headers received, in order. */
   authorizations: (string | undefined)[];
   close(): Promise<void>;
@@ -23,6 +25,12 @@ interface Options {
   token?: string;
   /** Tool names to register. Defaults to a read-only `search` and an unannotated `create_page`. */
   tools?: { name: string; description?: string; readOnly?: boolean | 'absent' }[];
+  /** Text a tool answers with (default `called <name>`). */
+  results?: Record<string, string>;
+  /** Tools that answer with `isError: true`. */
+  failing?: string[];
+  /** Delay before a tool answers, in milliseconds. */
+  callDelayMs?: number;
 }
 
 async function readBody(req: IncomingMessage): Promise<unknown> {
@@ -40,6 +48,7 @@ export async function startFakeMcpServer(options: Options = {}): Promise<FakeMcp
     { name: 'create_page', description: 'Create a page', readOnly: 'absent' },
   ];
   const calls: string[] = [];
+  const callArgs: Record<string, unknown>[] = [];
   const authorizations: (string | undefined)[] = [];
 
   const server: Server = createServer((req, res) => {
@@ -60,9 +69,12 @@ export async function startFakeMcpServer(options: Options = {}): Promise<FakeMcp
           description: tool.description ?? tool.name,
           inputSchema: { query: z.string().optional() },
           ...(annotations && { annotations }),
-        }, () => {
+        }, async (args: Record<string, unknown>) => {
           calls.push(tool.name);
-          return { content: [{ type: 'text' as const, text: `called ${tool.name}` }] };
+          callArgs.push(args);
+          if (options.callDelayMs) await new Promise((r) => setTimeout(r, options.callDelayMs));
+          const text = options.results?.[tool.name] ?? `called ${tool.name}`;
+          return { content: [{ type: 'text' as const, text }], ...(options.failing?.includes(tool.name) && { isError: true }) };
         });
       }
       const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined });
@@ -76,6 +88,7 @@ export async function startFakeMcpServer(options: Options = {}): Promise<FakeMcp
   return {
     url: `http://127.0.0.1:${port}/mcp`,
     calls,
+    callArgs,
     authorizations,
     close: () => new Promise<void>((resolve) => { server.closeAllConnections(); server.close(() => resolve()); }),
   };

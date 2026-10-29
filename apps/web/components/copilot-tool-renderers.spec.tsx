@@ -7,6 +7,11 @@ vi.mock('@copilotkit/react-ui', () => ({ AssistantMessage: () => null, UserMessa
 import { BusyIndicator, GroupedMessage, ToolCallGroup, ToolCallView, toolError, toolLabel } from './copilot-tool-renderers';
 
 describe('toolLabel', () => {
+  it('shows an MCP tool as server.tool', () => {
+    expect(toolLabel('mcp__Notion__search', {})).toBe('Notion.search');
+    expect(toolLabel('mcp__Notion__create__page', {})).toBe('Notion.create__page');
+  });
+
   it('labels known tools and falls back to the tool name', () => {
     expect(toolLabel('searchRepoCode', {})).toBe('Searching code');
     expect(toolLabel('readRepoFile', { path: 'a/b.ts', startLine: 3, endLine: 9 })).toBe('Reading a/b.ts lines 3-9');
