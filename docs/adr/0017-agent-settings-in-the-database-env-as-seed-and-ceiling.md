@@ -1,4 +1,4 @@
-# 0016. Agent runtime settings live in the database; the environment is the seed and the ceiling
+# 0017. Agent runtime settings live in the database; the environment is the seed and the ceiling
 
 - **Status:** Accepted
 - **Date:** 2026-10-29

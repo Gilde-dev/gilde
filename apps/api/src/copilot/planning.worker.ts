@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 
+import type { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import type { BudgetService } from '../budget/budget.service.js';
 import type { NotificationCaptureService } from '../notification/notification-capture.service.js';
 import type { SpecPlanningRun } from '../spec/spec-planning-run.entity.js';
@@ -32,6 +33,7 @@ export class PlanningWorker {
         private readonly planning: SpecPlanningService,
         private readonly budget: Pick<BudgetService, 'status'>,
         private readonly notifications?: Pick<NotificationCaptureService, 'specPlanned' | 'specPlanFailed'>,
+        private readonly runLog?: Pick<AgentRunRecorder, 'begin'>,
     ) {
         this.source = typeof setup === 'function' ? setup : async () => setup;
         this.setup = typeof setup === 'function' ? (undefined as never) : setup;
@@ -79,21 +81,43 @@ export class PlanningWorker {
         }
     }
 
+    /** The run log entry of this planning run. Best effort: a problem here never touches the planning. */
+    private startLog(run: SpecPlanningRun) {
+        try {
+            return this.runLog?.begin({
+                agentId: 'werkmeester', triggerKind: 'spec_version', triggerRefType: 'spec', triggerRefId: run.specId, actorUserId: this.setup.user.id,
+                projectId: run.projectId, model: this.setup.config.model, linkedTable: 'spec_planning_runs', linkedId: run.id, managed: true,
+            });
+        } catch {
+            return undefined;
+        }
+    }
+
     private async run(run: SpecPlanningRun): Promise<void> {
+        const log = this.startLog(run);
         try {
             const pinned = await this.planning.pinnedFeature(run.specId, run.version);
             if (pinned) {
                 await this.planning.skipped(run.id, `Version ${run.version} is already planned: feature "${pinned.title}" is pinned to it`, pinned.id);
+                log?.end({ outcome: 'skipped', reason: `Version ${run.version} is already planned` });
                 return;
             }
             const binding = await this.werkmeester.bind({ projectId: run.projectId, specId: run.specId, version: run.version, approvalId: run.approvalId }, run.attempts);
-            const result = await this.werkmeester.plan(binding);
+            const result = await this.werkmeester.plan(binding, log);
             if (result.outcome === 'planned') {
                 if (await this.planning.planned(run.id, result.featureId)) await this.notifications?.specPlanned(run, result.featureId);
+                log?.end({ outcome: 'ok' });
             }
-            else if (result.outcome === 'skipped') await this.planning.skipped(run.id, result.reason);
-            else await this.finishFailed(run, result.reason);
+            else if (result.outcome === 'skipped') {
+                await this.planning.skipped(run.id, result.reason);
+                log?.end({ outcome: 'skipped', reason: result.reason });
+            }
+            else {
+                await this.finishFailed(run, result.reason);
+                log?.end({ outcome: 'error', reason: result.reason });
+            }
         } catch (error) {
+            log?.end({ outcome: 'error', reason: message(error) });
             await this.finishFailed(run, message(error));
         }
     }

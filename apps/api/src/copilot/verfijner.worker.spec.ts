@@ -2,6 +2,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { runLogDb } from '../agent-run/agent-run.testing.js';
+import type { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { settleTestMemory, testMemoryInfrastructure } from '../memory/memory.testing.js';
 
 import { createMastra, type RefineSetup } from './copilot.mastra.js';
@@ -40,13 +42,13 @@ describe('VerfijnerWorker', () => {
         workspace: { ensure: vi.fn().mockResolvedValue(null) },
     };
     const refine = {
-        nextPerProject: vi.fn(), runsToday: vi.fn(), begin: vi.fn(), drafted: vi.fn(), failed: vi.fn(),
+        nextPerProject: vi.fn(), runsToday: vi.fn(), begin: vi.fn(), drafted: vi.fn(), failed: vi.fn(), latestRunId: vi.fn(),
     };
     const budget = { status: vi.fn() };
     let prompts: ReturnType<typeof scriptedModel>['prompts'];
     let bindings: RefineBinding[];
 
-    function worker(steps: ScriptedStep[]) {
+    function worker(steps: ScriptedStep[], runLog?: AgentRunRecorder) {
         const stub = scriptedModel(steps);
         const model = stub.model;
         prompts = stub.prompts;
@@ -54,8 +56,8 @@ describe('VerfijnerWorker', () => {
             config: cfg, user: BOT, model,
             writer: { save: async (binding, input) => { bindings.push(binding); return save(binding, input); } },
         };
-        const mastra = createMastra({ enabled: false, model: null, reason: 'x' }, services as never, undefined, undefined, testMemoryInfrastructure({ url: `file:${join(dir, 'm.db')}` }), undefined, null, setup);
-        return new VerfijnerWorker(setup, mastra, refine as never, budget);
+        const mastra = createMastra({ enabled: false, model: null, reason: 'x' }, services as never, undefined, undefined, testMemoryInfrastructure({ url: `file:${join(dir, 'm.db')}` }), undefined, null, setup, null, runLog);
+        return new VerfijnerWorker(setup, mastra, refine as never, budget, undefined, runLog);
     }
 
     beforeEach(() => {
@@ -86,6 +88,41 @@ describe('VerfijnerWorker', () => {
         expect(bindings[0]).toMatchObject({ userId: BOT.id, projectId: P1, repoId: REPO1, itemId: item().id, specId: null });
         expect(refine.drafted).toHaveBeenCalledWith(item().id, 'sha-1');
         expect(refine.failed).not.toHaveBeenCalled();
+    });
+
+    describe('run log', () => {
+        let db: Awaited<ReturnType<typeof runLogDb>>;
+        beforeEach(async () => { db = await runLogDb(); refine.latestRunId.mockResolvedValue('66666666-6666-4666-8666-666666666666'); });
+        afterEach(() => db.ds.destroy());
+
+        it('records a refine run as an intake_item run linked to its refine run, with the saveRefinedSpec call', async () => {
+            await worker([saveStep()], db.recorder).tick();
+            await db.recorder.flush();
+            const run = await db.runs.findOneByOrFail({ agentId: 'verfijner' });
+            expect(run).toMatchObject({
+                triggerKind: 'intake_item', triggerRefType: 'intake_item', triggerRefId: item().id, actorUserId: BOT.id, projectId: P1, outcome: 'ok',
+                model: 'openai/refine-model', linkedTable: 'intake_refine_runs', linkedId: '66666666-6666-4666-8666-666666666666',
+            });
+            expect(run.endedAt).not.toBeNull();
+            expect((await db.toolCalls.find({ where: { runId: run.id } })).map((c) => c.toolName)).toContain('saveRefinedSpec');
+            expect(await db.runs.count()).toBe(1);
+        });
+
+        it('records an error outcome with the reason when the agent saved nothing', async () => {
+            await worker([], db.recorder).tick();
+            await db.recorder.flush();
+            expect(await db.runs.findOneByOrFail({ agentId: 'verfijner' })).toMatchObject({ outcome: 'error', reason: 'The agent finished without saving a spec' });
+        });
+
+        it('records nothing for an item another worker took, and a failing recorder does not fail the refine', async () => {
+            refine.begin.mockResolvedValueOnce(null);
+            await worker([saveStep()], db.recorder).tick();
+            expect(await db.runs.count()).toBe(0);
+
+            const broken = { begin: () => { throw new Error('recorder down'); } } as unknown as AgentRunRecorder;
+            expect(await worker([saveStep()], broken).tick()).toEqual([item().id]);
+            expect(refine.drafted).toHaveBeenCalledWith(item().id, 'sha-1');
+        });
     });
 
     it('puts the issue between nonce-marked boundary lines in the user message', async () => {

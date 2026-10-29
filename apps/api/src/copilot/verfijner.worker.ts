@@ -4,6 +4,8 @@ import { Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import type { Mastra } from '@mastra/core/mastra';
 
+import { attachRun } from '../agent-run/agent-run.mastra.js';
+import type { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import type { BudgetService } from '../budget/budget.service.js';
 import type { IntakeItem } from '../intake/intake-item.entity.js';
 import { refineSha } from '../intake/intake-issue.js';
@@ -42,6 +44,7 @@ export class VerfijnerWorker {
         private readonly refine: IntakeRefineService,
         private readonly budget: Pick<BudgetService, 'status'>,
         private readonly comments?: Pick<IntakeCommentService, 'sync'>,
+        private readonly runLog?: Pick<AgentRunRecorder, 'begin'>,
     ) {
         this.source = typeof setup === 'function' ? setup : async () => setup;
         this.setup = typeof setup === 'function' ? (undefined as never) : setup;
@@ -88,21 +91,40 @@ export class VerfijnerWorker {
         }
     }
 
+    /** The run log entry of this refine run, linked to its refine run row. Best effort: a problem here never touches the refine. */
+    private async startLog(item: IntakeItem) {
+        if (!this.runLog) return undefined;
+        try {
+            const refineRunId = await this.refine.latestRunId(item.id).catch(() => null) ?? null;
+            return this.runLog.begin({
+                agentId: 'verfijner', triggerKind: 'intake_item', triggerRefType: 'intake_item', triggerRefId: item.id, actorUserId: this.setup.user.id,
+                projectId: item.projectId, model: this.setup.config.model, linkedTable: refineRunId ? 'intake_refine_runs' : null, linkedId: refineRunId, managed: true,
+            });
+        } catch {
+            return undefined;
+        }
+    }
+
     private async run(item: IntakeItem): Promise<void> {
         const binding = issueRefineBinding(this.setup.user.id, item, item.refineAttempts);
+        const log = await this.startLog(item);
         try {
             const prompt = refinePrompt({
                 repoFullName: item.repo?.fullName ?? item.repoId, number: item.number, url: item.url, title: item.title,
                 body: item.body, bodyTruncated: item.bodyTruncated, specId: item.specId, comments: item.comments ?? [],
             }, randomBytes(8).toString('hex'));
+            const options = refineStreamOptions(this.setup.user, binding);
+            if (log) attachRun(options.requestContext, log);
             const output = await this.mastra.getAgent(REFINE_AGENT_ID).stream(prompt, {
-                ...refineStreamOptions(this.setup.user, binding),
+                ...options,
                 abortSignal: AbortSignal.timeout(RUN_TIMEOUT_MS),
             } as never);
             await (output as { consumeStream(): Promise<void> }).consumeStream();
             if (refineOutcome(binding).saves === 0) throw new Error('The agent finished without saving a spec');
             if (!(await this.refine.drafted(item.id, refineSha(item)))) this.logger.log(`Item ${item.id} changed during its refine run; it stays as it is.`);
+            log?.end({ outcome: 'ok' });
         } catch (error) {
+            log?.end({ outcome: 'error', reason: message(error) });
             const status = await this.refine.failed(item.id, message(error));
             this.logger.warn(`Refining item ${item.id} failed (${status ?? 'item changed'}): ${message(error)}`);
         }

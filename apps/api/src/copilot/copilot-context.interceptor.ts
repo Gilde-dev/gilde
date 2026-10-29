@@ -7,6 +7,8 @@ import { of, type Observable } from 'rxjs';
 import type { Mastra } from '@mastra/core/mastra';
 
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
+import type { AgentRunAgent } from '../agent-run/agent-run.entity.js';
 import { usageUser } from '../usage/usage-context.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
@@ -38,6 +40,7 @@ export class CopilotContextInterceptor implements NestInterceptor {
         private readonly moduleRef: ModuleRef,
         /** The co-pilot's settings are read per request; without it only the startup config decides. */
         @Optional() private readonly agents?: AgentRuntimeService,
+        @Optional() private readonly agentRuns?: AgentRunRecorder,
     ) { }
 
     async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
@@ -61,7 +64,10 @@ export class CopilotContextInterceptor implements NestInterceptor {
         }
         const user = { id: req.user.id, name: req.user.name, email: req.user.email, credential: req.user.credential };
 
-        if (agentReferences(req.path, req.query, req.body).some((a) => [SCOUT_AGENT_ID, REFINE_AGENT_ID, PLAN_AGENT_ID].includes(a.toLowerCase())) || req.path.includes('/__mastra')) {
+        const internal = agentReferences(req.path, req.query, req.body).map((a) => a.toLowerCase()).find((a) => [SCOUT_AGENT_ID, REFINE_AGENT_ID, PLAN_AGENT_ID].includes(a));
+        if (internal || req.path.includes('/__mastra')) {
+            // A refused attempt to reach an unattended agent is part of its run log.
+            if (internal) this.agentRuns?.complete({ agentId: internal as AgentRunAgent, triggerKind: 'chat', actorUserId: user.id }, { outcome: 'refused', reason: 'The agent cannot be used through the API' });
             return this.reject(context, HttpStatus.FORBIDDEN, 'Forbidden', 'This agent cannot be used through the API');
         }
 

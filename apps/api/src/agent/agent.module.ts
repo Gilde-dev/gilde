@@ -12,7 +12,7 @@ import { AgentController } from './agent.controller.js';
 import { AgentMapper } from './agent.mapper.js';
 
 /**
- * Runtime settings of the agents in the database (ADR 0016). Global because the workers, the dispatcher and the MCP
+ * Runtime settings of the agents in the database (ADR 0017). Global because the workers, the dispatcher and the MCP
  * server all ask `AgentRuntimeService` what an agent is now.
  */
 @Global()

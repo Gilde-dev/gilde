@@ -59,6 +59,12 @@ export class IntakeRefineService {
         return this.get(item.id);
     }
 
+    /** The newest refine run row of an item (the one `begin` just wrote), for the agent run log. */
+    async latestRunId(itemId: string): Promise<string | null> {
+        const run = await this.runs.findOne({ where: { itemId }, order: { startedAt: 'DESC' } });
+        return run?.id ?? null;
+    }
+
     /** The draft was saved: `drafted`, remembering the body it was made from. No-op when the item changed meanwhile. */
     async drafted(id: string, sha: string): Promise<boolean> {
         const done = await this.items.update({ id, status: 'refining' }, { status: 'drafted', refinedSha256: sha, lastError: null });

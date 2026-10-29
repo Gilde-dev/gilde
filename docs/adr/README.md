@@ -19,6 +19,7 @@ One file per decision; see the write-adr skill. Accepted ADRs are not edited, on
 | 0013 | [The Verfijner drafts specs from intake items as a bounded unattended writer](0013-verfijner-bounded-unattended-spec-drafter.md) | Accepted | 2026-10-28 |
 | 0014 | [MCP servers per project, with an allowlist, read/write rules and untrusted results](0014-mcp-servers-per-project-with-allowlist-and-read-write-rules.md) | Accepted | 2026-10-29 |
 | 0015 | [The Werkmeester plans features from approved spec versions as a bounded unattended writer](0015-werkmeester-bounded-unattended-planner.md) | Accepted | 2026-10-29 |
-| 0016 | [Agent runtime settings live in the database; the environment is the seed and the ceiling](0016-agent-settings-in-the-database-env-as-seed-and-ceiling.md) | Accepted | 2026-10-29 |
+| 0016 | [One agent run log with redacted, capped tool calls](0016-one-agent-run-log-with-redacted-tool-calls.md) | Accepted | 2026-10-29 |
+| 0017 | [Agent runtime settings live in the database; the environment is the seed and the ceiling](0017-agent-settings-in-the-database-env-as-seed-and-ceiling.md) | Accepted | 2026-10-29 |
 
 The ADRs 0001–0006 were written retrospectively for decisions already in the code. Their dates are the merge dates of the pull requests that introduced the decision (taken from `git log`), and each ADR cites that evidence.

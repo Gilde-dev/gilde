@@ -19,6 +19,10 @@ const EXTERNAL_IDS = new Set([
   'webhook_deliveries.delivery_id',
   'intake_items.external_id',
   'intake_items.status_comment_id',
+  // The run log: an agent's slug and polymorphic references (a thread id, a tool name, a row of one of several tables).
+  'agent_runs.agent_id',
+  'agent_runs.trigger_ref_id',
+  'agent_runs.linked_id',
 ]);
 
 const REFERENCE_COLUMN = /(_id|_by)$/;

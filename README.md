@@ -295,7 +295,7 @@ pnpm --filter @gilde/api user:mark-bot --email verkenner@example.com
 The runtime settings of the agents live in the database (table `agent_settings`, one row per agent: `gilde` (the co-pilot), `verkenner`, `verfijner`,
 `werkmeester`, `mcp` and `coding`), not in environment variables. Each record holds `enabled`, the bot user (Verkenner, Verfijner and Werkmeester only, chosen
 from the users marked as bots), the `openai/<model>` (a bot agent without one follows the co-pilot's model) and that agent's limits and schedule. Decision and
-reasons: [ADR 0016](docs/adr/0016-agent-settings-in-the-database-env-as-seed-and-ceiling.md); requirements: `docs/specs/agents-page-and-runtime-settings.md`.
+reasons: [ADR 0017](docs/adr/0017-agent-settings-in-the-database-env-as-seed-and-ceiling.md); requirements: `docs/specs/agents-page-and-runtime-settings.md`.
 
 | Agent | Settings (key: default) | Seeded from |
 |---|---|---|
@@ -466,6 +466,36 @@ references, SQLite-compatible; Postgres migration `1793300000000-ScoutSignals`) 
 and a stub model. The same spec ran against a real local Postgres 16 (opt-in, `VERKENNER_SPIKE_PG_URL`, skipped otherwise) and passed; the Postgres
 run is not part of CI. The cron was not waited on (the dispatcher pass it triggers was run directly), only one process was used, and native
 `dedupeKey` is not restart-safe after delivery, so event publishing keeps its own durable receipt.
+
+## Agent run log
+
+Every run of an agent is written to one log, `agent_runs`, and every tool call of Gilde's own agents to `agent_tool_calls`. The existing per-agent tables (`intake_refine_runs`, `spec_planning_runs`, `job_runs`, `llm_usage`) keep working; the log links to them (`linked_table`, `linked_id`).
+
+| Agent id | What a run is | Trigger |
+| --- | --- | --- |
+| `gilde` | a co-pilot request (the CopilotKit/AG-UI route) | `chat`, with the thread, the user and the selected project |
+| `verkenner` | a scout wake | `signal`, with the project, as the bot user |
+| `verfijner` | one refine attempt on an intake item | `intake_item`, linked to its `intake_refine_runs` row |
+| `werkmeester` | one planning attempt on a spec version | `spec_version`, linked to its `spec_planning_runs` row |
+| `mcp` | one MCP tool call | `mcp_call`, with the caller and the tool |
+| `coding` | one job run on a user's executor | `dispatch`, linked to its `job_runs` row; ends when the PR opens (`ok`, or `refused` when the agent reported `blocked`), when firing fails (`error`) or when the PR is closed first (`skipped`) |
+
+A run has its agent, trigger and a link to the triggering object, the acting user or bot, the project, start and end, an outcome (`ok`, `error`, `refused`, `skipped`; empty while running) with a short reason, the model, and input/output tokens and an estimated cost where known (the co-pilot agents report tokens when they finish and cost comes from `LLM_PRICES` like in `llm_usage`; for coding agents the tokens and cost are the Claude Code usage already attributed to the job run, filled in when the run is read). A refused attempt to reach an unattended agent through the Mastra routes is logged as `refused` too. A run that never reports an end (a crash) is closed as `error` after 30 minutes by an hourly sweep; coding runs end with their job run.
+
+Tool calls (Gilde's own agents and MCP): tool name, input and output as text, duration and error. They are recorded by wrapping the tools an agent resolves for a request (Mastra has no supported hook that sees both the tool and the request, so the wrapper is the hook; the run is completed by an output processor, `processOutputResult`, which gets the request context and token usage). Input and output are capped at `AGENT_LOG_MAX_CHARS` (default 2000, 100 to 100000; an invalid value is logged and the default is used) with a note saying how much was cut.
+
+**Secrets never reach the log.** Before capping, every input, output, error and reason goes through a redaction step: known token formats (`gk_` Gilde API keys, `sk-` keys, `ghp_`/`gho_`/`ghu_`/`ghs_`/`ghr_` and `github_pat_` GitHub tokens, `xox*`/`xapp-` Slack tokens, JWTs, `Bearer` headers, private key blocks) and the values of the configured secrets (any environment variable whose name contains `SECRET`, `TOKEN`, `PASSWORD`, `PRIVATE_KEY` or `API_KEY`, when the value has at least 8 characters) are replaced with `[redacted]`. This is a safety net, not a licence to put secrets in tool arguments.
+
+**Recording never fails or slows the run it records.** Starting a run returns at once; writes are queued behind each other in the background and any error is logged and dropped. A tool's own result or error always passes through unchanged.
+
+**Retention.** `AGENT_LOG_RETENTION_DAYS` (default `90`, a whole number from 1 to 3650; an invalid value is logged and nothing is deleted) is applied by a daily job (03:00) that removes older runs and their tool calls.
+
+### Reading the log
+
+- `GET /api/v1/agents/:id/runs` with `trigger`, `outcome`, `projectId`, `from` and `to` (ISO times, `to` exclusive), `page` and `pageSize` (default 25, at most 100); newest first. `:id` is one of `gilde`, `verkenner`, `verfijner`, `werkmeester`, `mcp`, `coding`.
+- `GET /api/v1/agent-runs/:id` returns a run with its tool calls.
+
+Both need an ordinary JWT or API key. Co-pilot conversations are private: another user's `gilde` run comes back with `metadataOnly: true`, showing only time, tool count, outcome, model, tokens and cost, with no reason, thread, tool names, inputs or outputs. You see your own in full. Recorded text is data written by others (and by users): show it as plain text only.
 
 ## MCP server
 

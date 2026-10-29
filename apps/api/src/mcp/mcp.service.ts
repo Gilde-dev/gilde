@@ -1,4 +1,4 @@
-import { HttpException, Inject, Injectable, Logger } from '@nestjs/common';
+import { HttpException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { QueryFailedError, EntityNotFoundError } from 'typeorm';
 import { z } from 'zod';
 
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { DispatcherService } from '../dispatch/dispatcher.service.js';
 import { FeatureService } from '../feature/feature.service.js';
 import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
@@ -61,6 +62,7 @@ export class McpService {
         plans: FeaturePlanService,
         workspace: RepoWorkspaceService,
         @Inject(GITHUB_PORT) github: GitHubPort,
+        @Optional() private readonly agentRuns?: AgentRunRecorder,
     ) {
         this.services = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans };
     }
@@ -103,14 +105,32 @@ export class McpService {
             tool.name,
             { title: tool.title, description: tool.description, inputSchema: tool.inputSchema as never, annotations: tool.annotations },
             (async (input: never): Promise<CallToolResult> => {
+                // One run per tool call; recording is queued behind the call and never changes its result.
+                const started = Date.now();
+                const projectId = (input as { projectId?: unknown } | undefined)?.projectId;
+                const run = this.beginRun(tool.name, user?.id ?? null, typeof projectId === 'string' && /^[0-9a-f-]{36}$/i.test(projectId) ? projectId : null);
                 try {
                     const actor = await this.actorFor(user);
-                    return ok(await tool.run(input, { actor }));
+                    const output = await tool.run(input, { actor });
+                    run?.toolCall({ name: tool.name, input, output, durationMs: Date.now() - started });
+                    run?.end({ outcome: 'ok' });
+                    return ok(output);
                 } catch (error) {
+                    run?.toolCall({ name: tool.name, input, durationMs: Date.now() - started, error });
+                    run?.end({ outcome: refusedByRule(error) ? 'refused' : 'error', reason: error instanceof Error ? error.message : String(error) });
                     return this.failure(tool.name, error);
                 }
             }) as never,
         );
+    }
+
+    /** The run log entry of one tool call. Best effort: whatever goes wrong here, the tool call itself is unaffected. */
+    private beginRun(tool: string, actorUserId: string | null, projectId: string | null) {
+        try {
+            return this.agentRuns?.begin({ agentId: 'mcp', triggerKind: 'mcp_call', triggerRefType: 'tool', triggerRefId: tool, actorUserId, projectId, managed: true });
+        } catch {
+            return undefined;
+        }
     }
 
     /** The operator behind this request, read fresh from the database; fails closed. */
@@ -139,6 +159,12 @@ export class McpService {
         this.logger.log(`audit source=mcp event=${e.event} caller=${e.caller} credential=${e.credential}${e.featureId ? ` feature=${e.featureId}` : ''} jobs=${e.jobIds.join(',')}`);
     }
 }
+
+/** A call the rules turned down (not allowed, over its allowance, invalid input) rather than one that broke. */
+const refusedByRule = (error: unknown): boolean =>
+    error instanceof z.ZodError
+    || (error instanceof McpToolError && (error.status ?? 0) >= 400 && (error.status ?? 0) < 500)
+    || (error instanceof HttpException && error.getStatus() < 500);
 
 const ok = (value: unknown): CallToolResult => ({ content: [{ type: 'text', text: JSON.stringify(value ?? null) }] });
 const fail = (message: string): CallToolResult => ({ isError: true, content: [{ type: 'text', text: message }] });

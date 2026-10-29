@@ -389,7 +389,7 @@ export class DispatcherService {
                 await this.parkOversized(job, prompt, kind);
                 return 'oversized';
             }
-            runId = await this.startRun(job, project.id, repo.id, reserved, executor.id, kind);
+            runId = await this.startRun(job, project.id, repo.id, reserved, executor.id, kind, executor.ownerId);
             await this.recordContext(runId, repo);
             await this.recordKnowledge(runId, prompt);
             const token = await this.executors.revealToken(executor.id).catch(() => {
@@ -469,15 +469,16 @@ export class DispatcherService {
      * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
      * the earlier fire_failed run instead of creating a new one.
      */
-    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean; attempt: number }, executorId: string, kind: RunKind): Promise<string> {
+    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean; attempt: number }, executorId: string, kind: RunKind, actorUserId: string | null = null): Promise<string> {
         if (reserved.reuse) {
             await this.runRepository.update(
                 { id: reserved.id },
                 { status: 'firing', error: null, finishedAt: null, executorId },
             );
+            this.runService.logStart({ id: reserved.id, jobId: job.id, projectId }, actorUserId);
             return reserved.id;
         }
-        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: reserved.attempt, executorId, kind });
+        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: reserved.attempt, executorId, kind }, actorUserId);
         return run.id;
     }
 

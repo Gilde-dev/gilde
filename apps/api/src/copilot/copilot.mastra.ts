@@ -10,6 +10,9 @@ import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 
+import { ensureRun, recordTools, runLogProcessor, type RunLog } from '../agent-run/agent-run.mastra.js';
+import type { AgentRunAgent, AgentRunTrigger } from '../agent-run/agent-run.entity.js';
+import type { AgentRunInit } from '../agent-run/agent-run.recorder.js';
 import { memoryConfig } from '../memory/memory.config.js';
 import { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 
@@ -162,6 +165,19 @@ export function logRunUsage(logger: Pick<Logger, 'log'>, threadId: unknown, resu
     );
 }
 
+/** How a Mastra run is described in the run log, from what the server put in its request context. */
+function runInit(agentId: AgentRunAgent, ctx: { get(key: string): unknown }, model: string): AgentRunInit {
+    const scout = agentId === 'verkenner' ? scoutBinding(ctx as never) : null;
+    const trigger: AgentRunTrigger = agentId === 'gilde' ? 'chat' : agentId === 'verkenner' ? 'signal' : 'schedule';
+    const threadId = ctx.get('threadId');
+    return {
+        agentId, triggerKind: trigger, model,
+        actorUserId: scout?.userId ?? copilotUser(ctx as never)?.id ?? null,
+        projectId: scout?.projectId ?? (ctx.get(COPILOT_PROJECT_KEY) as string | undefined) ?? null,
+        ...(scout ? { triggerRefType: 'project', triggerRefId: scout.projectId } : typeof threadId === 'string' ? { triggerRefType: 'thread', triggerRefId: threadId } : {}),
+    };
+}
+
 const STEP_LIMIT_NOTE =
     'You are out of steps. Do not call any more tools. Reply with a short text: say you ran out of steps, what you have done and found so far, and what is left, so the user can continue.';
 
@@ -174,6 +190,7 @@ export function copilotDefaultOptions(
     logger: Pick<Logger, 'warn' | 'log'> = new Logger('Copilot'),
     usage?: { service: Pick<UsageService, 'record'>; model: string },
     agentId: string = COPILOT_AGENT_ID,
+    runs?: { log: RunLog; model: string },
 ) {
     return {
         maxSteps,
@@ -196,6 +213,7 @@ export function copilotDefaultOptions(
             });
         },
         prepareStep: ({ stepNumber, systemMessages, requestContext }: { stepNumber: number; systemMessages?: unknown[]; requestContext?: { get(key: string): unknown } }) => {
+            if (stepNumber === 0 && runs) ensureRun(requestContext, runs.log, (ctx) => runInit(agentId as AgentRunAgent, ctx, runs.model));
             if (stepNumber < maxSteps - 1) return undefined;
             logger.warn(`Co-pilot reached the step limit of ${maxSteps}; forcing a final message (thread ${String(requestContext?.get('threadId') ?? 'unknown')})`);
             return { toolChoice: 'none' as const, systemMessages: [...(systemMessages ?? []), { role: 'system' as const, content: STEP_LIMIT_NOTE }] };
@@ -207,16 +225,16 @@ export function copilotDefaultOptions(
  * Builds the Mastra instance. Called from a Nest provider so the tools get the Gilde services by injection.
  * When the co-pilot is not configured, the instance is empty (no agent, no storage) and the routes answer 503.
  */
-export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null, refine?: RefineSetup | null, plan?: PlanSetup | null): Mastra {
+export function createMastra(config: CopilotConfig, services: CopilotServices, storage?: MastraCompositeStore, repoContext?: RepoContextService, infra?: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, scout?: ScoutSetup | null, refine?: RefineSetup | null, plan?: PlanSetup | null, runLog?: RunLog): Mastra {
     // The scout and the Verfijner are configured independently of the co-pilot: any one alone gets an instance, none gets an empty one.
     if (!config.enabled && !scout && !refine && !plan) return new Mastra({});
 
     const memoryInfra = infra ?? new MemoryInfrastructure(memoryConfig(), storage ? { storage } : {});
     const agents: Record<string, Agent> = {};
-    if (config.enabled) agents[COPILOT_AGENT_ID] = createCopilotAgent(config, services, memoryInfra, repoContext, usage);
-    if (scout) agents[SCOUT_AGENT_ID] = createScoutAgent(scout, services, memoryInfra, usage);
-    if (refine) agents[REFINE_AGENT_ID] = createRefineAgent(refine, services, memoryInfra, usage);
-    if (plan) agents[PLAN_AGENT_ID] = createPlanAgent(plan, services, memoryInfra, usage);
+    if (config.enabled) agents[COPILOT_AGENT_ID] = createCopilotAgent(config, services, memoryInfra, repoContext, usage, runLog);
+    if (scout) agents[SCOUT_AGENT_ID] = createScoutAgent(scout, services, memoryInfra, usage, runLog);
+    if (refine) agents[REFINE_AGENT_ID] = createRefineAgent(refine, services, memoryInfra, usage, runLog);
+    if (plan) agents[PLAN_AGENT_ID] = createPlanAgent(plan, services, memoryInfra, usage, runLog);
 
     return new Mastra({
         agents,
@@ -232,15 +250,17 @@ export function createMastra(config: CopilotConfig, services: CopilotServices, s
  * The model and default options of an agent: static, or resolved when each run starts (a test's `override` model wins and
  * keeps everything static).
  */
-function runSettings(agentId: string, override: unknown, staticModel: string, maxSteps: number | undefined, resolve: RunSettings | undefined, usage: Pick<UsageService, 'record'> | undefined) {
+function runSettings(agentId: string, override: unknown, staticModel: string, maxSteps: number | undefined, resolve: RunSettings | undefined, usage: Pick<UsageService, 'record'> | undefined, runLog: RunLog | undefined) {
+    const processors = runLog ? { outputProcessors: [runLogProcessor(staticModel)] } : {};
     if (override || !resolve) {
-        return { model: (override ?? staticModel) as `openai/${string}`, defaultOptions: copilotDefaultOptions(maxSteps, undefined, usage && { service: usage, model: staticModel }, agentId) as never };
+        return { ...processors, model: (override ?? staticModel) as `openai/${string}`, defaultOptions: copilotDefaultOptions(maxSteps, undefined, usage && { service: usage, model: staticModel }, agentId, runLog && { log: runLog, model: staticModel }) as never };
     }
     return {
+        ...processors,
         model: (async () => (await resolve()).model) as unknown as `openai/${string}`,
         defaultOptions: (async () => {
             const { model, maxSteps: steps } = await resolve();
-            return copilotDefaultOptions(steps, undefined, usage && { service: usage, model }, agentId);
+            return copilotDefaultOptions(steps, undefined, usage && { service: usage, model }, agentId, runLog && { log: runLog, model });
         }) as never,
     };
 }
@@ -273,7 +293,7 @@ const REFUSING_PROPOSER: Pick<PlanProposer, 'propose'> = {
     propose: async () => ({ created: false, retryable: false, reason: 'Proposing plans is not available.' }),
 };
 
-function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, runLog?: RunLog): Agent {
     const own = createPlanTools(services, plan.proposer ?? REFUSING_PROPOSER);
     return new Agent({
         id: PLAN_AGENT_ID,
@@ -281,14 +301,14 @@ function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra
         description: 'Werkmeester, the planner: turns one approved spec version into a draft feature with triage jobs. Runs unattended, bound to one spec version; not reachable over HTTP.',
         instructions: WERKMEESTER_INSTRUCTIONS,
         // Exactly its own allowlisted tools: no MCP tools, nothing else.
-        tools: ({ requestContext }) => (planBinding(requestContext) ? own : {}) as never,
+        tools: ({ requestContext }) => recordTools(planBinding(requestContext) ? own : {}) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
         memory: createScoutMemory(memoryInfra, usage),
-        ...runSettings(PLAN_AGENT_ID, plan.model, plan.config.model, plan.config.maxSteps, plan.resolve, usage),
+        ...runSettings(PLAN_AGENT_ID, plan.model, plan.config.model, plan.config.maxSteps, plan.resolve, usage, runLog),
     });
 }
 
-function createRefineAgent(refine: RefineSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+function createRefineAgent(refine: RefineSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, runLog?: RunLog): Agent {
     const own = createRefineTools(services, refine.writer ?? REFUSING_WRITER);
     return new Agent({
         id: REFINE_AGENT_ID,
@@ -296,14 +316,14 @@ function createRefineAgent(refine: RefineSetup, services: CopilotServices, memor
         description: 'Verfijner, the refiner: turns one labelled GitHub issue into a draft spec. Runs unattended, bound to one intake item; not reachable over HTTP.',
         instructions: VERFIJNER_INSTRUCTIONS,
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
-        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, refineBinding(requestContext)?.projectId, 'unattended') as never,
+        tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, refineBinding(requestContext)?.projectId, 'unattended')) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
         memory: createScoutMemory(memoryInfra, usage),
-        ...runSettings(REFINE_AGENT_ID, refine.model, refine.config.model, refine.config.maxSteps, refine.resolve, usage),
+        ...runSettings(REFINE_AGENT_ID, refine.model, refine.config.model, refine.config.maxSteps, refine.resolve, usage, runLog),
     });
 }
 
-function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>): Agent {
+function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryInfra: MemoryInfrastructure, usage?: Pick<UsageService, 'record'>, runLog?: RunLog): Agent {
     const own = createScoutTools(services, memoryInfra.storage, scout.suggestions ?? REFUSING_SUGGESTIONS, () => scout.config.patternMinSize);
     return new Agent({
         id: SCOUT_AGENT_ID,
@@ -311,7 +331,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
         instructions: VERKENNER_INSTRUCTIONS,
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
-        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, scoutBinding(requestContext)?.projectId, 'unattended') as never,
+        tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, scoutBinding(requestContext)?.projectId, 'unattended')) as never,
         memory: createScoutMemory(memoryInfra, usage),
         // Whatever starts a run of the scout (an immediate wake or the scheduled dispatcher) gets the memory thread and the
         // server-issued project binding of the notification's own thread. The project is parsed from the thread id.
@@ -324,11 +344,11 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
                 },
             },
         },
-        ...runSettings(SCOUT_AGENT_ID, scout.model, scout.config.model, scout.config.maxSteps, scout.resolve, usage),
+        ...runSettings(SCOUT_AGENT_ID, scout.model, scout.config.model, scout.config.maxSteps, scout.resolve, usage, runLog),
     });
 }
 
-function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, services: CopilotServices, memoryInfra: MemoryInfrastructure, repoContext?: RepoContextService, usage?: Pick<UsageService, 'record'>): Agent {
+function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, services: CopilotServices, memoryInfra: MemoryInfrastructure, repoContext?: RepoContextService, usage?: Pick<UsageService, 'record'>, runLog?: RunLog): Agent {
     const own = createCopilotTools(services);
     return new Agent({
         id: COPILOT_AGENT_ID,
@@ -342,9 +362,9 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
         },
         // OpenAI through the Mastra model router; the provider is only chosen by the model setting.
         // Plus the allowed tools of the selected project's MCP servers; the write ones always ask for approval.
-        tools: ({ requestContext }) => withMcpTools(own, services.mcpTools, requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined, 'copilot') as never,
+        tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined, 'copilot')) as never,
         memory: createCopilotMemory(memoryInfra, usage),
-        ...runSettings(COPILOT_AGENT_ID, undefined, config.model, config.maxSteps, config.resolve, usage),
+        ...runSettings(COPILOT_AGENT_ID, undefined, config.model, config.maxSteps, config.resolve, usage, runLog),
     });
 }
 
