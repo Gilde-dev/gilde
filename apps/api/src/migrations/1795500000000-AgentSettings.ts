@@ -1,8 +1,8 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
 /** Runtime settings per agent in the database (seeded from the environment at startup) and their audit trail. Additive only. */
-export class AgentSettings1795400000000 implements MigrationInterface {
-    name = 'AgentSettings1795400000000'
+export class AgentSettings1795500000000 implements MigrationInterface {
+    name = 'AgentSettings1795500000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         await queryRunner.query(`CREATE TABLE "agent_settings" ("id" character varying(32) NOT NULL, "enabled" boolean NOT NULL DEFAULT false, "bot_user_id" uuid, "model" character varying(200), "settings" text NOT NULL, "updated_by" uuid, "created_at" TIMESTAMP NOT NULL DEFAULT now(), "updated_at" TIMESTAMP NOT NULL DEFAULT now(), CONSTRAINT "PK_agent_settings" PRIMARY KEY ("id"))`);
