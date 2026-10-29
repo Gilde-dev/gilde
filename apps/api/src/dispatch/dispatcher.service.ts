@@ -14,6 +14,7 @@ import { selectJobLessons } from '../execution/job-lessons.js';
 import { buildJobPromptInput } from '../execution/job-payload.js';
 import { promptTooLargeError } from '../execution/job-prompt.js';
 import { EXECUTION_PORT, type ExecutionPort, type ExecutionResult, type PreparedPrompt } from '../execution/execution.port.js';
+import type { RunKind } from '../run/run-status.js';
 import { ACTIVE, nextStatus, retryOrPark } from '../job/job-state.js';
 import { jobOwnerId } from '../job/job-owner.js';
 import { User } from '../user/user.entity.js';
@@ -340,10 +341,15 @@ export class DispatcherService {
         const to = nextStatus('queued', 'fire');
         if (!to) throw new Error('Job state machine does not allow firing a queued job');
 
+        const queued = await this.jobRepository.findOneBy({ id: jobId, status: 'queued' });
+        if (!queued) return 'skipped';
+        // A conflict-fix round continues the PR and uses no attempt.
+        const kind: RunKind = queued.nextRoundKind === 'conflict_fix' && queued.prNumber !== null ? 'conflict_fix' : 'attempt';
+
         // Conditional claim: only one concurrent dispatcher can move the job out of queued.
         const claim = await this.jobRepository.update(
             { id: jobId, status: 'queued' },
-            { status: to, attempts: () => 'attempts + 1', waitingReason: null },
+            { status: to, waitingReason: null, ...(kind === 'attempt' ? { attempts: () => 'attempts + 1' } : {}) },
         );
         if (!claim.affected) return 'skipped';
 
@@ -359,14 +365,14 @@ export class DispatcherService {
         let session: ExecutionResult;
         try {
             // The prompt is sized with the run id it will carry, before any run row exists.
-            const reserved = await this.reserveRunId(job);
-            const { payload, context } = buildJobPromptInput(job, repo, feature, reserved.id, job.attempts, downstream, lessons);
+            const reserved = await this.reserveRun(job, kind);
+            const { payload, context } = buildJobPromptInput(job, repo, feature, reserved.id, reserved.attempt, downstream, lessons);
             const prompt = this.execution.prepare(payload, context);
             if (!prompt.fits) {
-                await this.parkOversized(job, prompt);
+                await this.parkOversized(job, prompt, kind);
                 return 'oversized';
             }
-            runId = await this.startRun(job, project.id, repo.id, reserved, executor.id);
+            runId = await this.startRun(job, project.id, repo.id, reserved, executor.id, kind);
             await this.recordContext(runId, repo);
             const token = await this.executors.revealToken(executor.id).catch(() => {
                 throw new ExecutionError(`Executor "${executor.name}" token could not be read`, 'config');
@@ -379,7 +385,7 @@ export class DispatcherService {
             const message = errorMessage(e);
             if (e instanceof ExecutionError && e.kind === 'config' && !runId) {
                 // The setup shared by all runs is wrong (the agent instructions could not be read), not an executor: pause the repo.
-                await this.requeueWithoutAttempt(jobId, message);
+                await this.requeueWithoutAttempt(jobId, message, kind);
                 await this.repoService.pauseWithReason(repo.id, message);
                 this.logger.warn(`Repo ${repo.fullName} paused: ${message}`);
                 return 'repo_config_error';
@@ -394,13 +400,13 @@ export class DispatcherService {
             if (e instanceof ExecutionError && e.kind === 'executor_exhausted') {
                 // The executor's account is out of capacity, not the job: give the attempt back and let another executor take it.
                 if (runId) await this.runService.markFailed(runId, message);
-                await this.requeueWithoutAttempt(jobId, message);
+                await this.requeueWithoutAttempt(jobId, message, kind);
                 await this.exhaust(executor, e.resetAt);
                 return 'exhausted';
             }
             let event: 'retry' | 'park' = 'park';
             if (runId) await this.runService.markFailed(runId, message);
-            if (e instanceof ExecutionError && e.retryable) event = retryOrPark(job.attempts, project.maxAttempts);
+            if (e instanceof ExecutionError && e.retryable && kind === 'attempt') event = retryOrPark(job.attempts, project.maxAttempts);
             await this.failJob(job, event, message);
             return 'failed';
         }
@@ -420,19 +426,22 @@ export class DispatcherService {
     }
 
     /**
-     * The id of the run this attempt will use: an earlier fire_failed run of the same attempt (runs are unique per job and
-     * attempt) or a new id. Nothing is written.
+     * The id and number of the run this round will use: an earlier fire_failed run of the same round (runs are unique per
+     * job and number) or a new id. A conflict-fix round has no attempt of its own, so run numbers count the attempts used plus
+     * the conflict-fix runs so far. Nothing is written.
      */
-    private async reserveRunId(job: Job): Promise<{ id: string; reuse: boolean }> {
-        const previous = await this.runRepository.findOneBy({ jobId: job.id, attempt: job.attempts, status: 'fire_failed' });
-        return previous ? { id: previous.id, reuse: true } : { id: randomUUID(), reuse: false };
+    private async reserveRun(job: Job, kind: RunKind): Promise<{ id: string; reuse: boolean; attempt: number }> {
+        const used = job.attempts + await this.runRepository.countBy({ jobId: job.id, kind: 'conflict_fix' });
+        const previous = await this.runRepository.findOneBy({ jobId: job.id, attempt: used, status: 'fire_failed', kind });
+        if (previous) return { id: previous.id, reuse: true, attempt: used };
+        return { id: randomUUID(), reuse: false, attempt: kind === 'conflict_fix' ? used + 1 : used };
     }
 
     /**
      * Creates the run for this attempt. A config error gives the attempt back, so the next fire reuses
      * the earlier fire_failed run instead of creating a new one.
      */
-    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean }, executorId: string): Promise<string> {
+    private async startRun(job: Job, projectId: string, repoId: string, reserved: { id: string; reuse: boolean; attempt: number }, executorId: string, kind: RunKind): Promise<string> {
         if (reserved.reuse) {
             await this.runRepository.update(
                 { id: reserved.id },
@@ -440,7 +449,7 @@ export class DispatcherService {
             );
             return reserved.id;
         }
-        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: job.attempts, executorId });
+        const run = await this.runService.create({ id: reserved.id, jobId: job.id, projectId, repoId, attempt: reserved.attempt, executorId, kind });
         return run.id;
     }
 
@@ -448,13 +457,13 @@ export class DispatcherService {
      * The prompt does not fit after trimming, which is about this job only: park it, give the claim's attempt back and
      * leave the repo, the daily allowance and the other queued jobs alone. No run exists and nothing was sent.
      */
-    private async parkOversized(job: Job, prompt: PreparedPrompt): Promise<void> {
+    private async parkOversized(job: Job, prompt: PreparedPrompt, kind: RunKind): Promise<void> {
         const reason = promptTooLargeError(prompt, job.id).message;
         const to = nextStatus('dispatched', 'park');
         if (!to) throw new Error('Job state machine does not allow park from dispatched');
         const res = await this.jobRepository.update(
             { id: job.id, status: 'dispatched' },
-            { status: to, lastReason: reason, attempts: () => 'attempts - 1' },
+            { status: to, lastReason: reason, ...(kind === 'attempt' ? { attempts: () => 'attempts - 1' } : {}) },
         );
         if (res.affected === 1) {
             this.logger.warn(`Job ${job.id} parked: ${reason}`);
@@ -472,12 +481,12 @@ export class DispatcherService {
     }
 
     /** A config error says nothing about the job: back to the queue, and the claim's attempt is given back. */
-    private async requeueWithoutAttempt(jobId: string, reason: string): Promise<void> {
+    private async requeueWithoutAttempt(jobId: string, reason: string, kind: RunKind): Promise<void> {
         const to = nextStatus('dispatched', 'retry');
         if (!to) throw new Error('Job state machine does not allow retry from dispatched');
         await this.jobRepository.update(
             { id: jobId, status: 'dispatched' },
-            { status: to, lastReason: reason, attempts: () => 'attempts - 1' },
+            { status: to, lastReason: reason, ...(kind === 'attempt' ? { attempts: () => 'attempts - 1' } : {}) },
         );
     }
 

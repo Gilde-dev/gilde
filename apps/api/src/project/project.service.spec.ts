@@ -33,14 +33,14 @@ async function full(over: Partial<ReplaceProjectDto> = {}): Promise<ReplaceProje
     const p = await service.getById(p1.id);
     return {
         name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
-        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested,
+        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts,
         skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
         dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct, ...over,
     };
 }
 
 const FULL_BODY = {
-    name: 'N', description: null, dailyRunLimit: 10, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+    name: 'N', description: null, dailyRunLimit: 10, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false,
     skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 80,
 };
 

@@ -8,6 +8,8 @@ export interface GitHubPull {
     headRef: string;
     htmlUrl: string;
     body: string | null;
+    /** GitHub's `mergeable_state` (clean, dirty, unknown, ...); only the single-PR read has it, null or missing means not known. */
+    mergeableState?: string | null;
 }
 
 export interface GitHubWorkflowRun {

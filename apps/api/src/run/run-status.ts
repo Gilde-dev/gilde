@@ -10,3 +10,8 @@ export const RUN_STATUSES = [
 ] as const;
 
 export type RunStatus = (typeof RUN_STATUSES)[number];
+
+
+/** What a run is for: a normal attempt, or a round that only merges the base branch into the PR (uses no attempt). */
+export const RUN_KINDS = ['attempt', 'conflict_fix'] as const;
+export type RunKind = (typeof RUN_KINDS)[number];

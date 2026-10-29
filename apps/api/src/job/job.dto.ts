@@ -87,6 +87,10 @@ export const JobResponseSchema = z.object({
     pendingRevisions: z.number().int(),
     revision: z.number().int(),
     failedDependency: z.boolean().optional(),
+    /** GitHub says the open PR conflicts with its base branch (read-only; set by Gilde from the PR's mergeable state). */
+    mergeConflict: z.boolean(),
+    /** When GitHub last gave a definite answer about mergeability; null before the first. */
+    mergeConflictCheckedAt: z.string().datetime().nullable(),
     /** Merged without work: status merged and the latest run's result is blocked. */
     mergedBlocked: z.boolean(),
     /** The job made by "Recreate job" to replace this one, if any. */

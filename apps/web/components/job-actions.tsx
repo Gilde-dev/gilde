@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useState } from 'react';
 import { api, type EnqueueResult, type Job } from '@/lib/api';
 import { withProject } from '@/lib/use-project';
-import { canCancel, canEnqueue, canRecreate, canRetry, canSendBack, canSync, describeSync, canTriage, errorText, humanOnlyErrorText, warningLines } from '@/lib/job-actions';
+import { canCancel, canEnqueue, canFixConflicts, canRecreate, canRetry, canSendBack, canSync, describeSync, canTriage, errorText, humanOnlyErrorText, warningLines } from '@/lib/job-actions';
 import { Button } from './ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
 
@@ -25,21 +25,25 @@ export function JobActions({
   const [confirming, setConfirming] = useState(false);
   const [sendingBack, setSendingBack] = useState(false);
   const [reason, setReason] = useState('');
+  const [fixing, setFixing] = useState(false);
   const [recreating, setRecreating] = useState(false);
   const [replacement, setReplacement] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const [syncNote, setSyncNote] = useState<string | null>(null);
+  const [fixNote, setFixNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const replacementId = replacement?.id ?? job.replacedById;
   const showRecreate = canRecreate(job) && !replacement;
   const syncable = showSync && canSync(job);
-  if (!syncable && !showRecreate && !replacementId && !canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
+  const fixable = canFixConflicts(job);
+  if (!syncable && !fixable && !showRecreate && !replacementId && !canCancel(job.status) && !canRetry(job.status) && !canEnqueue(job.status) && !canTriage(job.status) && !canSendBack(job.status)) return null;
 
   async function run(action: () => Promise<unknown>) {
     setBusy(true);
     setError(null);
     setSyncNote(null);
+    setFixNote(null);
     try {
       await action();
       setConfirming(false);
@@ -95,6 +99,11 @@ export function JobActions({
         {canSendBack(job.status) && (
           <Button size="sm" variant="outline" disabled={busy} onClick={() => setSendingBack(true)}>
             Send back to agent
+          </Button>
+        )}
+        {fixable && (
+          <Button size="sm" variant="outline" disabled={busy} onClick={() => setFixing(true)}>
+            Fix merge conflicts
           </Button>
         )}
         {showRecreate && (
@@ -155,6 +164,41 @@ export function JobActions({
           </div>
         </DialogContent>
       </Dialog>
+      <Dialog open={fixing} onOpenChange={(o) => !o && !busy && setFixing(false)}>
+        <DialogContent>
+          <DialogTitle className="text-lg font-semibold">Fix merge conflicts</DialogTitle>
+          <DialogDescription className="text-sm text-muted-foreground">
+            This starts a session on the job&apos;s owner&apos;s executor. The agent merges the default branch into the PR branch (no rebase, no force-push),
+            resolves the conflicts without changing scope, runs the full tests and pushes to the same branch. It does not use one of the job&apos;s attempts.
+          </DialogDescription>
+          {error && (
+            <p role="alert" className="mt-2 text-xs text-danger">
+              {error}
+            </p>
+          )}
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="ghost" disabled={busy} onClick={() => setFixing(false)}>
+              Close
+            </Button>
+            <Button
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  try {
+                    await api.fixConflicts(job.id);
+                  } catch (e) {
+                    throw new Error(humanOnlyErrorText(e, 'fix merge conflicts'));
+                  }
+                  setFixing(false);
+                  setFixNote('Sent back to the agent to merge the default branch. It will continue on the same PR.');
+                })
+              }
+            >
+              Fix merge conflicts
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <Dialog open={sendingBack} onOpenChange={(o) => !o && !busy && setSendingBack(false)}>
         <DialogContent>
           <DialogTitle className="text-lg font-semibold">Send back to agent</DialogTitle>
@@ -196,12 +240,17 @@ export function JobActions({
           </div>
         </DialogContent>
       </Dialog>
+      {fixNote && (
+        <p role="status" className="text-sm text-muted-foreground">
+          {fixNote}
+        </p>
+      )}
       {syncNote && (
         <p role="status" className="text-sm text-muted-foreground">
           {syncNote}
         </p>
       )}
-      {error && !sendingBack && !recreating && (
+      {error && !sendingBack && !recreating && !fixing && (
         <p role="alert" className="text-xs text-danger">
           {error}
         </p>

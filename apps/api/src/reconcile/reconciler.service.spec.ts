@@ -237,7 +237,7 @@ describe('GitHubRestAdapter', () => {
             number: 5, state: 'closed', merged: true, html_url: 'h', body: 'b', head: { sha: 's', ref: 'r' },
         })));
         const result = await new GitHubRestAdapter(new GitHubCredentials()).getPull('o/r', 5);
-        expect(result).toEqual({ number: 5, state: 'closed', merged: true, headSha: 's', headRef: 'r', htmlUrl: 'h', body: 'b' });
+        expect(result).toEqual({ number: 5, state: 'closed', merged: true, headSha: 's', headRef: 'r', htmlUrl: 'h', body: 'b', mergeableState: null });
         const [url, init] = fetchSpy.mock.calls[0];
         expect(url).toBe('https://api.github.com/repos/o/r/pulls/5');
         expect(init?.headers).toMatchObject({

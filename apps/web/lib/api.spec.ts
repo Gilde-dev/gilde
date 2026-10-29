@@ -52,7 +52,7 @@ describe('update clients send complete PUT bodies', () => {
 
   const project = {
     id: 'p1', slug: 'shop', name: 'Shop', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60,
-    retryOnChangesRequested: true, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
+    retryOnChangesRequested: true, autoFixConflicts: false, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
     budgetSoftPct: 80, createdAt: 'c', updatedAt: 'u',
   } as Project;
   const repo = {
@@ -67,9 +67,20 @@ describe('update clients send complete PUT bodies', () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { name: 'Renamed', weeklyBudgetUsd: undefined })));
     expect(r).toMatchObject({ url: '/api/gilde/v1/projects/p1', method: 'PUT' });
     expect(r.body).toEqual({
-      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true,
+      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false,
       skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80,
     });
+  });
+
+  it('fix conflicts: POST without a body to the job route', async () => {
+    const r = await (async () => {
+      const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200, headers: { 'content-type': 'application/json' } }));
+      vi.stubGlobal('fetch', fetchMock);
+      await api.fixConflicts('j1');
+      const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+      return { url, method: init.method, body: init.body };
+    })();
+    expect(r).toEqual({ url: '/api/gilde/v1/jobs/j1/fix-conflicts', method: 'POST', body: undefined });
   });
 
   it('repo: the two settings, no routine fields', async () => {
@@ -102,7 +113,7 @@ describe('update clients send complete PUT bodies', () => {
 
   it('never contains undefined keys', async () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { description: undefined, budgetSoftPct: undefined })));
-    expect(Object.keys(r.body)).toHaveLength(11);
+    expect(Object.keys(r.body)).toHaveLength(12);
     expect(r.raw).not.toContain('undefined');
   });
 });

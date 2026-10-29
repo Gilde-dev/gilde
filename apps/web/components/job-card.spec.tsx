@@ -257,3 +257,12 @@ describe('JobCard merged without work', () => {
     expect(onOpen).not.toHaveBeenCalled();
   });
 });
+
+describe('JobCard merge conflicts', () => {
+  it('shows a Merge conflicts badge only when the PR conflicts', () => {
+    const { rerender } = render(<JobCard job={{ ...base, status: 'awaiting_review', prNumber: 3, mergeConflict: true }} onOpen={() => {}} />);
+    expect(screen.getByText('Merge conflicts')).toBeInTheDocument();
+    rerender(<JobCard job={{ ...base, status: 'awaiting_review', prNumber: 3, mergeConflict: false }} onOpen={() => {}} />);
+    expect(screen.queryByText('Merge conflicts')).toBeNull();
+  });
+});

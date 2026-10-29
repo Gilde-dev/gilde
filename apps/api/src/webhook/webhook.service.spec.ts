@@ -122,7 +122,7 @@ function runPayload(over: Record<string, unknown> = {}) {
 
 describe('WebhookService', () => {
     it('ignores events it does not handle', async () => {
-        expect(await service.handle('push', {})).toBe('ignored: event push');
+        expect(await service.handle('deployment', {})).toBe('ignored: event deployment');
     });
 
     it('ignores deliveries for unknown repos', async () => {

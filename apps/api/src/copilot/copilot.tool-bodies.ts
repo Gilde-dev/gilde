@@ -52,6 +52,8 @@ export const compactJob = (j: JobResponseDto) => ({
     ownerId: j.ownerId,
     blockedBy: j.blockedBy,
     mergedBlocked: j.mergedBlocked,
+    /** Read-only: the open PR conflicts with its base branch. */
+    mergeConflict: j.mergeConflict,
     failedDependency: j.failedDependency,
 });
 

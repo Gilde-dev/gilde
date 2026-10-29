@@ -8,6 +8,7 @@ import { JobActions } from './job-actions';
 import { errorText } from '@/lib/job-actions';
 import { CopilotPageContext } from './copilot-provider';
 import { Button } from './ui/button';
+import { MergeConflictBadge } from './merge-conflict-badge';
 import { StatusBadge } from './status-badge';
 import { Badge } from './ui/badge';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from './ui/dialog';
@@ -263,6 +264,7 @@ export function JobModal({
               <DialogDescription asChild>
                 <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
                   <StatusBadge status={shown.status} mergedBlocked={shown.mergedBlocked} />
+                  <MergeConflictBadge job={shown} />
                   {shown.prUrl && (
                     <a href={shown.prUrl} target="_blank" rel="noreferrer" className="underline">
                       PR #{shown.prNumber}

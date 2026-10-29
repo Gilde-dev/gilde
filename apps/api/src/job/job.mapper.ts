@@ -5,6 +5,8 @@ import { Job } from './job.entity.js';
 
 const FAILED_DEPENDENCY: readonly string[] = ['rejected', 'parked', 'cancelled'];
 
+const isOpenPr = (e: Job) => e.prNumber !== null && (e.status === 'pr_open' || e.status === 'awaiting_review' || e.status === 'queued' || e.status === 'dispatched' || e.status === 'parked');
+
 @Injectable()
 export class JobMapper {
 
@@ -31,6 +33,8 @@ export class JobMapper {
             pendingRevisions: deps.pendingRevisions ?? 0,
             revision: deps.revision ?? 0,
             ...(deps.blockedBy.some((b) => FAILED_DEPENDENCY.includes(b.status) || b.mergedBlocked) ? { failedDependency: true } : {}),
+            mergeConflict: isOpenPr(e) && e.mergeConflict,
+            mergeConflictCheckedAt: e.mergeConflictCheckedAt?.toISOString() ?? null,
             mergedBlocked: e.status === 'merged' && e.mergedBlocked,
             replacedById: deps.replacedById ?? null,
             recreatedFromId: e.recreatedFromId ?? null,
