@@ -1,9 +1,10 @@
-import { Injectable, Logger, type OnModuleDestroy } from '@nestjs/common';
+import { Injectable, Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { createTool } from '@mastra/core/tools';
 import { In, Repository } from 'typeorm';
 import { z } from 'zod';
 
+import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import { McpConnectionError, ProjectMcpConnector, type LiveTool, type McpSession } from './project-mcp.connector.js';
 import { ProjectMcpService } from './project-mcp.service.js';
 import { ProjectMcpServer } from './project-mcp-server.entity.js';
@@ -106,7 +107,16 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
         @InjectRepository(ProjectMcpTool) private readonly tools: Repository<ProjectMcpTool>,
         private readonly registry: ProjectMcpService,
         private readonly connector: ProjectMcpConnector,
+        /** The timeout and result limit are runtime settings of the MCP agent; without it `limits` apply as they are. */
+        @Optional() private readonly runtime?: AgentRuntimeService,
     ) { }
+
+    /** `limits` with the timeout and result limit of the MCP agent's current settings. */
+    private get current(): ProjectMcpToolLimits {
+        const settings = this.runtime?.peek('mcp')?.settings;
+        if (!settings) return this.limits;
+        return { ...this.limits, timeoutMs: settings.toolTimeoutMs ?? this.current.timeoutMs, maxResultChars: settings.toolResultMaxChars ?? this.current.maxResultChars };
+    }
 
     async onModuleDestroy(): Promise<void> {
         await Promise.all([...this.sessions.keys()].map((id) => this.evict(id)));
@@ -175,10 +185,10 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
         try {
             token = server.tokenLast4 !== null ? await this.registry.revealToken(server.id) : null;
             const session = await this.session(server, token);
-            const result = await session.callTool(tool, args, this.limits.timeoutMs);
+            const result = await session.callTool(tool, args, this.current.timeoutMs);
             if (result.isError) throw new McpConnectionError('not_mcp', 'The MCP server reported an error for this tool call');
             await this.record(server.id, null);
-            const wrapped = wrapMcpResult(server.name, tool, result.text, this.limits.maxResultChars);
+            const wrapped = wrapMcpResult(server.name, tool, result.text, this.current.maxResultChars);
             return { source: `${serverPart(server.name)}.${tool}`, untrusted: true as const, truncated: wrapped.truncated, content: wrapped.content };
         } catch (e) {
             // A connection that timed out or broke is not reused.
@@ -198,10 +208,10 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
         try {
             token = server.tokenLast4 !== null ? await this.registry.revealToken(server.id) : null;
             const session = await this.session(server, token);
-            const result = await session.callTool(tool, args, this.limits.timeoutMs);
+            const result = await session.callTool(tool, args, this.current.timeoutMs);
             if (result.isError) throw new McpConnectionError('not_mcp', 'The MCP server reported an error for this tool call');
             await this.record(server.id, null);
-            return { text: result.text.slice(0, this.limits.maxResultChars) };
+            return { text: result.text.slice(0, this.current.maxResultChars) };
         } catch (e) {
             if (e instanceof McpConnectionError && e.kind !== 'not_mcp') await this.evict(server.id);
             const error = safeMessage(e, token);
@@ -222,7 +232,7 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
             token = server.tokenLast4 !== null ? await this.registry.revealToken(server.id) : null;
             const session = await this.session(server, token);
             const entry = this.sessions.get(server.id)!;
-            entry.tools ??= session.listLiveTools(this.limits.timeoutMs);
+            entry.tools ??= session.listLiveTools(this.current.timeoutMs);
             return await entry.tools;
         } catch (e) {
             await this.evict(server.id);
@@ -239,7 +249,7 @@ export class ProjectMcpToolsService implements OnModuleDestroy {
         const cached = this.sessions.get(server.id);
         if (cached && cached.key === key && cached.expiresAt > Date.now()) return cached.session;
         if (cached) await this.evict(server.id);
-        const session = this.connector.openSession(server.url, token, this.limits.timeoutMs);
+        const session = this.connector.openSession(server.url, token, this.current.timeoutMs);
         this.sessions.set(server.id, { key, expiresAt: Date.now() + this.limits.cacheTtlMs, session });
         try {
             return await session;

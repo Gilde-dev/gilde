@@ -276,4 +276,21 @@ describe('VerfijnerWorker', () => {
         expect(Object.keys(mastra.listAgents())).toEqual([REFINE_AGENT_ID]);
         expect(Object.keys(withoutScout(mastra).listAgents())).toEqual([]);
     });
+
+    it('reads its setup on every tick: nothing runs while the Verfijner is not on, it starts when the bot user exists, and a changed limit applies', async () => {
+        const stub = scriptedModel([saveStep()]);
+        const base: RefineSetup = { config: cfg, user: BOT, model: stub.model, writer: { save: async (binding, input) => save(binding, input) } };
+        const mastra = createMastra({ enabled: false, model: null, reason: 'x' }, services as never, undefined, undefined, testMemoryInfrastructure({ url: `file:${join(dir, 'live.db')}` }), undefined, null, base);
+        let current: RefineSetup | null = null;
+        const live = new VerfijnerWorker(async () => current, mastra, refine as never, budget);
+
+        expect(await live.tick()).toEqual([]);
+        expect(refine.nextPerProject).not.toHaveBeenCalled();
+
+        current = { ...base, config: { ...cfg, dailyLimit: 1 } }; // the bot user was created after the API started
+        refine.runsToday.mockResolvedValue(1);
+        expect(await live.tick()).toEqual([]); // at its limit of 1
+        current = { ...base, config: { ...cfg, dailyLimit: 2 } };
+        expect(await live.tick()).toEqual([item().id]);
+    });
 });

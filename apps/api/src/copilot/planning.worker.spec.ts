@@ -123,4 +123,33 @@ describe('PlanningWorker', () => {
         release();
         expect(await first).toHaveLength(1);
     });
+
+    describe('reads its setup on every tick, without a restart', () => {
+        it('does nothing while the setup source says the Werkmeester is not on, and starts when it becomes on', async () => {
+            const a = run();
+            planning.nextPerProject.mockResolvedValue([a]);
+            werkmeester.plan.mockResolvedValue({ outcome: 'planned', featureId: 'f1' });
+            let current: PlanSetup | null = null;
+            const live = new PlanningWorker(async () => current, werkmeester as never, planning as never, budget as never, notifications as never);
+            expect(await live.tick()).toEqual([]);
+            expect(planning.nextPerProject).not.toHaveBeenCalled();
+            current = { config, user: BOT } as unknown as PlanSetup; // the bot user was created / marked / the agent switched on
+            expect(await live.tick()).toEqual([a.id]);
+            current = null; // switched off again
+            planning.nextPerProject.mockClear();
+            expect(await live.tick()).toEqual([]);
+            expect(planning.nextPerProject).not.toHaveBeenCalled();
+        });
+
+        it('applies a changed daily limit on the next tick', async () => {
+            planning.nextPerProject.mockResolvedValue([run()]);
+            planning.runsToday.mockResolvedValue(2);
+            werkmeester.plan.mockResolvedValue({ outcome: 'planned', featureId: 'f1' });
+            let limit = 2;
+            const live = new PlanningWorker(async () => ({ config: { ...config, dailyLimit: limit }, user: BOT }) as unknown as PlanSetup, werkmeester as never, planning as never, budget as never, notifications as never);
+            expect(await live.tick()).toEqual([]);
+            limit = 3;
+            expect(await live.tick()).toHaveLength(1);
+        });
+    });
 });

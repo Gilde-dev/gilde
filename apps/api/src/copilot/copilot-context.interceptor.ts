@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, HttpStatus, Inject, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, HttpStatus, Inject, Injectable, NestInterceptor, Optional } from '@nestjs/common';
 import { ContextIdFactory, ModuleRef } from '@nestjs/core';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import { RequestContextService } from '@mastra/nestjs';
@@ -6,6 +6,7 @@ import type { Request, Response } from 'express';
 import { of, type Observable } from 'rxjs';
 import type { Mastra } from '@mastra/core/mastra';
 
+import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import { usageUser } from '../usage/usage-context.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
@@ -35,6 +36,8 @@ export class CopilotContextInterceptor implements NestInterceptor {
         @Inject(COPILOT_CONFIG) private readonly config: CopilotConfig,
         @Inject(COPILOT_MASTRA) private readonly mastra: Mastra,
         private readonly moduleRef: ModuleRef,
+        /** The co-pilot's settings are read per request; without it only the startup config decides. */
+        @Optional() private readonly agents?: AgentRuntimeService,
     ) { }
 
     async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
@@ -42,12 +45,13 @@ export class CopilotContextInterceptor implements NestInterceptor {
         const req = context.switchToHttp().getRequest<Request & { user?: AuthUser }>();
         if (req.path !== MASTRA_PREFIX && !req.path.startsWith(`${MASTRA_PREFIX}/`)) return next.handle();
 
-        if (!this.config.enabled) {
+        const unavailable = await this.unavailableReason();
+        if (unavailable) {
             // Answered here, not thrown: Mastra's exception filter hides the message of every 5xx.
             context.switchToHttp().getResponse<Response>().status(HttpStatus.SERVICE_UNAVAILABLE).json({
                 statusCode: HttpStatus.SERVICE_UNAVAILABLE,
                 error: 'Service Unavailable',
-                message: `The co-pilot is not configured: ${this.config.reason}`,
+                message: `The co-pilot is not configured: ${unavailable}`,
             });
             return of(undefined);
         }
@@ -78,6 +82,16 @@ export class CopilotContextInterceptor implements NestInterceptor {
         requestContext.requestContext.set(MASTRA_RESOURCE_ID_KEY, copilotResourceId(user));
         usageUser.enterWith({ userId: user.id });
         return next.handle();
+    }
+
+    /** Why the co-pilot cannot answer now (switched off, misconfigured, disabled by the environment), or null when it can. */
+    private async unavailableReason(): Promise<string | null> {
+        if (!this.config.enabled) return this.config.reason;
+        // A fixed config (tests) is taken as it is; the live one defers to the settings in the database.
+        if (!this.agents || !this.config.resolve) return null;
+        const agent = await this.agents.effective('gilde');
+        if (agent.status === 'on') return null;
+        return agent.reason ?? (agent.status === 'off' ? 'it is switched off in the agent settings' : agent.status);
     }
 
     /** Threads and messages that exist must belong to the user; ones that do not exist yet will be created for the user. */

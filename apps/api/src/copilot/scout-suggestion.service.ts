@@ -76,6 +76,8 @@ const refuse = (reason: SuggestionRefusalReason, message: string, extra: Pick<Su
  * cannot exceed the quota or bypass the checks, and a failure while writing the receipt rolls the job back.
  * Refusals write nothing and therefore never consume the daily allowance.
  */
+export interface ScoutLimits { user: { id: string }; dailySuggestions: number; patternMinSize?: number }
+
 @Injectable()
 export class ScoutSuggestionService {
     constructor(
@@ -85,17 +87,22 @@ export class ScoutSuggestionService {
         private readonly lessons: Pick<LessonService, 'getById'>,
         private readonly runs: Pick<RunService, 'findById'>,
         private readonly repos: Pick<RepoService, 'getById'>,
-        /** The enabled scout's settings and bot user, or null when the scout is off. */
-        private readonly scout: { user: { id: string }; dailySuggestions: number; patternMinSize?: number } | null,
+        /** The enabled scout's settings and bot user, or null when the scout is off. A function is asked on every call (live settings). */
+        private readonly scoutSource: ScoutLimits | null | (() => ScoutLimits | null),
         private readonly clock: () => Date = () => new Date(),
         /** Read-only: a pattern suggestion never changes a lesson. */
         private readonly patterns?: Pick<LessonPatternService, 'list'>,
         private readonly projects?: Pick<ProjectService, 'getById'>,
     ) { }
 
+    private get scout(): ScoutLimits | null {
+        return typeof this.scoutSource === 'function' ? this.scoutSource() : this.scoutSource;
+    }
+
     async suggest(binding: unknown, input: SuggestionInput): Promise<SuggestionResult> {
-        if (!this.scout) return refuse('scout_off', 'The scout is off; nothing was created.');
-        if (!isIssuedScoutBinding(binding) || binding.userId !== this.scout.user.id) {
+        const scout = this.scout;
+        if (!scout) return refuse('scout_off', 'The scout is off; nothing was created.');
+        if (!isIssuedScoutBinding(binding) || binding.userId !== scout.user.id) {
             return refuse('untrusted_context', 'This call does not come from a server-bound Verkenner run; nothing was created.');
         }
         const checked = await this.validate(binding, input);
@@ -160,7 +167,7 @@ export class ScoutSuggestionService {
      */
     private async checkPattern(binding: ScoutBinding, patternId: string, repoId: string): Promise<SuggestionResult | { lessonIds: string[] }> {
         if (!this.patterns || !this.projects) return refuse('unknown_pattern', 'Pattern suggestions are not available.', { ids: [patternId] });
-        const minSize = this.scout!.patternMinSize ?? DEFAULT_SCOUT_PATTERN_MIN_SIZE;
+        const minSize = this.scout?.patternMinSize ?? DEFAULT_SCOUT_PATTERN_MIN_SIZE;
         const pattern = (await this.patterns.list(binding.projectId, { minSize })).patterns.find((p) => p.id === patternId);
         if (!pattern) return refuse('unknown_pattern', `No current lesson pattern of at least ${minSize} lessons has this id; list the patterns again.`, { ids: [patternId] });
         if (pattern.alreadyCovered.some((c) => c.status === 'applying')) {
@@ -191,7 +198,9 @@ export class ScoutSuggestionService {
         const now = this.clock();
         const day = utcDayOf(now);
         const hash = evidenceHash(v.ids);
-        const quota = this.scout!.dailySuggestions;
+        const scout = this.scout;
+        if (!scout) return refuse('scout_off', 'The scout is off; nothing was created.');
+        const quota = scout.dailySuggestions;
         try {
             return await this.dataSource.transaction(async (m): Promise<SuggestionResult> => {
                 await m.createQueryBuilder().insert().into(ScoutSuggestionGuard).values({ projectId: binding.projectId, version: 0 }).orIgnore().execute();
@@ -207,8 +216,8 @@ export class ScoutSuggestionService {
                     return refuse('daily_limit', `The limit of ${quota} suggestions per project per UTC day is reached; try again tomorrow.`);
                 }
 
-                const job = await this.jobs.create(v.repoId, { title: v.title, task: v.task, acceptanceCriteria: v.acceptanceCriteria, status: 'triage' }, { id: this.scout!.user.id }, m);
-                await receipts.insert({ projectId: binding.projectId, jobId: job.id, actorId: this.scout!.user.id, evidenceHash: hash, day, createdAt: now });
+                const job = await this.jobs.create(v.repoId, { title: v.title, task: v.task, acceptanceCriteria: v.acceptanceCriteria, status: 'triage' }, { id: binding.userId }, m);
+                await receipts.insert({ projectId: binding.projectId, jobId: job.id, actorId: binding.userId, evidenceHash: hash, day, createdAt: now });
                 return { created: true, jobId: job.id, status: 'triage', basedOn: v.ids, link: `/?project=${binding.projectId}&job=${job.id}` };
             });
         } catch (error) {

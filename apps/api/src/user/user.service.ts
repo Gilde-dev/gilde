@@ -7,7 +7,7 @@ import type { AuthUser } from '../auth/auth.dto.js';
 import { requirePersistedHuman, requireVerifiedHuman } from '../common/verified-human.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 
-import type { CreateUserDto, UserIdentityDto, UserResponseDto } from './user.dto.js';
+import type { CreateUserDto, UserIdentityDto, UserProfileDto, UserResponseDto } from './user.dto.js';
 import { User } from './user.entity.js';
 import { UserMapper } from './user.mapper.js';
 
@@ -63,6 +63,18 @@ export class UserService {
         if (!user) throw new NotFoundException(`No user with email ${normalized}`);
         if (!user.isBot) await this.users.update({ id: user.id }, { isBot: true });
         return this.mapper.toDTO(user);
+    }
+
+    /** Name, email and bot status of one account, or null for a deleted user. */
+    async findProfile(id: string): Promise<UserProfileDto | null> {
+        const user = await this.users.findOneBy({ id });
+        return user ? this.mapper.toProfileDTO(user) : null;
+    }
+
+    /** The accounts marked as bots, by name: what an agent's bot user is chosen from. */
+    async listBots(): Promise<UserProfileDto[]> {
+        const bots = await this.users.find({ where: { isBot: true }, order: { name: 'ASC' } });
+        return bots.map((u) => this.mapper.toProfileDTO(u));
     }
 
     /** The current persisted identity (bot status included), or null for a deleted user. */

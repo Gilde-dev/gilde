@@ -59,6 +59,7 @@ export function scoutStreamOptions(user: CopilotUser, projectId: string) {
     const binding = issueScoutBinding(user.id, projectId);
     const requestContext = new RequestContext();
     requestContext.set(SCOUT_BINDING_KEY, binding);
-    requestContext.set(COPILOT_USER_KEY, user);
+    // A copy: callers may hand in a live view of the bot user, and a run keeps the user it started with.
+    requestContext.set(COPILOT_USER_KEY, { id: user.id, name: user.name, email: user.email });
     return { memory: { resource: user.id, thread: binding.threadId }, requestContext };
 }

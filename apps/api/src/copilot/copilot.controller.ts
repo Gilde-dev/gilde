@@ -3,7 +3,8 @@ import { Controller, Get, Inject, Optional, Param, Query } from '@nestjs/common'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import type { CopilotConfig } from './copilot.config.js';
-import { COPILOT_CONFIG, REFINE_SETUP, SCOUT_DISABLED_REASON, SCOUT_SETUP } from './copilot.tokens.js';
+import { AgentRuntimeService, type EffectiveAgent } from '../agent/agent-runtime.service.js';
+import { COPILOT_CONFIG, REFINE_SETUP, SCOUT_SETUP } from './copilot.tokens.js';
 import type { RefineSetup, ScoutSetup } from './copilot.mastra.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -15,20 +16,31 @@ import { ScoutActivityService } from './scout-activity.service.js';
 export class CopilotController {
     constructor(
         @Inject(COPILOT_CONFIG) private readonly config: CopilotConfig,
-        @Optional() @Inject(SCOUT_SETUP) private readonly scout: ScoutSetup | null = null,
-        @Optional() @Inject(REFINE_SETUP) private readonly refine: RefineSetup | null = null,
         @Optional() private readonly activity?: ScoutActivityService,
         @Optional() private readonly threads?: CopilotThreadsService,
-        @Optional() @Inject(SCOUT_DISABLED_REASON) private readonly scoutDisabledReason: string | null = null,
+        @Optional() private readonly agents?: AgentRuntimeService,
+        @Optional() @Inject(SCOUT_SETUP) private readonly scout: ScoutSetup | null = null,
+        @Optional() @Inject(REFINE_SETUP) private readonly refine: RefineSetup | null = null,
     ) { }
 
+    /** What the agents are now, from their settings in the database (`/v1/agents` has the full picture). */
     @Get('status')
-    status(): CopilotStatusDto {
+    async status(): Promise<CopilotStatusDto> {
+        const live = this.agents;
+        const on = (a: EffectiveAgent) => a.status === 'on';
+        // A fixed setup or config (tests) is reported as it is; the live ones defer to the settings.
+        const gilde = !live || (this.config.enabled && !this.config.resolve) ? null : await live.effective('gilde');
+        const scout = !live || (this.scout && !this.scout.resolve) ? null : await live.effective('verkenner');
+        const refine = !live || (this.refine && !this.refine.resolve) ? null : await live.effective('verfijner');
         return {
-            enabled: this.config.enabled,
-            model: this.config.model,
-            scout: { enabled: this.scout !== null, model: this.scout?.config.model ?? null, disabledReason: this.scoutDisabledReason },
-            refine: { enabled: this.refine !== null, model: this.refine?.config.model ?? null },
+            enabled: gilde ? on(gilde) : this.config.enabled,
+            model: gilde ? (on(gilde) ? gilde.effectiveModel : null) : this.config.model,
+            scout: scout
+                ? { enabled: on(scout), model: on(scout) ? scout.effectiveModel : null, disabledReason: scout.status === 'misconfigured' || scout.status === 'disabled_by_env' ? scout.reason : null }
+                : { enabled: this.scout !== null, model: this.scout?.config.model ?? null, disabledReason: null },
+            refine: refine
+                ? { enabled: on(refine), model: on(refine) ? refine.effectiveModel : null }
+                : { enabled: this.refine !== null, model: this.refine?.config.model ?? null },
         };
     }
 

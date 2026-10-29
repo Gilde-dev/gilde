@@ -2,8 +2,14 @@ export const COPILOT_MODEL_PREFIX = 'openai/';
 
 export const DEFAULT_COPILOT_MAX_STEPS = 30;
 
+/**
+ * Resolves what a run needs (the model and the step limit) when the run starts, so a changed setting needs no restart.
+ * Throws while the agent is not on, which refuses the run. Without it the static `model` and `maxSteps` apply.
+ */
+export type RunSettings = () => Promise<{ model: string; maxSteps: number }>;
+
 export type CopilotConfig =
-    | { enabled: true; model: string; maxSteps?: number }
+    | { enabled: true; model: string; maxSteps?: number; resolve?: RunSettings }
     | { enabled: false; model: null; reason: string };
 
 /**

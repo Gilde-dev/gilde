@@ -288,34 +288,15 @@ describe('Verkenner (e2e), configured but unusable', () => {
     }
   });
 
-  it('starts normally and reports the scout off when its user does not exist', async () => {
-    process.env.SCOUT_ENABLED = 'true';
-    process.env.SCOUT_USER_EMAIL = 'nobody@example.com';
-    process.env.SCOUT_MODEL = 'openai/scout-model';
-    process.env.OPENAI_API_KEY = 'k';
-    delete process.env.COPILOT_MODEL;
-    const app = await createApp();
-    try {
-      await request(app.getHttpServer()).get('/api/health').expect(200);
-      const token = tokenFor(app, await createTestUser(app));
-      await request(app.getHttpServer()).get('/api/v1/copilot/status').set('Authorization', `Bearer ${token}`).expect(200).expect({ enabled: false, model: null, scout: { enabled: false, model: null, disabledReason: 'SCOUT_USER_EMAIL nobody@example.com does not exist; create it with `user:create --email nobody@example.com --bot` and restart' }, refine: { enabled: false, model: null } });
-      // No user was created for the scout.
-      const users = await request(app.getHttpServer()).get('/api/v1/auth/me').set('Authorization', `Bearer ${token}`).expect(200);
-      expect(users.body.email).not.toBe('nobody@example.com');
-    } finally {
-      await app.close();
-    }
-  });
-
   it('is on with only the scout configured (no co-pilot model) when the user exists', async () => {
     process.env.SCOUT_ENABLED = 'true';
     process.env.SCOUT_USER_EMAIL = 'bot@example.com';
     process.env.SCOUT_MODEL = 'openai/scout-model';
     process.env.OPENAI_API_KEY = 'k';
     delete process.env.COPILOT_MODEL;
-    const stub = { findByEmail: async () => ({ id: 'bot-id', name: 'Bot', email: 'bot@example.com' }), findIdentity: async () => ({ id: 'bot-id', isBot: true }) as never };
-    const { resolveScoutSetup } = await import('./../src/copilot/verkenner.setup.js');
-    const setup = await resolveScoutSetup(stub, process.env, { log: () => undefined, warn: () => undefined, error: () => undefined });
+    const config = scoutConfig(process.env);
+    if (!config.enabled) throw new Error('test setup');
+    const setup = { config, user: { id: 'bot-id', name: 'Bot', email: 'bot@example.com' } };
     const mastra = createMastra({ enabled: false, model: null, reason: 'COPILOT_MODEL is not set' }, {} as never, new LibSQLStore({ id: 'e2e-scout', url: 'file::memory:' }), undefined, undefined, undefined, setup);
     const app = await createApp({ config: { enabled: false, model: null, reason: 'COPILOT_MODEL is not set' }, mastra, scout: setup });
     try {

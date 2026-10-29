@@ -36,7 +36,9 @@ const wrongProject = (what: string, ref: string) => new Error(`${what} ${ref} is
  * server put in the request context (verkenner.context.ts), and every id the model passes is checked against it.
  * The tools call services and return DTOs; none of them creates, changes, queues, starts or cancels anything.
  */
-export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>, suggestions: Pick<ScoutSuggestionService, 'suggest'>, patternMinSize = DEFAULT_SCOUT_PATTERN_MIN_SIZE) {
+export function createScoutTools(s: ScoutServices, storage: Pick<MastraCompositeStore, 'getStore'>, suggestions: Pick<ScoutSuggestionService, 'suggest'>, patternMinSizeSource: number | (() => number) = DEFAULT_SCOUT_PATTERN_MIN_SIZE) {
+    // A function is read for every call: the smallest pattern is a runtime setting.
+    const patternMinSize = () => (typeof patternMinSizeSource === 'function' ? patternMinSizeSource() : patternMinSizeSource);
     const projectOf = (requestContext: Parameters<typeof requireScoutBinding>[0]) => requireScoutBinding(requestContext).projectId;
 
     async function assertRepo(repoId: string, projectId: string) {
@@ -108,10 +110,10 @@ export function createScoutTools(s: ScoutServices, storage: Pick<MastraComposite
     const listLessonPatterns = createTool({
         id: 'listLessonPatterns',
         description:
-            `List recurring lesson patterns of your project with at least ${patternMinSize} lessons: id, representative text, member lessons, jobs and repos. ` +
+            `List recurring lesson patterns of your project with at least ${patternMinSize()} lessons: id, representative text, member lessons, jobs and repos. ` +
             'A pattern whose alreadyCovered holds an "applying" lesson is already being handled. Read-only. To propose a skill for one, pass its id as patternId to suggestJob.',
         inputSchema: z.object({}),
-        execute: async (_input, { requestContext }) => s.lessonPatterns.list(projectOf(requestContext), { minSize: patternMinSize }),
+        execute: async (_input, { requestContext }) => s.lessonPatterns.list(projectOf(requestContext), { minSize: patternMinSize() }),
     });
 
     const searchHistory = createTool({

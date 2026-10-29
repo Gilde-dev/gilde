@@ -1,5 +1,4 @@
 import { refineConfig } from './verfijner.config.js';
-import { resolveRefineSetup } from './verfijner.setup.js';
 
 const valid = { REFINE_ENABLED: 'true', REFINE_USER_EMAIL: 'verfijner@example.com', REFINE_MODEL: 'openai/refine-model', OPENAI_API_KEY: 'sk-secret-value' };
 
@@ -36,34 +35,5 @@ describe('refineConfig', () => {
     it('never puts secrets in a reason', () => {
         const config = refineConfig({ ...valid, REFINE_MODEL: 'nope' });
         expect(JSON.stringify(config)).not.toContain('sk-secret-value');
-    });
-});
-
-describe('resolveRefineSetup', () => {
-    const logger = { log: vi.fn(), warn: vi.fn() };
-    const user = { id: 'u1', name: 'Verfijner', email: 'verfijner@example.com' };
-    beforeEach(() => { logger.log.mockClear(); logger.warn.mockClear(); });
-
-    it('is on for an existing bot user', async () => {
-        const users = { findByEmail: vi.fn().mockResolvedValue(user), findIdentity: vi.fn().mockResolvedValue({ id: 'u1', email: user.email, isBot: true }) };
-        const setup = await resolveRefineSetup(users, valid, logger);
-        expect(setup).toMatchObject({ user, config: { enabled: true, dailyLimit: 10 } });
-    });
-
-    it('is off, without throwing, for a human user, an unknown user, a lookup error or a bad config', async () => {
-        const human = { findByEmail: vi.fn().mockResolvedValue(user), findIdentity: vi.fn().mockResolvedValue({ id: 'u1', email: user.email, isBot: false }) };
-        expect(await resolveRefineSetup(human, valid, logger)).toBeNull();
-        expect(logger.warn).toHaveBeenLastCalledWith(expect.stringContaining('not a bot'));
-        expect(await resolveRefineSetup({ ...human, findByEmail: vi.fn().mockResolvedValue(null) }, valid, logger)).toBeNull();
-        expect(await resolveRefineSetup({ ...human, findByEmail: vi.fn().mockRejectedValue(new Error('db down')) }, valid, logger)).toBeNull();
-        expect(await resolveRefineSetup(human, { ...valid, REFINE_DAILY_LIMIT: 'x' }, logger)).toBeNull();
-        expect(logger.warn).toHaveBeenLastCalledWith(expect.stringContaining('REFINE_DAILY_LIMIT'));
-        expect(human.findByEmail).toHaveBeenCalledTimes(1); // the bad config never reached the lookup
-    });
-
-    it('logs a plain info line (no warning) when it is simply not enabled', async () => {
-        expect(await resolveRefineSetup({} as never, {}, logger)).toBeNull();
-        expect(logger.warn).not.toHaveBeenCalled();
-        expect(logger.log).toHaveBeenCalledWith(expect.stringContaining('REFINE_ENABLED'));
     });
 });

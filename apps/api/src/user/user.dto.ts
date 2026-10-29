@@ -21,6 +21,10 @@ export const UserIdentitySchema = z.object({
     isBot: z.boolean(),
 });
 
+/** Name, email and bot status of one account: what the agents page shows for a bot user. */
+export const UserProfileSchema = UserResponseSchema.extend({ isBot: z.boolean() });
+
+export type UserProfileDto = z.infer<typeof UserProfileSchema>;
 export type CreateUserDto = z.infer<typeof CreateUserSchema>;
 export type UserResponseDto = z.infer<typeof UserResponseSchema>;
 export type UserIdentityDto = z.infer<typeof UserIdentitySchema>;

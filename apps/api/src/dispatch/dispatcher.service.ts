@@ -10,7 +10,8 @@ import { ExecutorService } from '../executor/executor.service.js';
 import { Feature } from '../feature/feature.entity.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { loadDownstreamContext } from '../execution/downstream.js';
-import { selectJobLessons } from '../execution/job-lessons.js';
+import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
+import { lessonRetrievalOptions, selectJobLessons } from '../execution/job-lessons.js';
 import { knowledgeContributions } from '../execution/job-knowledge.js';
 import { buildJobPromptInput } from '../execution/job-payload.js';
 import { promptTooLargeError } from '../execution/job-prompt.js';
@@ -60,7 +61,17 @@ export class DispatcherService {
         @Optional() private readonly capture?: NotificationCaptureService,
         @Optional() private readonly runContext?: RunContextService,
         @Optional() private readonly knowledgeService?: ProjectMcpKnowledgeService,
+        @Optional() private readonly agents?: AgentRuntimeService,
     ) { }
+
+    /** Lesson retrieval options from the coding agents' runtime settings; the environment's values when they cannot be read. */
+    private async lessonOptions() {
+        try {
+            const s = this.agents && (await this.agents.settingsOf('coding'));
+            if (s) return { topK: s.lessonsTopK, minScore: s.lessonsMinScore, timeoutMs: s.lessonsTimeoutMs };
+        } catch { /* fall back */ }
+        return lessonRetrievalOptions();
+    }
 
     @Cron(CronExpression.EVERY_MINUTE)
     async scheduled(): Promise<void> {
@@ -77,6 +88,8 @@ export class DispatcherService {
      */
     async dispatch(): Promise<DispatchResult> {
         if (this.running) return { fired: 0, failed: 0, waitingOnExecutor: 0, repos: [] };
+        // AGENTS_DISABLED=coding (or all) stops dispatching whatever the database says; queued jobs wait.
+        if (this.agents && (await this.agents.effective('coding')).status === 'disabled_by_env') return { fired: 0, failed: 0, waitingOnExecutor: 0, repos: [] };
         this.running = true;
         try {
             const result = await this.runPass();
@@ -361,7 +374,7 @@ export class DispatcherService {
         const feature = job.featureId ? await this.featureRepository.findOneBy({ id: job.featureId }) : null;
 
         // Optional context: never throws, so a retrieval problem cannot fail the run or cost an attempt.
-        const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks });
+        const lessons = await selectJobLessons(this.history, { ...job, stacks: repo.stacks }, await this.lessonOptions());
         const knowledge = await this.knowledgeService?.collect(project.id, job) ?? null;
         const downstream = await loadDownstreamContext(this.jobRepository.manager, job);
 

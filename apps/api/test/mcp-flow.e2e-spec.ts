@@ -1,12 +1,13 @@
-// Small daily limits for this file; the module reads them when AppModule is imported, hence the dynamic import.
+// MCP_ENABLED is read when AppModule is imported, hence the dynamic import. The daily limits are settings of the mcp agent in the
+// database (seeded from the environment once), so this file sets small ones through the settings service and restores them.
 process.env.MCP_ENABLED = 'true';
-process.env.MCP_DAILY_JOB_LIMIT = '5';
-process.env.MCP_DAILY_FEATURE_LIMIT = '2';
 
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import request from 'supertest';
+
+import { AgentSettingsService } from './../src/agent/agent-settings.service.js';
 import { randomUUID } from 'node:crypto';
 import type { Repository } from 'typeorm';
 
@@ -53,6 +54,8 @@ describe('MCP creation, specs and daily limits (e2e)', () => {
   const simpleJob = (n: number) => ({ repoId, title: `MCP job ${n}`, task: `Do thing number ${n} carefully`, acceptanceCriteria: ['It works well'] });
   const totals = async () => ({ features: await repo(Feature).count(), jobs: await repo(Job).count(), edges: await repo(JobDependency).count() });
 
+  let original: Record<string, number>;
+
   beforeAll(async () => {
     const { AppModule } = await import('./../src/app.module.js');
     const moduleFixture = await Test.createTestingModule({ imports: [AppModule] }).compile();
@@ -61,6 +64,9 @@ describe('MCP creation, specs and daily limits (e2e)', () => {
     await app.listen(0);
     quota = app.get(McpQuotaService);
     ann = await createTestUser(app, { name: 'Ann' });
+    const agents = app.get(AgentSettingsService);
+    original = (await agents.get('mcp')).settings;
+    await agents.replace({ id: ann.id, name: ann.name, email: ann.email, credential: 'jwt' }, 'mcp', { enabled: true, botUserId: null, model: null, settings: { ...original, dailyJobLimit: 5, dailyFeatureLimit: 2 } });
     key = await createApiKey(app, ann);
     const slug = `flow-${randomUUID().slice(0, 8)}`;
     projectId = (await http().post('/api/v1/projects').set(jwt()).send({ slug, name: 'Flow project' }).expect(201)).body.id;
@@ -69,6 +75,7 @@ describe('MCP creation, specs and daily limits (e2e)', () => {
   });
 
   afterAll(async () => {
+    await app.get(AgentSettingsService).replace({ id: ann.id, name: ann.name, email: ann.email, credential: 'jwt' }, 'mcp', { enabled: true, botUserId: null, model: null, settings: original });
     await app.close();
   });
 

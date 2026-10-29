@@ -18,6 +18,7 @@ import { FeatureModule } from './feature/feature.module.js';
 import { LessonModule } from './lesson/lesson.module.js';
 import { SkillModule } from './skill/skill.module.js';
 import { RevisionModule } from './revision/revision.module.js';
+import { AgentModule } from './agent/agent.module.js';
 import { UserModule } from './user/user.module.js';
 import { ApiKeyModule } from './api-key/api-key.module.js';
 import { ExecutorModule } from './executor/executor.module.js';
@@ -69,6 +70,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     SkillModule,
     RevisionModule,
     UserModule,
+    AgentModule,
     ApiKeyModule,
     ExecutorModule,
     ProjectMcpModule,

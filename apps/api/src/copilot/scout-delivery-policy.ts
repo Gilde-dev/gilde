@@ -49,6 +49,8 @@ export function scoutDeliveryDecider(user: CopilotUser, gate: ScoutDispatchGate)
         const { record } = input;
         const projectId = scoutProjectOfThread(record.threadId);
         if (!projectId) return undefined;
+        // A live view of the bot user has no id while the scout is off (or has no valid bot user): nothing is delivered then.
+        if (!user.id) return { action: 'persist', hold: true, reason: 'the scout is off' };
         const streamOptions = scoutStreamOptions(user, projectId) as never;
         const hooks = gate.bound;
 
