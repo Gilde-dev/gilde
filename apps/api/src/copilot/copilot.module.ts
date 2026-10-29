@@ -49,8 +49,8 @@ import { UsageService } from '../usage/usage.service.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { CopilotThreadsService } from './copilot-threads.service.js';
-import { createMastra, MASTRA_PREFIX, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
+import { createMastra, MASTRA_PREFIX, type PlanSetup, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
@@ -72,6 +72,9 @@ import { IntakeRefineService } from '../intake/intake-refine.service.js';
 import { resolveRefineSetup } from './verfijner.setup.js';
 import { RefinedSpecWriter } from './verfijner.save.js';
 import { VerfijnerWorker } from './verfijner.worker.js';
+import { resolvePlanSetup } from './werkmeester.setup.js';
+import { PlanProposer } from './werkmeester.propose.js';
+import { WerkmeesterService } from './werkmeester.service.js';
 import { RepoContextService } from './repo-context.service.js';
 import type { CopilotServices } from './copilot.tools.js';
 
@@ -129,6 +132,13 @@ export class ScoutLifecycle implements OnModuleDestroy {
             inject: [UserService],
         },
         {
+            // The Werkmeester is off unless PLAN_ENABLED=true and everything it needs exists (a bot user among it). Never
+            // throws: a problem is logged (without secrets) and the API starts without it.
+            provide: PLAN_SETUP,
+            useFactory: (users: UserService): Promise<PlanSetup | null> => resolvePlanSetup(users),
+            inject: [UserService],
+        },
+        {
             // Null-safe: also constructed while the scout is off, where every suggestion is refused with scout_off.
             provide: ScoutSuggestionService,
             useFactory: (ds: DataSource, jobs: JobService, features: FeatureService, lessons: LessonService, runs: RunService, repos: RepoService, scout: ScoutSetup | null, patterns: LessonPatternService, projects: ProjectService) =>
@@ -170,11 +180,12 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 refine: RefineSetup | null,
                 refineItems: IntakeRefineService,
                 mcpTools: ProjectMcpToolsService,
+                plan: PlanSetup | null,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans, mcpTools };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) });
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) }, plan && { ...plan, proposer: new PlanProposer(specs, plans) });
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService, PLAN_SETUP],
         },
         {
             provide: SCOUT_THREADS,
@@ -222,11 +233,17 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 (refine ? new VerfijnerWorker(refine, mastra, items, budget, comments) : null),
             inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService],
         },
+        {
+            // Always provided; `enabled` is false (and plan() fails) while the Werkmeester is off.
+            provide: WerkmeesterService,
+            useFactory: (plan: PlanSetup | null, mastra: Mastra, specs: SpecService, repos: RepoService): WerkmeesterService => new WerkmeesterService(plan, mastra, specs, repos),
+            inject: [PLAN_SETUP, COPILOT_MASTRA, SpecService, RepoService],
+        },
         CopilotThreadsService,
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

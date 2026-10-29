@@ -2,6 +2,9 @@ import type { ApprovedSpecTarget } from '../spec/spec.service.js';
 
 const FETCH_LINE = /^\s*First run `git fetch origin && git rebase [^`\r\n]+`\.?[ \t]*(?:\r?\n)?/;
 
+/** Whether a task starts with the fetch and rebase line every job needs. */
+export const hasFetchLine = (task: string): boolean => FETCH_LINE.test(task);
+
 /** The path of a spec file in its repo. */
 export const specPath = (slug: string) => `docs/specs/${slug}.md`;
 

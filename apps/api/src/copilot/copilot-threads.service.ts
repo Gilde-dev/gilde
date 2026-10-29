@@ -6,9 +6,10 @@ import type { CopilotThreadDto, CopilotThreadMessageDto, CopilotThreadMessagesDt
 import { COPILOT_MASTRA } from './copilot.tokens.js';
 import { SCOUT_AGENT_ID } from './verkenner.config.js';
 import { REFINE_AGENT_ID } from './verfijner.config.js';
+import { PLAN_AGENT_ID } from './werkmeester.config.js';
 
 /** Threads of the unattended agents belong to their bot users and are never shown as conversations. */
-const isUnattendedThread = (id: string) => id.startsWith(`${SCOUT_AGENT_ID}:`) || id.startsWith(`${REFINE_AGENT_ID}:`);
+const isUnattendedThread = (id: string) => id.startsWith(`${SCOUT_AGENT_ID}:`) || id.startsWith(`${REFINE_AGENT_ID}:`) || id.startsWith(`${PLAN_AGENT_ID}:`);
 export const UNTITLED_THREAD = 'Untitled conversation';
 const TITLE_LENGTH = 60;
 /** Mastra's placeholder title for a thread nobody has named. */

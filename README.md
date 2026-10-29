@@ -680,6 +680,38 @@ is hard, or cannot be read; at most 2 attempts per item and body version. Issue 
 has no tool for approving, planning, queueing, commenting or writing anywhere else, and the Mastra HTTP routes refuse it.
 Specs made from an issue show it as `source: { kind, url, number }` in `GET /api/v1/specs/:id` and the spec list.
 
+### Werkmeester (planning agent)
+
+The Werkmeester is an opt-in, unattended fourth Mastra agent (`id: werkmeester`, next to `gilde`, `verkenner` and `verfijner`, same
+storage). It turns one **approved** spec version into a plan: a draft feature pinned to that version with its jobs in triage, waiting for the
+spec's recording job. A human still reviews the plan and queues the jobs; nothing is approved, queued or dispatched by it. Design notes:
+[ADR 0015](docs/adr/0015-werkmeester-bounded-unattended-planner.md); requirements: `docs/specs/werkmeester-planner.md`.
+
+**Setup.**
+
+```sh
+pnpm --filter @gilde/api user:create --email werkmeester@example.com --name Werkmeester --bot
+```
+
+| Variable | Meaning |
+| --- | --- |
+| `PLAN_ENABLED` | Must be literally `true`. |
+| `PLAN_USER_EMAIL` | The existing bot user the agent acts as, separate from the Verkenner's and the Verfijner's. A human account, or an unknown email, leaves the Werkmeester off. |
+| `PLAN_MODEL` | `openai/<model>`; falls back to `COPILOT_MODEL`. Needs `OPENAI_API_KEY`. |
+
+Off or misconfigured, the API still starts and the reason is in the log, without secrets.
+
+**What it does.** `WerkmeesterService.plan(binding)` runs the agent once for one spec version (project, spec id, version and approval id come
+from a binding the server issues, never from the model) and returns `planned` (with the feature id), `skipped` or `failed`. The agent reads the
+spec, the repo code, the project's features and jobs and the factory history, then calls `proposePlan({ title, description, jobs })`. Before
+creating, the tool returns errors the agent fixes within the same run when an `AC-n` of the version is covered by no job, a task does not start
+with ``First run `git fetch origin && git rebase origin/main` ``, or a job names another job of the plan without listing it in `dependsOn`. A
+version that already has a pinned feature, is archived or is no longer the approved one is `skipped`.
+
+**Limits.** Its tools are an explicit allowlist: read-only tools for the bound project, plus `proposePlan`. Spec text, code, history and other
+read content are untrusted data in delimited blocks, and the Mastra HTTP routes refuse the agent. Triggers (approval with the project's
+`autoPlan`, "Plan from spec"), the worker and its daily limit follow in later changes.
+
 ## GitHub webhooks (local)
 
 GitHub delivers webhooks to a [smee.io](https://smee.io) channel; the `webhooks` compose service forwards them to the API on your machine. Only webhook deliveries are forwarded, so the API itself stays private.
