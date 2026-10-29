@@ -4,7 +4,7 @@ export const CopilotStatusSchema = z.object({
     enabled: z.boolean(),
     model: z.string().nullable(),
     /** The unattended scout (Verkenner), configured separately from the co-pilot. */
-    scout: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
+    scout: z.object({ enabled: z.boolean(), model: z.string().nullable(), disabledReason: z.string().nullable() }),
     /** The unattended refine agent (Verfijner) that drafts specs from intake items; without it items stay `new`. */
     refine: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
 });
@@ -19,6 +19,8 @@ export const ScoutActivityResponseSchema = z.object({
     model: z.string().nullable(),
     /** Id of the configured scout user when it resolves (also while the scout is off), for comparing with a job's creator. Never the bot's email. */
     scoutUserId: z.string().uuid().nullable(),
+    /** Why the scout is off although SCOUT_ENABLED=true (for instance SCOUT_USER_EMAIL is not a bot account); null otherwise. */
+    disabledReason: z.string().nullable(),
     /** Suggestions of this project since Monday 00:00 UTC of the current week. */
     suggestionsThisWeek: z.number().int(),
     /** The UTC day (`YYYY-MM-DD`) of that Monday. */

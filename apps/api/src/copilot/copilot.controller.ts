@@ -3,7 +3,7 @@ import { Controller, Get, Inject, Optional, Param, Query } from '@nestjs/common'
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
 import type { CopilotConfig } from './copilot.config.js';
-import { COPILOT_CONFIG, REFINE_SETUP, SCOUT_SETUP } from './copilot.tokens.js';
+import { COPILOT_CONFIG, REFINE_SETUP, SCOUT_DISABLED_REASON, SCOUT_SETUP } from './copilot.tokens.js';
 import type { RefineSetup, ScoutSetup } from './copilot.mastra.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -19,6 +19,7 @@ export class CopilotController {
         @Optional() @Inject(REFINE_SETUP) private readonly refine: RefineSetup | null = null,
         @Optional() private readonly activity?: ScoutActivityService,
         @Optional() private readonly threads?: CopilotThreadsService,
+        @Optional() @Inject(SCOUT_DISABLED_REASON) private readonly scoutDisabledReason: string | null = null,
     ) { }
 
     @Get('status')
@@ -26,7 +27,7 @@ export class CopilotController {
         return {
             enabled: this.config.enabled,
             model: this.config.model,
-            scout: { enabled: this.scout !== null, model: this.scout?.config.model ?? null },
+            scout: { enabled: this.scout !== null, model: this.scout?.config.model ?? null, disabledReason: this.scoutDisabledReason },
             refine: { enabled: this.refine !== null, model: this.refine?.config.model ?? null },
         };
     }

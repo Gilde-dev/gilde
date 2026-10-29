@@ -1,5 +1,5 @@
 import { scoutConfig } from './verkenner.config.js';
-import { resolveScoutSetup } from './verkenner.setup.js';
+import { resolveScoutSetup, resolveScoutState } from './verkenner.setup.js';
 
 const valid = { SCOUT_ENABLED: 'true', SCOUT_USER_EMAIL: 'verkenner@example.com', SCOUT_MODEL: 'openai/scout-model', OPENAI_API_KEY: 'sk-secret-value' };
 
@@ -62,39 +62,54 @@ describe('scoutConfig', () => {
 });
 
 describe('resolveScoutSetup', () => {
-    const logger = () => ({ log: vi.fn(), warn: vi.fn() });
+    const logger = () => ({ log: vi.fn(), warn: vi.fn(), error: vi.fn() });
     const user = { id: 'u-1', name: 'Verkenner', email: 'verkenner@example.com' };
+    const bot = { findIdentity: vi.fn().mockResolvedValue({ id: 'u-1', isBot: true }) };
 
-    it('resolves the existing user through findByEmail and never creates one', async () => {
+    it('resolves the existing bot user through findByEmail and never creates one', async () => {
         const findByEmail = vi.fn().mockResolvedValue(user);
-        const setup = await resolveScoutSetup({ findByEmail }, valid, logger());
+        const state = await resolveScoutState({ findByEmail, ...bot }, valid, logger());
         expect(findByEmail).toHaveBeenCalledWith('verkenner@example.com');
-        expect(setup).toMatchObject({ config: { enabled: true, model: 'openai/scout-model' }, user });
+        expect(state.setup).toMatchObject({ config: { enabled: true, model: 'openai/scout-model' }, user });
+        expect(state.disabledReason).toBeNull();
     });
 
-    it('stays off, with a warning and without throwing, when the user does not exist', async () => {
+    it('is disabled, with an error line and a disabledReason, when the user is not a bot', async () => {
         const log = logger();
-        expect(await resolveScoutSetup({ findByEmail: vi.fn().mockResolvedValue(null) }, valid, log)).toBeNull();
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('does not match an existing user'));
-        expect(JSON.stringify(log.warn.mock.calls)).not.toContain('verkenner@example.com');
+        const state = await resolveScoutState({ findByEmail: vi.fn().mockResolvedValue(user), findIdentity: vi.fn().mockResolvedValue({ id: 'u-1', isBot: false }) }, valid, log);
+        const reason = 'SCOUT_USER_EMAIL verkenner@example.com is not a bot account; mark it with `user:mark-bot --email verkenner@example.com` and restart';
+        expect(state).toEqual({ setup: null, disabledReason: reason });
+        expect(log.error).toHaveBeenCalledWith(`Verkenner disabled: ${reason}`);
+        expect(await resolveScoutSetup({ findByEmail: vi.fn().mockResolvedValue(user), findIdentity: vi.fn().mockResolvedValue(null) }, valid, logger())).toBeNull();
     });
 
-    it('stays off when the lookup fails', async () => {
+    it('is disabled, without throwing, when the user does not exist', async () => {
         const log = logger();
-        expect(await resolveScoutSetup({ findByEmail: vi.fn().mockRejectedValue(new Error('db down')) }, valid, log)).toBeNull();
-        expect(log.warn).toHaveBeenCalledWith(expect.stringContaining('db down'));
+        const state = await resolveScoutState({ findByEmail: vi.fn().mockResolvedValue(null), ...bot }, valid, log);
+        expect(state.setup).toBeNull();
+        expect(state.disabledReason).toContain('SCOUT_USER_EMAIL verkenner@example.com does not exist');
+        expect(log.error).toHaveBeenCalledWith(expect.stringContaining('Verkenner disabled: SCOUT_USER_EMAIL verkenner@example.com does not exist'));
+    });
+
+    it('is disabled when the lookup fails', async () => {
+        const log = logger();
+        const state = await resolveScoutState({ findByEmail: vi.fn().mockRejectedValue(new Error('db down')), ...bot }, valid, log);
+        expect(state.setup).toBeNull();
+        expect(state.disabledReason).toContain('db down');
+        expect(log.error).toHaveBeenCalled();
     });
 
     it('does not look anyone up when the configuration is off, and logs at info level when the flag is simply unset', async () => {
         const findByEmail = vi.fn();
         const log = logger();
-        expect(await resolveScoutSetup({ findByEmail }, {}, log)).toBeNull();
+        expect(await resolveScoutState({ findByEmail, ...bot }, {}, log)).toEqual({ setup: null, disabledReason: null });
         expect(findByEmail).not.toHaveBeenCalled();
         expect(log.log).toHaveBeenCalledWith(expect.stringContaining('SCOUT_ENABLED'));
         expect(log.warn).not.toHaveBeenCalled();
 
         const broken = logger();
-        await resolveScoutSetup({ findByEmail }, { ...valid, SCOUT_MODEL: 'bad' }, broken);
+        const state = await resolveScoutState({ findByEmail, ...bot }, { ...valid, SCOUT_MODEL: 'bad' }, broken);
         expect(broken.warn).toHaveBeenCalled();
+        expect(state.disabledReason).toContain('SCOUT_MODEL');
     });
 });

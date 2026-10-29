@@ -48,7 +48,7 @@ import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
 import { CopilotThreadsService } from './copilot-threads.service.js';
 import { createMastra, MASTRA_PREFIX, type RefineSetup, type ScoutSetup } from './copilot.mastra.js';
-import { COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_SIGNALS, SCOUT_THREADS } from './copilot.tokens.js';
+import { COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_GATE, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_SIGNALS, SCOUT_STATE, SCOUT_THREADS } from './copilot.tokens.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { ScoutDispatchGate } from './scout-delivery-policy.js';
 import { ScoutSignalReceipt } from './scout-signal-receipt.entity.js';
@@ -62,7 +62,7 @@ import { ScoutActivityService } from './scout-activity.service.js';
 import { ScoutWakeDay } from './scout-wake-day.entity.js';
 import { ScoutWakeBudgetService } from './scout-wake-budget.service.js';
 import { ScoutWakeReader } from './scout-wake.reader.js';
-import { resolveScoutSetup } from './verkenner.setup.js';
+import { resolveScoutState, type ScoutState } from './verkenner.setup.js';
 import { ScoutThreads } from './verkenner.threads.js';
 import { IntakeModule } from '../intake/intake.module.js';
 import { IntakeCommentService } from '../intake/intake-comment.service.js';
@@ -113,10 +113,12 @@ export class ScoutLifecycle implements OnModuleDestroy {
         {
             // The scout is off unless SCOUT_ENABLED=true and everything it needs exists. Never throws: a problem is logged
             // (without secrets) and the API starts without the scout.
-            provide: SCOUT_SETUP,
-            useFactory: (users: UserService): Promise<ScoutSetup | null> => resolveScoutSetup(users),
+            provide: SCOUT_STATE,
+            useFactory: (users: UserService): Promise<ScoutState> => resolveScoutState(users),
             inject: [UserService],
         },
+        { provide: SCOUT_SETUP, useFactory: (state: ScoutState): ScoutSetup | null => state.setup, inject: [SCOUT_STATE] },
+        { provide: SCOUT_DISABLED_REASON, useFactory: (scout: ScoutSetup | null, state: ScoutState): string | null => (scout ? null : state.disabledReason), inject: [SCOUT_SETUP, SCOUT_STATE] },
         {
             // The Verfijner is off unless REFINE_ENABLED=true and everything it needs exists (a bot user among it). Never
             // throws: a problem is logged (without secrets) and the API starts, with intake items staying `new`.
@@ -133,9 +135,9 @@ export class ScoutLifecycle implements OnModuleDestroy {
         },
         {
             provide: ScoutActivityService,
-            useFactory: (suggestions: Repository<ScoutSuggestion>, wakes: ScoutWakeReader, projects: ProjectService, users: UserService, scout: ScoutSetup | null) =>
-                new ScoutActivityService(suggestions, wakes, projects, users, { enabled: scout !== null, model: scout?.config.model ?? null, userId: scout?.user.id ?? null }),
-            inject: [getRepositoryToken(ScoutSuggestion), ScoutWakeReader, ProjectService, UserService, SCOUT_SETUP],
+            useFactory: (suggestions: Repository<ScoutSuggestion>, wakes: ScoutWakeReader, projects: ProjectService, users: UserService, scout: ScoutSetup | null, disabledReason: string | null) =>
+                new ScoutActivityService(suggestions, wakes, projects, users, { enabled: scout !== null, model: scout?.config.model ?? null, userId: scout?.user.id ?? null, disabledReason }),
+            inject: [getRepositoryToken(ScoutSuggestion), ScoutWakeReader, ProjectService, UserService, SCOUT_SETUP, SCOUT_DISABLED_REASON],
         },
         { provide: SCOUT_GATE, useFactory: (): ScoutDispatchGate => new ScoutDispatchGate() },
         {
@@ -221,7 +223,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [CopilotThreadsService, COPILOT_CONFIG, COPILOT_MASTRA, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_DISABLED_REASON, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

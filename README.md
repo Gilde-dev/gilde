@@ -266,7 +266,7 @@ event publishing, wake budgets, the daily summary, bounded `suggestJob` triage s
 | Variable | Meaning |
 |---|---|
 | `SCOUT_ENABLED` | must be exactly `true`; anything else (or unset) keeps the scout off |
-| `SCOUT_USER_EMAIL` | email of an **existing** bot user the scout acts as |
+| `SCOUT_USER_EMAIL` | email of an **existing bot account** (`is_bot`) the scout acts as; a non-bot or unknown user keeps the scout off |
 | `SCOUT_MODEL` | `openai/<model>`; falls back to `COPILOT_MODEL`; needs `OPENAI_API_KEY` |
 | `SCOUT_SUMMARY_HOUR_UTC` | integer 0..23, default `6`: hour of the daily summary |
 | `SCOUT_MAX_WAKES_PER_DAY` | positive integer, default `6`: wakes per project per UTC day |
@@ -276,15 +276,17 @@ event publishing, wake budgets, the daily summary, bounded `suggestJob` triage s
 The scout is configured independently of the co-pilot: a valid scout configuration also works when `COPILOT_MODEL` is unset (the
 co-pilot is then off and its routes answer 503). A missing flag, user, model or key, an unknown user, or an explicit invalid number
 leaves the scout **off**, logs a reason (never a secret or the email) and the API starts normally. `GET /api/v1/copilot/status` reports
-`{ enabled, model, scout: { enabled, model } }`. Use a recognisable display name for the bot (**Verkenner** is recommended): it is shown as the creator of its jobs.
+`{ enabled, model, scout: { enabled, model, disabledReason } }`; `disabledReason` (also in `GET /api/v1/copilot/scout-activity` and shown on the metrics page) says why a scout with `SCOUT_ENABLED=true` is off, for instance `SCOUT_USER_EMAIL <email> is not a bot account; mark it with user:mark-bot --email <email> and restart`, which is also logged once as an error at startup. Use a recognisable display name for the bot (**Verkenner** is recommended): it is shown as the creator of its jobs.
 
 **Bot user setup.** The scout acts as a normal user that you create once; Gilde never creates it, and it needs no API key:
 
 ```sh
-pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verkenner
+pnpm --filter @gilde/api user:create --email verkenner@example.com --name Verkenner --bot
+# or mark an existing account
+pnpm --filter @gilde/api user:mark-bot --email verkenner@example.com
 ```
 
-then set `SCOUT_ENABLED=true` and `SCOUT_USER_EMAIL=verkenner@example.com` and restart the API.
+The account **must be a bot**, like the Verfijner's: jobs the scout suggests are owned by their creator unless a human queues them, so a non-bot scout account would own jobs for which dispatch waits on an executor that cannot exist. Without `is_bot` the scout stays off (the API still starts) and reports the reason. Then set `SCOUT_ENABLED=true` and `SCOUT_USER_EMAIL=verkenner@example.com` and restart the API.
 
 **Identity and isolation.** The memory resource is the bot user's id and there is one thread per project, `verkenner:<projectId>`,
 created by the server. A scout run receives its project from a server-issued binding that is attached when a notification starts the run

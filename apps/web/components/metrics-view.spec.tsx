@@ -53,7 +53,7 @@ const withData: Metrics = {
 const noUsage: Usage = { days: 30, totals: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTokens: 0, costUsd: null, runs: 0 }, daily: [], byModel: [], byKind: [], byUser: [] };
 
 const activity = (over: Partial<ScoutActivity> = {}): ScoutActivity => ({
-  projectId: 'p1', enabled: true, model: 'openai/scout', scoutUserId: 'bot', suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: '2026-10-27T06:00:00.000Z', ...over,
+  projectId: 'p1', enabled: true, model: 'openai/scout', scoutUserId: 'bot', disabledReason: null, suggestionsThisWeek: 2, weekStart: '2026-10-26', lastWakeAt: '2026-10-27T06:00:00.000Z', ...over,
 });
 
 beforeEach(() => {
@@ -156,6 +156,14 @@ describe('MetricsView Verkenner section', () => {
     await waitFor(() => expect(within(s).getByText('Never')).toBeInTheDocument());
     expect(within(s).getAllByText('Off').length).toBeGreaterThan(0);
     expect(within(s).getByText('0')).toBeInTheDocument();
+  });
+
+  it('shows why the scout is off', async () => {
+    const reason = 'SCOUT_USER_EMAIL v@example.com is not a bot account; mark it with `user:mark-bot --email v@example.com` and restart';
+    vi.spyOn(api, 'scoutActivity').mockResolvedValue(activity({ enabled: false, model: null, disabledReason: reason }));
+    render(<MetricsView />);
+    const s = await section();
+    expect(await within(s).findByText(`Verkenner disabled: ${reason}`)).toBeInTheDocument();
   });
 
   it('is independent of the factory period and repo filters', async () => {

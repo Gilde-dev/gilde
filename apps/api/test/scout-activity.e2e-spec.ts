@@ -74,7 +74,7 @@ describe('Scout activity and suggestions (e2e), scout on', () => {
     const activity = (await http.get(`/api/v1/copilot/scout-activity?projectId=${project.id}`).expect(200)).body;
     expect(activity).toMatchObject({ projectId: project.id, suggestionsThisWeek: 1, lastWakeAt: null });
     expect(JSON.stringify(activity)).not.toContain(bot.email);
-    expect(Object.keys(activity).sort()).toEqual(['enabled', 'lastWakeAt', 'model', 'projectId', 'scoutUserId', 'suggestionsThisWeek', 'weekStart']);
+    expect(Object.keys(activity).sort()).toEqual(['disabledReason', 'enabled', 'lastWakeAt', 'model', 'projectId', 'scoutUserId', 'suggestionsThisWeek', 'weekStart']);
 
     // Another project sees nothing of it.
     const other = await seedProject(http);
@@ -122,7 +122,7 @@ describe('Scout activity (e2e), scout configured but off', () => {
     const activity = (await http.get(`/api/v1/copilot/scout-activity?projectId=${project.id}`).expect(200)).body;
     expect(activity).toMatchObject({ enabled: false, model: null, suggestionsThisWeek: 0, lastWakeAt: null });
     const status = (await http.get('/api/v1/copilot/status').expect(200)).body;
-    expect(status).toMatchObject({ enabled: expect.any(Boolean), scout: { enabled: false, model: null } });
+    expect(status).toMatchObject({ enabled: expect.any(Boolean), scout: { enabled: false, model: null, disabledReason: null } });
   });
 
   it('resolves the configured scout user id while off, so historical creator matches keep working', async () => {

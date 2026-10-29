@@ -19,7 +19,7 @@ export class ScoutActivityService {
         private readonly wakes: Pick<ScoutWakeReader, 'lastWakeAt'>,
         private readonly projects: Pick<ProjectService, 'getById'>,
         private readonly users: Pick<UserService, 'findByEmail'>,
-        private readonly scout: { enabled: boolean; model: string | null; userId: string | null },
+        private readonly scout: { enabled: boolean; model: string | null; userId: string | null; disabledReason?: string | null },
         private readonly userEmail: () => string | undefined = () => process.env.SCOUT_USER_EMAIL,
         private readonly clock: () => Date = () => new Date(),
     ) { }
@@ -36,7 +36,7 @@ export class ScoutActivityService {
             this.wakes.lastWakeAt(projectId),
             this.resolveUserId(),
         ]);
-        return { projectId, enabled: this.scout.enabled, model: this.scout.model, scoutUserId, suggestionsThisWeek, weekStart, lastWakeAt: lastWake?.toISOString() ?? null };
+        return { projectId, enabled: this.scout.enabled, model: this.scout.model, disabledReason: this.scout.disabledReason ?? null, scoutUserId, suggestionsThisWeek, weekStart, lastWakeAt: lastWake?.toISOString() ?? null };
     }
 
     private async resolveUserId(): Promise<string | null> {
