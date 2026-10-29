@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { gildeResultSchema } from '../webhook/pr-body.js';
 import { RunContextSchema } from './run-context.js';
-import { RUN_STATUSES } from './run-status.js';
+import { RUN_KINDS, RUN_STATUSES } from './run-status.js';
 
 export const CreateRunSchema = z.object({
     /** A run id reserved earlier, so the prompt could be sized with the id it will carry. */
@@ -13,6 +13,7 @@ export const CreateRunSchema = z.object({
     repoId: z.string().uuid(),
     attempt: z.number().int().min(1),
     executorId: z.string().uuid().nullable().optional(),
+    kind: z.enum(RUN_KINDS).optional(),
 });
 
 export const RunResponseSchema = z.object({
@@ -21,6 +22,8 @@ export const RunResponseSchema = z.object({
     projectId: z.string().uuid(),
     repoId: z.string().uuid(),
     attempt: z.number().int(),
+    /** 'conflict_fix' for a merge-conflict round, which does not count toward the project's max attempts. */
+    kind: z.enum(RUN_KINDS),
     /** The executor that ran the attempt; null for runs from before personal executors. */
     executorId: z.string().uuid().nullable(),
     status: z.enum(RUN_STATUSES),

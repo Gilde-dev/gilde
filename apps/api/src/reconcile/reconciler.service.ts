@@ -1,10 +1,11 @@
-import { BadGatewayException, ConflictException, Inject, Injectable, Logger, NotFoundException, type OnModuleInit } from '@nestjs/common';
+import { BadGatewayException, ConflictException, Inject, Injectable, Logger, NotFoundException, Optional, type OnModuleInit } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
 import { GITHUB_PORT, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from '../github/github.port.js';
 import { JobEventsService } from '../job/job-events.service.js';
+import { MergeConflictService } from '../job/merge-conflict.service.js';
 import { TERMINAL } from '../job/job-state.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
@@ -29,6 +30,7 @@ export class ReconcilerService implements OnModuleInit {
         @InjectRepository(Repo) private readonly repos: Repository<Repo>,
         @InjectRepository(Project) private readonly projects: Repository<Project>,
         @InjectRepository(JobRun) private readonly runs: Repository<JobRun>,
+        @Optional() private readonly conflicts?: MergeConflictService,
     ) { }
 
     onModuleInit(): void {
@@ -168,6 +170,10 @@ export class ReconcilerService implements OnModuleInit {
         if (current?.status === 'pr_open' && current.headSha && current.prNumber !== null && observed.runs && current.headSha === pull.headSha) {
             await this.applyWorkflowRuns(current, observed.runs, reasons);
         }
+
+        // Only the single-PR read knows the mergeable state; GitHub may still be computing it, which leaves the flag as it was.
+        current = await this.reload(job);
+        if (current && pull.state === 'open') await this.conflicts?.applyPull(current, pull);
 
         current = await this.reload(job);
         const ciConclusion = observed.ciConclusion ?? (await this.latestRunConclusion(job.id));

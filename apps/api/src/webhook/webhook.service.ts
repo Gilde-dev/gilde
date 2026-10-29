@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
 import { JobEventsService, type PullInfo } from '../job/job-events.service.js';
+import { MergeConflictService } from '../job/merge-conflict.service.js';
 import { FeedbackService } from '../feedback/feedback.service.js';
 import { Job } from '../job/job.entity.js';
 import { Project } from '../project/project.entity.js';
@@ -25,7 +26,6 @@ interface PullRequestPayload {
 
 interface WebhookPayload {
     action?: string;
-    repository?: { full_name?: string };
     pull_request?: PullRequestPayload;
     review?: {
         id?: number;
@@ -37,6 +37,8 @@ interface WebhookPayload {
         user?: { login?: string };
     };
     sender?: { type?: string };
+    ref?: string;
+    repository?: { full_name?: string; default_branch?: string };
     comment?: {
         id?: number;
         performed_via_github_app?: { id?: number } | null;
@@ -78,7 +80,7 @@ interface WebhookPayload {
 const TRUSTED_REVIEWERS = new Set(['OWNER', 'MEMBER', 'COLLABORATOR']);
 const HANDLED_EVENTS = new Set([
     'pull_request', 'check_suite', 'workflow_run', 'pull_request_review', 'pull_request_review_comment', 'issue_comment',
-    'installation', 'installation_repositories', 'issues',
+    'installation', 'installation_repositories', 'issues', 'push',
 ]);
 const INTAKE_ACTIONS = new Set(['opened', 'edited', 'labeled', 'unlabeled', 'closed', 'reopened']);
 
@@ -97,6 +99,7 @@ export class WebhookService {
         private readonly installations?: GithubInstallationService,
         private readonly intake?: IntakeService,
         private readonly credentials?: GitHubCredentials,
+        private readonly conflicts?: MergeConflictService,
     ) { }
 
     /**
@@ -128,6 +131,7 @@ export class WebhookService {
         const repo = await this.repoService.findByFullName(fullName);
         if (!repo) return `ignored: unknown repo ${fullName}`;
 
+        if (event === 'push') return this.onPush(repo, payload!);
         if (event === 'check_suite') return 'ignored: check_suite deliveries are not used; decisions come from workflow_run';
         if (event === 'workflow_run') return this.onWorkflowRun(repo.id, payload!);
         if (event === 'pull_request_review') return this.onReview(repo.id, payload!);
@@ -308,7 +312,27 @@ export class WebhookService {
     private async onSynchronize(repoId: string, pr: PullRequestPayload): Promise<string> {
         const job = await this.findJobByPr(repoId, pr.number);
         if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
-        return this.events.prUpdated(job, pr.number, pr.head.sha);
+        const outcome = await this.events.prUpdated(job, pr.number, pr.head.sha);
+        await this.checkMergeability(() => this.conflicts?.checkPr(repoId, pr.number));
+        return outcome;
+    }
+
+    /** A push to the repo's default branch can make its open agent PRs conflict: re-check them. */
+    private async onPush(repo: { id: string; defaultBranch: string }, payload: WebhookPayload): Promise<string> {
+        if (payload.ref !== `refs/heads/${repo.defaultBranch}`) return `ignored: push to ${payload.ref ?? '(no ref)'}`;
+        if (!this.conflicts) return 'ignored: merge conflict checks are not available';
+        let checked = 0;
+        await this.checkMergeability(async () => { checked = await this.conflicts!.checkRepo(repo.id); });
+        return `checked merge state of ${checked} open agent PRs after a push to ${repo.defaultBranch}`;
+    }
+
+    /** The mergeability check is best effort: GitHub may be unreachable, and the reconciler checks again. */
+    private async checkMergeability(check: () => Promise<unknown> | undefined): Promise<void> {
+        try {
+            await check();
+        } catch (e) {
+            this.logger.warn(`Merge conflict check failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
     }
 
     private async onEdited(repoId: string, pr: PullRequestPayload): Promise<string> {

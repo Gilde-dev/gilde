@@ -460,7 +460,7 @@ export class JobService {
         if (!to) throw new ConflictException(`Cannot ${event.replace('_', ' ')} a job that is ${job.status}`);
 
         const changes: Partial<Job> = { status: to };
-        if (to === 'queued') { changes.queuedAt = new Date(); changes.waitingReason = null; }
+        if (to === 'queued') { changes.queuedAt = new Date(); changes.waitingReason = null; changes.nextRoundKind = null; }
         if (to === 'queued' && (event === 'enqueue' || event === 'manual_retry')) {
             const queuer = await this.humanId(actor);
             if (queuer) changes.queuedById = queuer;

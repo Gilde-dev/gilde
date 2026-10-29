@@ -1242,4 +1242,51 @@ describe('DispatcherService report', () => {
             expect(fire).not.toHaveBeenCalled();
         });
     });
+    describe('conflict-fix rounds', () => {
+        const REASON = 'Merge conflicts with main. Run `git fetch origin && git merge origin/main` into this branch';
+        const conflictJob = (repo: Repo, over: Partial<Job> = {}) =>
+            seedJob(repo, 'queued', { prNumber: 7, branch: 'claude/x', attempts: 2, lastReason: REASON, nextRoundKind: 'conflict_fix', ...over });
+
+        it('continues the PR with the fixed reason, records the kind and uses no attempt', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 2 }));
+            const job = await conflictJob(repo);
+            await dispatcher.dispatch();
+            expect((fire.mock.calls[0]![1] as Record<string, unknown>).continueOn).toEqual({ branch: 'claude/x', prNumber: 7, reason: REASON });
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 2 });
+            expect(await runs.findOneByOrFail({ jobId: job.id })).toMatchObject({ kind: 'conflict_fix', attempt: 3, executorId: defaultExecutor.id });
+        });
+
+        it('a normal send-back after a conflict round still counts, with run numbers that do not collide', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 2 }));
+            const job = await conflictJob(repo, { attempts: 1 });
+            await dispatcher.dispatch();
+            await jobs.update({ id: job.id }, { status: 'queued', nextRoundKind: null, lastReason: 'CI failed' });
+            await dispatcher.dispatch();
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 2 });
+            const all = await runs.find({ where: { jobId: job.id }, order: { attempt: 'ASC' } });
+            expect(all.map((r) => [r.attempt, r.kind])).toEqual([[2, 'conflict_fix'], [3, 'attempt']]);
+        });
+
+        it('gives nothing back when the executor is exhausted, and reuses the failed run', async () => {
+            const repo = await seedRepo(await seedProject());
+            const job = await conflictJob(repo);
+            fire.mockRejectedValueOnce(new ExecutionError('limit', 'executor_exhausted', null));
+            await dispatcher.dispatch();
+            expect(await reload(job.id)).toMatchObject({ status: 'queued', attempts: 2, nextRoundKind: 'conflict_fix' });
+            await executors.update({ id: defaultExecutor.id }, { exhaustedUntil: null });
+            await dispatcher.dispatch();
+            const all = await runs.find({ where: { jobId: job.id } });
+            expect(all).toHaveLength(1);
+            expect(all[0]).toMatchObject({ kind: 'conflict_fix', status: 'fired' });
+            expect(await reload(job.id)).toMatchObject({ status: 'dispatched', attempts: 2 });
+        });
+
+        it('parks after a retryable fire failure instead of retrying without an attempt limit', async () => {
+            const repo = await seedRepo(await seedProject({ maxAttempts: 5 }));
+            const job = await conflictJob(repo);
+            fire.mockRejectedValueOnce(new ExecutionError('boom', 'transient'));
+            await dispatcher.dispatch();
+            expect(await reload(job.id)).toMatchObject({ status: 'parked', attempts: 2 });
+        });
+    });
 });

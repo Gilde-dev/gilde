@@ -13,6 +13,7 @@ export class ProjectMapper {
             description: entity.description,
             dailyRunLimit: entity.dailyRunLimit,
             retryOnChangesRequested: entity.retryOnChangesRequested,
+            autoFixConflicts: entity.autoFixConflicts ?? false,
             runTimeoutMinutes: entity.runTimeoutMinutes,
             paused: entity.paused,
             maxAttempts: entity.maxAttempts,

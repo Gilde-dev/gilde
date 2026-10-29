@@ -11,6 +11,7 @@ import { usePolling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
 import { JobActions } from './job-actions';
+import { MergeConflictBadge } from './merge-conflict-badge';
 import { StatusBadge } from './status-badge';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -470,6 +471,7 @@ export function JobDetailView() {
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-display-sm">{j.title}</h1>
           <StatusBadge status={j.status} mergedBlocked={j.mergedBlocked} />
+          <MergeConflictBadge job={j} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <code className="font-mono text-sm">{repoName}</code>

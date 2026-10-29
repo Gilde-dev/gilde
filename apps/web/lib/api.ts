@@ -37,6 +37,8 @@ export interface Project {
   maxAttempts: number;
   runTimeoutMinutes: number;
   retryOnChangesRequested: boolean;
+  /** Start one automatic conflict-fix round per PR head when an agent PR gets merge conflicts. */
+  autoFixConflicts: boolean;
   paused: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
@@ -59,6 +61,7 @@ export interface ReplaceProjectInput {
   maxAttempts: number;
   runTimeoutMinutes: number;
   retryOnChangesRequested: boolean;
+  autoFixConflicts: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
   /** Finite >= 0; null clears the limit (no limit), 0 stops dispatch immediately. */
@@ -93,6 +96,7 @@ export function projectReplacement(p: Project, edits: Partial<ReplaceProjectInpu
       maxAttempts: p.maxAttempts,
       runTimeoutMinutes: p.runTimeoutMinutes,
       retryOnChangesRequested: p.retryOnChangesRequested,
+      autoFixConflicts: p.autoFixConflicts,
       skillsLibrary: p.skillsLibrary,
       skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd,
@@ -323,6 +327,10 @@ export interface Job {
   waitingReason: string | null;
   /** Present (true) when any dependency is rejected, parked, cancelled or merged without work. */
   failedDependency?: boolean;
+  /** GitHub says the open PR conflicts with its base branch (set by Gilde, read-only). */
+  mergeConflict: boolean;
+  /** When GitHub last gave a definite mergeable answer; null before the first. */
+  mergeConflictCheckedAt: string | null;
   /** Merged on GitHub, but the latest run reported blocked: no work was done and it does not satisfy dependencies. */
   mergedBlocked: boolean;
   /** The job created by "Recreate job" to replace this one. */
@@ -1275,6 +1283,8 @@ export const api = {
   /** The reconcile pass for one project's jobs (verified humans only). */
   reconcileProject: (projectId: string) => request<ReconcileResult>(`/v1/projects/${id(projectId)}/reconcile`, 'POST'),
   sendBackJob: (jobId: string, reason: string) => request<Job>(`/v1/jobs/${id(jobId)}/send-back`, 'POST', { reason }),
+  /** Sends a conflicted PR back with the fixed merge instruction; uses no attempt. */
+  fixConflicts: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/fix-conflicts`, 'POST'),
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
   refreshRepoManifest: (repoId: string) => request<Repo>(`/v1/repos/${id(repoId)}/manifest/refresh`, 'POST'),

@@ -17,6 +17,11 @@ export function canSendBack(status: JobStatus): boolean {
   return status === 'pr_open' || status === 'awaiting_review';
 }
 
+/** A conflicted open PR of a job waiting for review or CI; mirrors the server's 409 rules. */
+export function canFixConflicts(job: Pick<Job, 'status' | 'prNumber' | 'mergeConflict'>): boolean {
+  return (job.status === 'pr_open' || job.status === 'awaiting_review') && job.prNumber !== null && job.mergeConflict === true;
+}
+
 /** Mirrors the server: watched statuses always; parked, merged and rejected only with a PR (merged/rejected refresh CI only). */
 export function canSync(job: Pick<Job, 'status' | 'prNumber'>): boolean {
   switch (job.status) {

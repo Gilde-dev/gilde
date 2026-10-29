@@ -2,7 +2,7 @@ import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, Update
 
 import type { RunContext } from './run-context.js';
 import type { GildeResult } from '../webhook/pr-body.js';
-import { RUN_STATUSES, type RunStatus } from './run-status.js';
+import { RUN_STATUSES, type RunKind, type RunStatus } from './run-status.js';
 
 @Entity({ name: 'job_runs' })
 @Index(['jobId', 'attempt'], { unique: true })
@@ -28,6 +28,10 @@ export class JobRun {
 
     @Column({ type: 'integer' })
     attempt: number;
+
+    /** A conflict-fix round does not count toward the project's max attempts. */
+    @Column({ type: 'varchar', length: 16, default: 'attempt' })
+    kind: RunKind;
 
     /** The executor that ran this attempt; null for runs from before personal executors. */
     @Column({

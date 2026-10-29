@@ -162,7 +162,7 @@ describe('Full-replacement PUT updates (e2e)', () => {
   describe('projects', () => {
     const fullOf = (p: Body): Body => ({
       name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
-      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested,
+      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts,
       skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct,
     });
@@ -171,7 +171,7 @@ describe('Full-replacement PUT updates (e2e)', () => {
       const project = await makeProject();
       const url = `/api/v1/projects/${project.id}`;
       const full = fullOf(project);
-      const edited = { ...full, name: 'Renamed', description: 'Words', dailyRunLimit: 7, maxAttempts: 2, runTimeoutMinutes: 30, retryOnChangesRequested: !project.retryOnChangesRequested, dailyBudgetUsd: 0, weeklyBudgetUsd: 12.5, budgetSoftPct: 60 };
+      const edited = { ...full, name: 'Renamed', description: 'Words', dailyRunLimit: 7, maxAttempts: 2, runTimeoutMinutes: 30, retryOnChangesRequested: !project.retryOnChangesRequested, autoFixConflicts: !project.autoFixConflicts, dailyBudgetUsd: 0, weeklyBudgetUsd: 12.5, budgetSoftPct: 60 };
       expect((await http.put(url).send(edited).expect(200)).body).toMatchObject(edited);
       const cleared = { ...edited, description: null, dailyBudgetUsd: null, weeklyBudgetUsd: null };
       expect((await http.put(url).send(cleared).expect(200)).body).toMatchObject({ description: null, dailyBudgetUsd: null, weeklyBudgetUsd: null, dailyRunLimit: 7 });
@@ -184,7 +184,7 @@ describe('Full-replacement PUT updates (e2e)', () => {
       const foreign = await makeRepo((await makeProject()).id);
       const url = `/api/v1/projects/${project.id}`;
       const full = fullOf(project);
-      for (const bad of [{ name: '' }, { description: 'x'.repeat(2001) }, { dailyRunLimit: 0 }, { maxAttempts: 11 }, { runTimeoutMinutes: 4 }, { retryOnChangesRequested: 'yes' }, { skillsLibrary: 'bogus' }, { dailyBudgetUsd: -1 }, { weeklyBudgetUsd: 'x' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.5 }, { budgetSoftPct: null }]) {
+      for (const bad of [{ name: '' }, { description: 'x'.repeat(2001) }, { dailyRunLimit: 0 }, { maxAttempts: 11 }, { runTimeoutMinutes: 4 }, { retryOnChangesRequested: 'yes' }, { autoFixConflicts: 'yes' }, { skillsLibrary: 'bogus' }, { dailyBudgetUsd: -1 }, { weeklyBudgetUsd: 'x' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.5 }, { budgetSoftPct: null }]) {
         await http.put(url).send({ ...full, ...bad }).expect(400);
       }
       await http.post(`${url}/pause`).expect(200);
