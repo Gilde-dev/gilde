@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
+import { runLogDb } from '../agent-run/agent-run.testing.js';
 import type { PlanSetup } from './copilot.mastra.js';
 import { PlanningWorker } from './planning.worker.js';
 import { planConfig } from './werkmeester.config.js';
@@ -18,7 +19,7 @@ describe('PlanningWorker', () => {
     const werkmeester = { bind: vi.fn(), plan: vi.fn() };
     const budget = { status: vi.fn() };
     const notifications = { specPlanned: vi.fn(), specPlanFailed: vi.fn() };
-    const worker = () => new PlanningWorker({ config, user: BOT } as unknown as PlanSetup, werkmeester as never, planning as never, budget as never, notifications as never);
+    const worker = (runLog?: object) => new PlanningWorker({ config, user: BOT } as unknown as PlanSetup, werkmeester as never, planning as never, budget as never, notifications as never, runLog as never);
 
     beforeEach(() => {
         vi.resetAllMocks();
@@ -31,6 +32,47 @@ describe('PlanningWorker', () => {
         planning.specTitle.mockResolvedValue('Dark mode');
         werkmeester.bind.mockImplementation((t: object) => ({ ...t, issued: true }));
         budget.status.mockResolvedValue({ hardBlocked: false });
+    });
+
+    describe('run log', () => {
+        let db: Awaited<ReturnType<typeof runLogDb>>;
+        beforeEach(async () => { db = await runLogDb(); });
+        afterEach(() => db.ds.destroy());
+
+        it('records a planning run as a spec_version run linked to its planning run, per outcome', async () => {
+            const planned = run(), skipped = run({ projectId: 'p2' }), failed = run({ projectId: 'p3' }), pinned = run({ projectId: 'p4' });
+            planning.nextPerProject.mockResolvedValue([planned, skipped, failed, pinned]);
+            planning.pinnedFeature.mockImplementation(async (specId: string) => (specId === pinned.specId ? { id: 'f9', title: 'Dark mode' } : null));
+            werkmeester.plan.mockImplementation(async (binding: { projectId: string }) => {
+                if (binding.projectId === 'p2') return { outcome: 'skipped', reason: 'spec archived' };
+                if (binding.projectId === 'p3') return { outcome: 'failed', reason: 'no valid plan' };
+                return { outcome: 'planned', featureId: 'f1' };
+            });
+            await worker(db.recorder).tick();
+            await db.recorder.flush();
+
+            const byRun = async (r: { id: string }) => db.runs.findOneByOrFail({ linkedId: r.id });
+            expect(await byRun(planned)).toMatchObject({ agentId: 'werkmeester', triggerKind: 'spec_version', triggerRefType: 'spec', triggerRefId: planned.specId, actorUserId: BOT.id, projectId: 'p1', linkedTable: 'spec_planning_runs', outcome: 'ok', model: 'openai/m' });
+            expect(await byRun(skipped)).toMatchObject({ outcome: 'skipped', reason: 'spec archived' });
+            expect(await byRun(failed)).toMatchObject({ outcome: 'error', reason: 'no valid plan' });
+            expect(await byRun(pinned)).toMatchObject({ outcome: 'skipped' });
+            expect(werkmeester.plan).toHaveBeenCalledTimes(3); // the pinned version never reaches the agent
+            expect(werkmeester.plan.mock.calls[0][1]).toBeDefined(); // the run handle goes to the agent run
+        });
+
+        it('records an error when planning throws, and a failing recorder does not fail the run', async () => {
+            const r = run();
+            planning.nextPerProject.mockResolvedValue([r]);
+            werkmeester.plan.mockRejectedValue(new Error('model down'));
+            await worker(db.recorder).tick();
+            await db.recorder.flush();
+            expect(await db.runs.findOneByOrFail({ linkedId: r.id })).toMatchObject({ outcome: 'error', reason: 'model down' });
+
+            werkmeester.plan.mockResolvedValue({ outcome: 'planned', featureId: 'f1' });
+            const broken = { begin: () => { throw new Error('recorder down'); } };
+            expect(await worker(broken).tick()).toEqual([r.id]);
+            expect(planning.planned).toHaveBeenCalledWith(r.id, 'f1');
+        });
     });
 
     it('plans the next run of each project and records the feature', async () => {

@@ -9,6 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { AgentRunRecorder } from './../src/agent-run/agent-run.recorder.js';
 import { AppModule } from './../src/app.module.js';
 import { createMastra } from './../src/copilot/copilot.mastra.js';
 import { COPILOT_USER_KEY } from './../src/copilot/copilot.context.js';
@@ -267,6 +268,14 @@ describe('Verkenner (e2e)', () => {
       await http().get('/api/v1/mastra/memory/threads?agentId=verkenner').set(auth).expect(403);
       await http().post('/api/v1/mastra/workflows/__mastra_notification_dispatcher/start-async').set(auth).send({}).expect(403);
     }
+  });
+
+  it('logs the refused attempts in the run log of the agent they named', async () => {
+    await app.get(AgentRunRecorder).flush();
+    const res = await http().get('/api/v1/agents/verkenner/runs?outcome=refused').set(aliceAuth).expect(200);
+    expect(res.body.total).toBeGreaterThanOrEqual(2);
+    expect(res.body.items[0]).toMatchObject({ agentId: 'verkenner', outcome: 'refused', reason: 'The agent cannot be used through the API' });
+    expect([alice.id, bot.id]).toContain(res.body.items[0].actorUserId);
   });
 
   it("keeps the bot's memory away from users: foreign thread 404, foreign resource 403", async () => {

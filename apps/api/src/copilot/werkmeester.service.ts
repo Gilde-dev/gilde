@@ -3,6 +3,8 @@ import { randomBytes } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import type { Mastra } from '@mastra/core/mastra';
 
+import { attachRun } from '../agent-run/agent-run.mastra.js';
+import type { AgentRunHandle } from '../agent-run/agent-run.recorder.js';
 import type { RepoService } from '../repo/repo.service.js';
 import type { SpecService } from '../spec/spec.service.js';
 
@@ -46,7 +48,7 @@ export class WerkmeesterService {
         return issuePlanBinding(this.setup.user.id, target, attempt);
     }
 
-    async plan(binding: PlanBinding): Promise<PlanRunResult> {
+    async plan(binding: PlanBinding, log?: AgentRunHandle): Promise<PlanRunResult> {
         if (!this.setup) return { outcome: 'failed', reason: 'The Werkmeester is not enabled' };
         if (!isIssuedPlanBinding(binding)) return { outcome: 'failed', reason: 'The planning run has no server-issued binding' };
         try {
@@ -61,8 +63,10 @@ export class WerkmeesterService {
                 slug: detail.slug, title: version.title, version: version.version, body: version.body, criteria: version.criteria,
                 repos: repos.map((r) => ({ id: r.id, fullName: r.fullName, isSpecRepo: r.id === detail.repoId, stacks: r.stacks, testCommands: r.testCommands })),
             }, randomBytes(8).toString('hex'));
+            const options = planStreamOptions(this.setup.user, binding);
+            if (log) attachRun(options.requestContext, log);
             const output = await this.mastra.getAgent(PLAN_AGENT_ID).stream(prompt, {
-                ...planStreamOptions(this.setup.user, binding),
+                ...options,
                 abortSignal: AbortSignal.timeout(RUN_TIMEOUT_MS),
             } as never);
             await (output as { consumeStream(): Promise<void> }).consumeStream();
