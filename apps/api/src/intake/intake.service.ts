@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Not, Repository } from 'typeorm';
@@ -9,10 +9,13 @@ import { GITHUB_PORT, type GitHubPort } from '../github/github.port.js';
 import { ProjectService } from '../project/project.service.js';
 import { GithubInstallationService } from '../repo/github-installation.service.js';
 import { Repo } from '../repo/repo.entity.js';
+import { Spec } from '../spec/spec.entity.js';
+import { SpecVersion } from '../spec/spec-version.entity.js';
+import { parseSpec } from '../spec/spec-parser.js';
 import { UserService } from '../user/user.service.js';
 import { IntakeItem } from './intake-item.entity.js';
 import { capBody, hasIntakeLabel, intakeLabel, issueSha, type IntakeIssue } from './intake-issue.js';
-import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSweepResultDto, ListIntakeQueryDto } from './intake.dto.js';
+import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSpecSummaryDto, IntakeSweepResultDto, ListIntakeQueryDto } from './intake.dto.js';
 import { IntakeMapper } from './intake.mapper.js';
 
 export type IntakeChange = 'created' | 'updated' | 'withdrawn' | 'unchanged' | 'ignored';
@@ -30,7 +33,23 @@ export class IntakeService {
         private readonly projects: ProjectService,
         private readonly users: UserService,
         private readonly mapper: IntakeMapper,
+        @Optional() @InjectRepository(Spec) private readonly specs?: Repository<Spec>,
+        @Optional() @InjectRepository(SpecVersion) private readonly specVersions?: Repository<SpecVersion>,
     ) { }
+
+    private async specSummaries(rows: IntakeItem[]): Promise<Map<string, IntakeSpecSummaryDto>> {
+        const ids = [...new Set(rows.flatMap((r) => (r.specId ? [r.specId] : [])))];
+        if (!ids.length || !this.specs || !this.specVersions) return new Map();
+        const specs = await this.specs.find({ where: { id: In(ids) } });
+        const versions = await this.specVersions.find({ where: { specId: In(ids) } });
+        return new Map(specs.map((s) => {
+            const current = versions.find((v) => v.specId === s.id && v.version === s.currentVersion);
+            return [s.id, {
+                id: s.id, slug: s.slug, title: s.title, status: s.status, currentVersion: s.currentVersion,
+                approvedVersion: s.approvedVersion, openQuestions: current ? parseSpec(current.body).openQuestions.length : 0,
+            }];
+        }));
+    }
 
     async list(projectId: string, query: ListIntakeQueryDto): Promise<IntakeItemResponseDto[]> {
         await this.projects.assertExists(projectId);
@@ -39,11 +58,14 @@ export class IntakeService {
             relations: { repo: true },
             order: { createdAt: 'DESC' },
         });
-        return rows.map((r) => this.mapper.toDTO(r));
+        const specs = await this.specSummaries(rows);
+        return rows.map((r) => this.mapper.toDTO(r, (r.specId && specs.get(r.specId)) || null));
     }
 
     async getById(id: string): Promise<IntakeItemDetailResponseDto> {
-        return this.mapper.toDetailDTO(await this.getOrFail(id));
+        const item = await this.getOrFail(id);
+        const specs = await this.specSummaries([item]);
+        return this.mapper.toDetailDTO(item, (item.specId && specs.get(item.specId)) || null);
     }
 
     /** Verified humans only. A refining item cannot be ignored; one already ignored or withdrawn has nothing to ignore. */

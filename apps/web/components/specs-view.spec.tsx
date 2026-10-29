@@ -75,4 +75,14 @@ describe('SpecsView', () => {
     expect(await screen.findByText('Spec of q')).toBeInTheDocument();
     expect(screen.queryByText('Spec of p')).not.toBeInTheDocument();
   });
+
+  it('links the issue a spec came from, opening in a new tab', async () => {
+    setup();
+    vi.spyOn(api, 'listSpecs').mockResolvedValue([spec({ source: { kind: 'github_issue', url: 'https://github.com/o/web/issues/7', number: 7 } }), spec({ id: 's2', title: 'By hand' })]);
+    render(<SpecsView />);
+    const link = await screen.findByRole('link', { name: 'From issue #7' });
+    expect(link).toHaveAttribute('href', 'https://github.com/o/web/issues/7');
+    expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    expect(screen.getAllByText(/From issue/)).toHaveLength(1);
+  });
 });

@@ -4,7 +4,7 @@ import { ExternalLink } from 'lucide-react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ApiError, api, type Repo, type Spec, type SpecDetail, type SpecRecording, type SpecVersion } from '@/lib/api';
+import { ApiError, api, type IntakeItem, type Repo, type Spec, type SpecDetail, type SpecRecording, type SpecVersion } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { safeUrl } from '@/lib/safe-url';
 import { relativeTime } from '@/lib/time';
@@ -12,7 +12,7 @@ import { usePolling } from '@/lib/use-polling';
 import { useProject, withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
 import { SafeMarkdown } from './safe-markdown';
-import { StatusBadge } from './status-badge';
+import { IntakeStatusBadge, StatusBadge } from './status-badge';
 import { TextDiffView } from './text-diff-view';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -265,6 +265,12 @@ export function SpecDetailView() {
   const s = spec.data;
   const fetchRepos = useCallback(() => (s ? api.listRepos(s.projectId) : Promise.resolve([] as Repo[])), [s?.projectId]); // eslint-disable-line react-hooks/exhaustive-deps
   const repos = usePolling(fetchRepos, 60_000);
+  const fetchIntake = useCallback(
+    () => (s?.source ? api.listIntake(s.projectId) : Promise.resolve([] as IntakeItem[])),
+    [s?.projectId, s?.source], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const intake = usePolling(fetchIntake, 60_000);
+  const intakeItem = s?.source ? intake.data?.find((i) => i.specId === s.id) : undefined;
 
   // The version on screen is chosen once and kept: polling may reveal a newer one, but never swaps what the user is looking at.
   const [pinned, setPinned] = useState<{ id: string; version: number } | null>(null);
@@ -300,6 +306,12 @@ export function SpecDetailView() {
                 <SpecStatusBadge spec={s} />
                 <span className="font-mono">{repoName ?? '…'}</span>
                 <span className="font-mono">{s.slug}</span>
+                {s.source && (
+                  <a href={s.source.url} target="_blank" rel="noopener noreferrer" className="underline">
+                    From issue #{s.source.number}
+                  </a>
+                )}
+                {intakeItem && <IntakeStatusBadge status={intakeItem.status} />}
               </span>
             }
           />

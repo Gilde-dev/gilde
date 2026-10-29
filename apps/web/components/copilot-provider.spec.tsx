@@ -39,7 +39,7 @@ const budgetStatus = (day: Partial<BudgetPeriodStatus> = {}, week: Partial<Budge
   evaluatedAt: '2026-03-09T12:00:00.000Z', global: { day: period('day', day), week: period('week', week) }, project: null,
   blockers: [], hardBlocked: false, recovery: 'none', recoversAt: null, ...over,
 });
-const enabledStatus = { enabled: true, model: 'openai/m', scout: { enabled: false, model: null } };
+const enabledStatus = { enabled: true, model: 'openai/m', scout: { enabled: false, model: null }, refine: { enabled: false, model: null } };
 
 beforeEach(() => {
   pathname.value = '/';

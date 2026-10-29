@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { SPEC_STATUSES } from '../spec/spec.entity.js';
 import { INTAKE_SOURCES, INTAKE_STATUSES } from './intake-item.entity.js';
 
 export const IntakeStatusSchema = z.enum(INTAKE_STATUSES);
@@ -8,6 +9,18 @@ export const ListIntakeQuerySchema = z.object({
     status: IntakeStatusSchema.optional(),
 });
 export type ListIntakeQueryDto = z.infer<typeof ListIntakeQuerySchema>;
+
+/** The spec an item was drafted into: its approval state and how many open questions its current version still has. */
+export const IntakeSpecSummarySchema = z.object({
+    id: z.string(),
+    slug: z.string(),
+    title: z.string(),
+    status: z.enum(SPEC_STATUSES),
+    currentVersion: z.number().int(),
+    approvedVersion: z.number().int().nullable(),
+    openQuestions: z.number().int(),
+});
+export type IntakeSpecSummaryDto = z.infer<typeof IntakeSpecSummarySchema>;
 
 export const IntakeItemResponseSchema = z.object({
     id: z.string(),
@@ -23,6 +36,7 @@ export const IntakeItemResponseSchema = z.object({
     labels: z.array(z.string()),
     status: IntakeStatusSchema,
     specId: z.string().nullable(),
+    spec: IntakeSpecSummarySchema.nullable(),
     lastError: z.string().nullable(),
     refineAttempts: z.number().int(),
     createdAt: z.string(),

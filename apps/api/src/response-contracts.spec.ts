@@ -78,7 +78,7 @@ describe('response contracts', () => {
         const down = { status: 'down', checks: { database: { status: 'down', error: 'x' } } };
         expect(HealthResponseSchema.parse(down)).toEqual(down);
         expect(HealthResponseSchema.parse({ status: 'up', checks: { database: { status: 'up' } } }).checks.database).toEqual({ status: 'up' });
-        const copilot = { enabled: true, model: null, scout: { enabled: false, model: null } };
+        const copilot = { enabled: true, model: null, scout: { enabled: false, model: null }, refine: { enabled: false, model: null } };
         expect(CopilotStatusSchema.parse(copilot)).toEqual(copilot);
         const budget = {
             evaluatedAt: 'now', global: { day: { ...period, scope: 'global', projectId: null }, week: { ...period, scope: 'global', projectId: null, period: 'week' } },

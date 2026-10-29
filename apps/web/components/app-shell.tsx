@@ -6,6 +6,7 @@ import {
   ChartColumn,
   FileText,
   FolderKanban,
+  Inbox,
   KeyRound,
   Server,
   Layers,
@@ -23,7 +24,7 @@ import {
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
-import { api, type Job, type Project, type Repo } from '@/lib/api';
+import { api, type IntakeItem, type Job, type Project, type Repo } from '@/lib/api';
 import { activeJobCount } from '@/lib/job-stats';
 import { useProject, withProject } from '@/lib/use-project';
 import { usePolling } from '@/lib/use-polling';
@@ -45,6 +46,7 @@ const NAV: NavItem[] = [
   { href: '/chat', label: 'Chat', icon: MessageSquare },
   { href: '/features', label: 'Features', icon: Layers },
   { href: '/specs', label: 'Specs', icon: FileText },
+  { href: '/intake', label: 'Intake', icon: Inbox },
   { href: '/proposals', label: 'Proposals', icon: Lightbulb },
   { href: '/lessons', label: 'Lessons', icon: BookOpen },
   { href: '/skills', label: 'Skills', icon: Sparkles },
@@ -90,7 +92,7 @@ function NavLinks({
   links: NavItem[];
   pathname: string;
   projectId: string | null;
-  badges: Record<string, { count: number; label: string; title?: string; variant: 'accent' | 'running' }>;
+  badges: Record<string, { count: number; label: string; title?: string; variant: 'accent' | 'running' | 'danger' }>;
   compact: boolean;
   onNavigate?: () => void;
 }) {
@@ -186,6 +188,7 @@ function SidebarContent({
   repos,
   pending,
   active,
+  failedIntake,
   pathname,
   compact = false,
   onNavigate,
@@ -196,12 +199,14 @@ function SidebarContent({
   repos: Repo[] | undefined;
   pending: number;
   active: number | undefined;
+  failedIntake: number;
   pathname: string;
   compact?: boolean;
   onNavigate?: () => void;
 }) {
   const badges = {
     '/proposals': { count: pending, label: `${pending} pending`, variant: 'accent' as const },
+    '/intake': { count: failedIntake, label: `${failedIntake} failed`, title: 'Intake items whose refining failed', variant: 'danger' as const },
     '/': {
       count: active ?? 0,
       label: `${active ?? 0} active`,
@@ -301,6 +306,11 @@ export function AppShell({ children }: { children: ReactNode }) {
   // The board badge counts the same loaded list the board shows (up to 200 jobs), not the project's history.
   const fetchJobs = useCallback(() => (projectId ? api.listJobs(projectId) : Promise.resolve([] as Job[])), [projectId]);
   const jobs = usePolling(fetchJobs, 30_000);
+  const fetchFailedIntake = useCallback(
+    () => (projectId ? api.listIntake(projectId, 'failed') : Promise.resolve([] as IntakeItem[])),
+    [projectId],
+  );
+  const failedIntake = usePolling(fetchFailedIntake, 30_000);
   const active = jobs.data && projectId ? activeJobCount(jobs.data.filter((j) => j.projectId === projectId)) : undefined;
 
   useEffect(() => setDrawer(false), [pathname]);
@@ -313,6 +323,7 @@ export function AppShell({ children }: { children: ReactNode }) {
       repos={repos.data}
       pending={proposed.data?.length ?? 0}
       active={active}
+      failedIntake={failedIntake.data?.length ?? 0}
       pathname={pathname}
       {...opts}
     />
