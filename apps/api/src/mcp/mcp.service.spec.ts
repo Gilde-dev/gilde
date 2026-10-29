@@ -2,6 +2,7 @@ import { ConflictException } from '@nestjs/common';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 
+import { runLogDb } from '../agent-run/agent-run.testing.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 import { UserService } from '../user/user.service.js';
 import type { UserIdentityDto } from '../user/user.dto.js';
@@ -25,7 +26,7 @@ interface Stubs {
     quota: { withReservation: ReturnType<typeof vi.fn>; reserve: ReturnType<typeof vi.fn>; serialized: ReturnType<typeof vi.fn> };
 }
 
-function setup() {
+function setup(agentRuns?: object) {
     const identities = new Map<string, UserIdentityDto>([[ME, identity(ME)], [OTHER, identity(OTHER)]]);
     const users = new UserService({ findOneBy: async ({ id }: { id: string }) => identities.get(id) ?? null } as never, { toIdentityDTO: (u: UserIdentityDto) => u } as never);
     const jobs = {
@@ -44,7 +45,7 @@ function setup() {
     const repos = { getById: vi.fn().mockResolvedValue({ id: REPO, projectId: PROJECT, fullName: 'o/r' }), listForProject: vi.fn() };
     const skills = { impact: vi.fn().mockResolvedValue({ days: 30, minRuns: 10, skills: [] }) };
     const noop = {} as never;
-    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, skills as never, projects as never, repos as never, noop, specs as never, plans as never, noop, noop);
+    const service = new McpService(users, quota as never, jobs as never, { getById: vi.fn() } as never, noop, noop, noop, noop, noop, skills as never, projects as never, repos as never, noop, specs as never, plans as never, noop, noop, agentRuns as never);
     const connect = async (user: AuthUser | undefined) => {
         const server = service.buildServer(user);
         const [a, b] = InMemoryTransport.createLinkedPair();
@@ -290,5 +291,69 @@ describe('MCP writes', () => {
         const r = await (await connect(as(ME))).callTool({ name: 'listProjects', arguments: {} });
         expect(isError(r)).toBe(true);
         expect(text(r)).not.toMatch(/SELECT|argon2|boom/);
+    });
+});
+
+describe('MCP run log', () => {
+    let db: Awaited<ReturnType<typeof runLogDb>>;
+    beforeEach(async () => { db = await runLogDb(); });
+    afterEach(() => db.ds.destroy());
+    const job = { repoId: REPO, title: 'Add a thing', task: 'Do the thing properly', acceptanceCriteria: ['It works well'] };
+    const runs = async () => { await db.recorder.flush(); return db.runs.find({ order: { startedAt: 'ASC' } }); };
+
+    it('records every tool call as an mcp_call run of the caller with the call, its output and its duration', async () => {
+        const { connect, as } = setup(db.recorder);
+        await (await connect(as(ME))).callTool({ name: 'listProjects', arguments: {} });
+        const [run] = await runs();
+        expect(run).toMatchObject({ agentId: 'mcp', triggerKind: 'mcp_call', triggerRefType: 'tool', triggerRefId: 'listProjects', actorUserId: ME, outcome: 'ok' });
+        expect(run.endedAt).not.toBeNull();
+        const [call] = await db.toolCalls.find({ where: { runId: run.id } });
+        expect(call).toMatchObject({ toolName: 'listProjects', error: null });
+        expect(call.output).toContain(PROJECT);
+    });
+
+    it('takes the project from the input when it names one', async () => {
+        const { connect, as } = setup(db.recorder);
+        await (await connect(as(ME))).callTool({ name: 'getSkillImpact', arguments: { projectId: PROJECT } });
+        expect((await runs())[0]).toMatchObject({ projectId: PROJECT });
+    });
+
+    it('records a call the rules turned down as refused, and a broken one as an error', async () => {
+        const { connect, as, quota, jobs } = setup(db.recorder);
+        quota.withReservation.mockRejectedValueOnce(new McpQuotaExceededError('jobs', 20));
+        await (await connect(as(ME))).callTool({ name: 'createJob', arguments: job });
+        jobs.list.mockRejectedValueOnce(new Error('boom'));
+        await (await connect(as(ME))).callTool({ name: 'listJobs', arguments: {} });
+        const [refused, broken] = await runs();
+        expect(refused).toMatchObject({ triggerRefId: 'createJob', outcome: 'refused' });
+        expect(refused.reason).toContain('Daily MCP limit reached');
+        expect(broken).toMatchObject({ triggerRefId: 'listJobs', outcome: 'error', reason: 'boom' });
+        expect(await db.toolCalls.findOneByOrFail({ runId: broken.id })).toMatchObject({ error: 'boom' });
+    });
+
+    it('records a call of someone who may not use MCP as refused', async () => {
+        const { connect, as, identities } = setup(db.recorder);
+        identities.set(ME, identity(ME, { isBot: true }));
+        const r = await (await connect(as(ME))).callTool({ name: 'listProjects', arguments: {} });
+        expect(isError(r)).toBe(true);
+        expect((await runs())[0]).toMatchObject({ outcome: 'refused', actorUserId: ME });
+    });
+
+    it('never stores a secret that was in the input or the error', async () => {
+        const { connect, as, jobs } = setup(db.recorder);
+        const secret = 'sk-proj-abcdefghijklmnop1234567890';
+        jobs.create.mockRejectedValueOnce(new Error(`upstream said Bearer abcdefghijklmnop.qrstuvwxyz while using ${secret}`));
+        await (await connect(as(ME))).callTool({ name: 'createJob', arguments: { ...job, task: `Use ${secret} to call the API` } });
+        const dump = JSON.stringify([await runs(), await db.toolCalls.find()]);
+        expect(dump).not.toContain('abcdefghijklmnop');
+        expect(dump).toContain('[redacted]');
+    });
+
+    it('a failing recorder changes nothing about the answer', async () => {
+        const broken = { begin: () => { throw new Error('recorder down'); } };
+        const { connect, as } = setup(broken);
+        const r = await (await connect(as(ME))).callTool({ name: 'listProjects', arguments: {} });
+        expect(isError(r)).toBe(false);
+        expect(JSON.parse(text(r))).toEqual([{ id: PROJECT }]);
     });
 });

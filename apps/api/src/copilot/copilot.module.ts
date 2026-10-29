@@ -45,6 +45,7 @@ import { HistorySearchService } from '../memory/history/history-search.service.j
 import { MEMORY_INFRASTRUCTURE } from '../memory/memory.tokens.js';
 import type { MemoryInfrastructure } from '../memory/memory.infrastructure.js';
 
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { UsageService } from '../usage/usage.service.js';
 import { copilotConfig, type CopilotConfig } from './copilot.config.js';
 import { CopilotController } from './copilot.controller.js';
@@ -185,11 +186,12 @@ export class ScoutLifecycle implements OnModuleDestroy {
                 refineItems: IntakeRefineService,
                 mcpTools: ProjectMcpToolsService,
                 plan: PlanSetup | null,
+                runs: AgentRunRecorder,
             ) => {
                 const services: CopilotServices = { jobs, features, revisions, dispatcher, metrics, lessons, lessonPatterns, skills, projects, repos, github, workspace, history, specs, plans, mcpTools };
-                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) }, plan && { ...plan, proposer: new PlanProposer(specs, plans) });
+                return createMastra(config, services, undefined, repoContext, memory, usage, scout && { ...scout, gate, suggestions }, refine && { ...refine, writer: new RefinedSpecWriter(specs, refineItems, refine.user) }, plan && { ...plan, proposer: new PlanProposer(specs, plans) }, runs);
             },
-            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService, PLAN_SETUP],
+            inject: [COPILOT_CONFIG, JobService, FeatureService, RevisionService, DispatcherService, MetricsService, LessonService, LessonPatternService, SkillService, ProjectService, RepoService, GITHUB_PORT, RepoWorkspaceService, RepoContextService, MEMORY_INFRASTRUCTURE, HistorySearchService, UsageService, SCOUT_SETUP, SCOUT_GATE, ScoutSuggestionService, SpecService, FeaturePlanService, REFINE_SETUP, IntakeRefineService, ProjectMcpToolsService, PLAN_SETUP, AgentRunRecorder],
         },
         {
             provide: SCOUT_THREADS,
@@ -233,16 +235,16 @@ export class ScoutLifecycle implements OnModuleDestroy {
         {
             // Null (and nothing scheduled) while the Verfijner is off.
             provide: REFINE_WORKER,
-            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService, comments: IntakeCommentService): VerfijnerWorker | null =>
-                (refine ? new VerfijnerWorker(refine, mastra, items, budget, comments) : null),
-            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService],
+            useFactory: (refine: RefineSetup | null, mastra: Mastra, items: IntakeRefineService, budget: BudgetService, comments: IntakeCommentService, runs: AgentRunRecorder): VerfijnerWorker | null =>
+                (refine ? new VerfijnerWorker(refine, mastra, items, budget, comments, runs) : null),
+            inject: [REFINE_SETUP, COPILOT_MASTRA, IntakeRefineService, BudgetService, IntakeCommentService, AgentRunRecorder],
         },
         {
             // Null (and nothing scheduled) while the Werkmeester is off; queued runs wait until it is on.
             provide: PLAN_WORKER,
-            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService, notifications: NotificationCaptureService): PlanningWorker | null =>
-                (plan ? new PlanningWorker(plan, werkmeester, planning, budget, notifications) : null),
-            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService, NotificationCaptureService],
+            useFactory: (plan: PlanSetup | null, werkmeester: WerkmeesterService, planning: SpecPlanningService, budget: BudgetService, notifications: NotificationCaptureService, runs: AgentRunRecorder): PlanningWorker | null =>
+                (plan ? new PlanningWorker(plan, werkmeester, planning, budget, notifications, runs) : null),
+            inject: [PLAN_SETUP, WerkmeesterService, SpecPlanningService, BudgetService, NotificationCaptureService, AgentRunRecorder],
         },
         {
             // Always provided; `enabled` is false (and plan() fails) while the Werkmeester is off.

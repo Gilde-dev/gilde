@@ -1,4 +1,4 @@
-import { CallHandler, ExecutionContext, HttpStatus, Inject, Injectable, NestInterceptor } from '@nestjs/common';
+import { CallHandler, ExecutionContext, HttpStatus, Inject, Injectable, NestInterceptor, Optional } from '@nestjs/common';
 import { ContextIdFactory, ModuleRef } from '@nestjs/core';
 import { MASTRA_RESOURCE_ID_KEY } from '@mastra/core/request-context';
 import { RequestContextService } from '@mastra/nestjs';
@@ -6,6 +6,8 @@ import type { Request, Response } from 'express';
 import { of, type Observable } from 'rxjs';
 import type { Mastra } from '@mastra/core/mastra';
 
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
+import type { AgentRunAgent } from '../agent-run/agent-run.entity.js';
 import { usageUser } from '../usage/usage-context.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
@@ -35,6 +37,7 @@ export class CopilotContextInterceptor implements NestInterceptor {
         @Inject(COPILOT_CONFIG) private readonly config: CopilotConfig,
         @Inject(COPILOT_MASTRA) private readonly mastra: Mastra,
         private readonly moduleRef: ModuleRef,
+        @Optional() private readonly agentRuns?: AgentRunRecorder,
     ) { }
 
     async intercept(context: ExecutionContext, next: CallHandler): Promise<Observable<unknown>> {
@@ -57,7 +60,10 @@ export class CopilotContextInterceptor implements NestInterceptor {
         }
         const user = { id: req.user.id, name: req.user.name, email: req.user.email, credential: req.user.credential };
 
-        if (agentReferences(req.path, req.query, req.body).some((a) => [SCOUT_AGENT_ID, REFINE_AGENT_ID, PLAN_AGENT_ID].includes(a.toLowerCase())) || req.path.includes('/__mastra')) {
+        const internal = agentReferences(req.path, req.query, req.body).map((a) => a.toLowerCase()).find((a) => [SCOUT_AGENT_ID, REFINE_AGENT_ID, PLAN_AGENT_ID].includes(a));
+        if (internal || req.path.includes('/__mastra')) {
+            // A refused attempt to reach an unattended agent is part of its run log.
+            if (internal) this.agentRuns?.complete({ agentId: internal as AgentRunAgent, triggerKind: 'chat', actorUserId: user.id }, { outcome: 'refused', reason: 'The agent cannot be used through the API' });
             return this.reject(context, HttpStatus.FORBIDDEN, 'Forbidden', 'This agent cannot be used through the API');
         }
 

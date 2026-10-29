@@ -1,7 +1,8 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { ConflictException, Injectable, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 import type { CreateRunDto, RunResponseDto } from './run.dto.js';
 import type { RunContext } from './run-context.js';
@@ -15,13 +16,23 @@ export class RunService {
     constructor(
         private readonly runMapper: RunMapper,
         @InjectRepository(JobRun) private readonly runRepository: Repository<JobRun>,
+        @Optional() private readonly agentRuns?: AgentRunRecorder,
     ) { }
 
-    async create(dto: CreateRunDto): Promise<RunResponseDto> {
+    /** Starts the run log entry of a job run (the coding agent's run); it ends with the job run. Never throws. */
+    logStart(run: { id: string; jobId: string; projectId: string }, actorUserId: string | null): void {
+        this.agentRuns?.begin({
+            agentId: 'coding', triggerKind: 'dispatch', triggerRefType: 'job', triggerRefId: run.jobId,
+            actorUserId, projectId: run.projectId, linkedTable: 'job_runs', linkedId: run.id, managed: true,
+        });
+    }
+
+    async create(dto: CreateRunDto, actorUserId: string | null = null): Promise<RunResponseDto> {
         try {
             const entity = await this.runRepository.save(
                 this.runRepository.create({ ...dto, status: 'firing' }),
             );
+            this.logStart(entity, actorUserId);
             return this.runMapper.toDTO(entity);
         } catch (e) {
             if (isUniqueViolation(e)) throw new ConflictException(`Job ${dto.jobId} already has a run for attempt ${dto.attempt}`);
@@ -46,6 +57,7 @@ export class RunService {
 
     async markFailed(id: string, error: string): Promise<void> {
         await this.runRepository.update({ id }, { status: 'fire_failed', error, finishedAt: new Date() });
+        await this.agentRuns?.endLinked('job_runs', id, { outcome: 'error', reason: error });
     }
 
     /** One run, or null when the id is unknown. */

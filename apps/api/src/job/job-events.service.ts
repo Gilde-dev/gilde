@@ -2,6 +2,7 @@ import { ConflictException, Injectable, Logger, NotFoundException, Optional } fr
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
 import { TERMINAL, nextStatus, retryOrPark, type JobEvent } from './job-state.js';
 import { Job } from './job.entity.js';
 import { RepoManifestService } from '../repo/repo-manifest.service.js';
@@ -47,6 +48,7 @@ export class JobEventsService {
         @Optional() private readonly proposals?: ProposalService,
         @Optional() private readonly capture?: NotificationCaptureService,
         @Optional() private readonly scout?: ScoutSignalPublisher,
+        @Optional() private readonly agentRuns?: AgentRunRecorder,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -87,6 +89,11 @@ export class JobEventsService {
                 { status: 'pr_opened', result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
             );
             await this.recordProposals(job, run, parsed);
+            // The agent's work is done once it opened the PR: blocked is the agent declining the task.
+            const result = parsed.result;
+            await this.agentRuns?.endLinked('job_runs', run.id, result?.outcome === 'blocked'
+                ? { outcome: 'refused', reason: result.summary }
+                : { outcome: 'ok', reason: result && result.outcome !== 'done' ? `${result.outcome}: ${result.summary}` : null });
         }
         return `job ${to} with PR #${pr.number}`;
     }
@@ -187,7 +194,10 @@ export class JobEventsService {
             const run = await this.findRun(job.id, null);
             if (run) {
                 const res = await this.runs.update({ id: run.id, status: In(['firing', 'fired']) }, { status: 'superseded' });
-                if (res.affected === 1) this.logger.log(`Run ${run.id} of job ${job.id} superseded: PR #${prNumber} ${event} while job was ${job.status}`);
+                if (res.affected === 1) {
+                    this.logger.log(`Run ${run.id} of job ${job.id} superseded: PR #${prNumber} ${event} while job was ${job.status}`);
+                    await this.agentRuns?.endLinked('job_runs', run.id, { outcome: 'skipped', reason: `PR #${prNumber} ${event} while the job was ${job.status}` });
+                }
             }
         }
         await this.lessons?.onJobEnded(job.id, to);
