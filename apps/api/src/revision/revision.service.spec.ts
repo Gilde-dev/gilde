@@ -338,11 +338,13 @@ describe('loadDownstream', () => {
         const root = await seedJob('dispatched', { featureId: feature.id });
         const sameTime = new Date('2026-01-01T00:00:00Z');
         const siblings: Job[] = [];
-        for (let i = 0; i < 20; i++) siblings.push(await seedJob('queued', { featureId: feature.id, createdAt: sameTime, ...(i === 0 ? { task: 't'.repeat(4500) } : {}) }));
+        for (let i = 0; i < 20; i++) siblings.push(await seedJob('queued', { featureId: feature.id, createdAt: sameTime }));
         // A dependent that is younger than 20 siblings falls beyond the cutoff but is still classified from the graph.
         const late = await seedJob('queued', { featureId: feature.id, createdAt: new Date('2026-06-01T00:00:00Z') });
         await deps.insert({ jobId: late.id, dependsOnJobId: root.id });
-        const early = await seedJob('queued', { createdAt: new Date('2025-01-01T00:00:00Z') });
+        // The over-long task sits on the oldest job, which is always included: the 20 tied siblings are cut by random id,
+        // so a long task on one of them made taskCapped depend on which sibling fell beyond the cutoff (flaky, 1 in 20).
+        const early = await seedJob('queued', { createdAt: new Date('2025-01-01T00:00:00Z'), task: 't'.repeat(4500) });
         await deps.insert({ jobId: early.id, dependsOnJobId: root.id });
 
         const ctx = await loadDownstreamContext(ds.manager, root);
@@ -350,7 +352,8 @@ describe('loadDownstream', () => {
         expect(ctx.jobs[0].jobId).toBe(early.id);
         expect(ctx.dependents).toEqual(new Set([early.id]));
         expect(ctx.omitted).toBe(2);
-        expect(ctx.taskCapped).toBe(siblings.some((j) => j.task.length > 4000));
+        expect(ctx.taskCapped).toBe(true);
+        expect(siblings).toHaveLength(20);
         const tied = ctx.jobs.slice(1).map((j) => j.jobId);
         expect(tied).toEqual([...tied].sort());
         // Nothing internal leaks into the entries the agent sees.
