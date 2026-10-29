@@ -6,6 +6,8 @@ import { GitHubModule } from '../github/github.module.js';
 import { ProjectModule } from '../project/project.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Repo } from '../repo/repo.entity.js';
+import { Spec } from '../spec/spec.entity.js';
+import { SpecVersion } from '../spec/spec-version.entity.js';
 import { UserModule } from '../user/user.module.js';
 
 import { IntakeController } from './intake.controller.js';
@@ -17,7 +19,7 @@ import { IntakeService } from './intake.service.js';
 
 @Module({
     imports: [
-        TypeOrmModule.forFeature([IntakeItem, IntakeRefineRun, Repo]),
+        TypeOrmModule.forFeature([IntakeItem, IntakeRefineRun, Repo, Spec, SpecVersion]),
         PassportModule.register({}),
         GitHubModule,
         ProjectModule,

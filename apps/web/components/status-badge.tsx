@@ -9,11 +9,14 @@ import {
   Eye,
   GitMerge,
   GitPullRequest,
+  CircleSlash,
+  FilePen,
   Inbox,
+  TriangleAlert,
   LoaderCircle,
   type LucideIcon,
 } from 'lucide-react';
-import type { FeatureStatus, JobStatus } from '@/lib/api';
+import type { FeatureStatus, IntakeStatus, JobStatus } from '@/lib/api';
 import { Badge, type BadgeVariant } from './ui/badge';
 
 interface StatusEntry {
@@ -41,6 +44,24 @@ export const FEATURE_STATUS_BADGE: Record<FeatureStatus, StatusEntry> = {
   done: { label: 'Done', variant: 'success', icon: CircleCheck },
   cancelled: { label: 'Cancelled', variant: 'neutral', icon: Ban },
 };
+
+export const INTAKE_STATUS_BADGE: Record<IntakeStatus, StatusEntry> = {
+  new: { label: 'New', variant: 'info', icon: Inbox },
+  refining: { label: 'Refining', variant: 'running', icon: LoaderCircle },
+  drafted: { label: 'Drafted', variant: 'success', icon: FilePen },
+  failed: { label: 'Failed', variant: 'danger', icon: TriangleAlert },
+  withdrawn: { label: 'Withdrawn', variant: 'neutral', icon: Ban },
+  ignored: { label: 'Ignored', variant: 'neutral', icon: CircleSlash },
+};
+
+export function IntakeStatusBadge({ status, className }: { status: IntakeStatus; className?: string }) {
+  const entry = INTAKE_STATUS_BADGE[status];
+  return (
+    <Badge variant={entry.variant} icon={entry.icon} className={className}>
+      {entry.label}
+    </Badge>
+  );
+}
 
 /** A merged job whose latest run reported blocked: GitHub merged it, but no work was done. */
 export const MERGED_WITHOUT_WORK_BADGE: StatusEntry = { label: 'Merged without work (blocked)', variant: 'warning', icon: GitMerge };

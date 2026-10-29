@@ -1,12 +1,12 @@
 import { Injectable } from '@nestjs/common';
 
 import type { IntakeItem } from './intake-item.entity.js';
-import type { IntakeItemDetailResponseDto, IntakeItemResponseDto } from './intake.dto.js';
+import type { IntakeItemDetailResponseDto, IntakeItemResponseDto, IntakeSpecSummaryDto } from './intake.dto.js';
 
 @Injectable()
 export class IntakeMapper {
 
-    toDTO(item: IntakeItem): IntakeItemResponseDto {
+    toDTO(item: IntakeItem, spec: IntakeSpecSummaryDto | null = null): IntakeItemResponseDto {
         return {
             id: item.id,
             projectId: item.projectId,
@@ -21,6 +21,7 @@ export class IntakeMapper {
             labels: item.labels,
             status: item.status,
             specId: item.specId,
+            spec,
             lastError: item.lastError,
             refineAttempts: item.refineAttempts,
             createdAt: item.createdAt.toISOString(),
@@ -28,9 +29,9 @@ export class IntakeMapper {
         };
     }
 
-    toDetailDTO(item: IntakeItem): IntakeItemDetailResponseDto {
+    toDetailDTO(item: IntakeItem, spec: IntakeSpecSummaryDto | null = null): IntakeItemDetailResponseDto {
         return {
-            ...this.toDTO(item),
+            ...this.toDTO(item, spec),
             body: item.body,
             bodyTruncated: item.bodyTruncated,
             bodySha256: item.bodySha256,

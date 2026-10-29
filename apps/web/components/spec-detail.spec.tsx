@@ -193,4 +193,25 @@ describe('SpecDetailView', () => {
     expect(screen.getByRole('link', { name: 'Back to the specs of the selected project' })).toHaveAttribute('href', '/specs?project=q');
     expect(screen.getByRole('link', { name: 'Specs' })).toHaveAttribute('href', '/specs?project=p');
   });
+
+  it('shows the issue a spec came from and the intake status', async () => {
+    setup(specDetail({ source: { kind: 'github_issue', url: 'https://github.com/o/web/issues/7', number: 7 } }));
+    const { intakeItem } = await import('./intake.fixture');
+    vi.spyOn(api, 'listIntake').mockResolvedValue([intakeItem({ specId: 's1', status: 'drafted' }), intakeItem({ id: 'x', specId: 'other', status: 'failed' })]);
+    render(<SpecDetailView />);
+    const link = await screen.findByRole('link', { name: 'From issue #7' });
+    expect(link).toHaveAttribute('href', 'https://github.com/o/web/issues/7');
+    expect(link).toHaveAttribute('target', '_blank');
+    expect(await screen.findByText('Drafted')).toBeInTheDocument();
+    expect(screen.queryByText('Failed')).toBeNull();
+  });
+
+  it('shows no issue link or intake status for a spec written by hand', async () => {
+    setup();
+    const intake = vi.spyOn(api, 'listIntake').mockResolvedValue([]);
+    render(<SpecDetailView />);
+    await screen.findByRole('heading', { name: 'Dark mode' });
+    expect(screen.queryByText(/From issue/)).toBeNull();
+    expect(intake).not.toHaveBeenCalled();
+  });
 });

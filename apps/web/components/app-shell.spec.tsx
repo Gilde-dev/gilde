@@ -32,6 +32,7 @@ beforeEach(() => {
   vi.spyOn(api, 'listRepos').mockResolvedValue(repos);
   vi.spyOn(api, 'listRevisions').mockResolvedValue([{ id: 'v1' }, { id: 'v2' }] as Revision[]);
   vi.spyOn(api, 'listJobs').mockResolvedValue([]);
+  vi.spyOn(api, 'listIntake').mockResolvedValue([]);
   vi.spyOn(api, 'me').mockResolvedValue({ id: 'u', name: 'Pascal', email: 'p@x.nl' } as never);
 });
 afterEach(() => vi.restoreAllMocks());
@@ -184,5 +185,22 @@ describe('AppShell', () => {
     render(<AppShell>x</AppShell>);
     expect(await screen.findByText('p@x.nl')).toBeInTheDocument();
     expect(screen.getByRole('img', { name: 'Pascal' })).toHaveTextContent('PA');
+  });
+});
+
+describe('AppShell intake nav', () => {
+  it('links Intake with the project and badges failed items only', async () => {
+    vi.spyOn(api, 'listIntake').mockResolvedValue([{ id: 'i1' }, { id: 'i2' }] as never);
+    render(<AppShell><p>x</p></AppShell>);
+    const link = await within(mainNav()).findByRole('link', { name: /Intake/ });
+    expect(link).toHaveAttribute('href', '/intake?project=p2');
+    expect(await within(link).findByLabelText('2 failed')).toBeInTheDocument();
+  });
+
+  it('shows no badge without failed items', async () => {
+    render(<AppShell><p>x</p></AppShell>);
+    const link = await within(mainNav()).findByRole('link', { name: /Intake/ });
+    await waitFor(() => expect(api.listIntake).toHaveBeenCalledWith('p2', 'failed'));
+    expect(within(link).queryByLabelText(/failed/)).toBeNull();
   });
 });

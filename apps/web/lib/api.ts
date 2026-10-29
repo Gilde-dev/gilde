@@ -422,6 +422,49 @@ export interface SpecDetail extends Spec {
   versions: SpecVersion[];
 }
 
+export const INTAKE_STATUSES = ['new', 'refining', 'drafted', 'failed', 'withdrawn', 'ignored'] as const;
+export type IntakeStatus = (typeof INTAKE_STATUSES)[number];
+
+/** The spec an intake item was drafted into: approval state and open questions of its current version. */
+export interface IntakeSpecSummary {
+  id: string;
+  slug: string;
+  title: string;
+  status: SpecStatus;
+  currentVersion: number;
+  approvedVersion: number | null;
+  openQuestions: number;
+}
+
+/** A labelled GitHub issue waiting to become, or already turned into, a draft spec. */
+export interface IntakeItem {
+  id: string;
+  projectId: string;
+  repoId: string;
+  repoFullName: string | null;
+  source: 'github_issue';
+  externalId: string;
+  number: number;
+  url: string;
+  title: string;
+  authorLogin: string | null;
+  labels: string[];
+  status: IntakeStatus;
+  specId: string | null;
+  spec: IntakeSpecSummary | null;
+  lastError: string | null;
+  refineAttempts: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IntakeSweepResult {
+  repos: number;
+  skipped: number;
+  upserted: number;
+  withdrawn: number;
+}
+
 export const FEATURE_STATUSES = ['draft', 'active', 'done', 'cancelled'] as const;
 export type FeatureStatus = (typeof FEATURE_STATUSES)[number];
 
@@ -696,6 +739,8 @@ export interface CopilotStatus {
   model: string | null;
   /** The unattended scout (Verkenner), configured separately from the co-pilot. */
   scout: { enabled: boolean; model: string | null };
+  /** The unattended refine agent (Verfijner) that drafts specs from intake items; off means items stay `new`. */
+  refine: { enabled: boolean; model: string | null };
 }
 
 /** GET /v1/copilot/threads: one of the caller's own co-pilot conversations. */
@@ -1151,6 +1196,12 @@ export const api = {
   createFeature: (projectId: string, input: CreateFeatureInput) =>
     request<Feature>(`/v1/projects/${id(projectId)}/features`, 'POST', input),
   listSpecs: (projectId: string) => request<Spec[]>(`/v1/projects/${id(projectId)}/specs`),
+  listIntake: (projectId: string, status?: IntakeStatus) =>
+    request<IntakeItem[]>(`/v1/projects/${id(projectId)}/intake${status ? `?status=${status}` : ''}`),
+  /** Verified humans only (403 otherwise). */
+  retryIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/retry`, 'POST'),
+  ignoreIntake: (itemId: string) => request<IntakeItem>(`/v1/intake/${id(itemId)}/ignore`, 'POST'),
+  sweepIntake: () => request<IntakeSweepResult>('/v1/intake/sweep', 'POST'),
   getSpec: (specId: string) => request<SpecDetail>(`/v1/specs/${id(specId)}`),
   /** Verified humans only. Sends exactly the version the caller saw; a stale one is a 409. */
   approveSpec: (specId: string, expectedVersion: number) =>

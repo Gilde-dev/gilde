@@ -5,6 +5,8 @@ export const CopilotStatusSchema = z.object({
     model: z.string().nullable(),
     /** The unattended scout (Verkenner), configured separately from the co-pilot. */
     scout: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
+    /** The unattended refine agent (Verfijner) that drafts specs from intake items; without it items stay `new`. */
+    refine: z.object({ enabled: z.boolean(), model: z.string().nullable() }),
 });
 export type CopilotStatusDto = z.infer<typeof CopilotStatusSchema>;
 

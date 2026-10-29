@@ -54,6 +54,11 @@ export function SpecsView() {
                 <span>Current v{s.currentVersion}</span>
                 <span>{s.approvedVersion === null ? 'Never approved' : `Approved v${s.approvedVersion}`}</span>
                 <span>Updated {relativeTime(s.updatedAt)}</span>
+                {s.source && (
+                  <a href={s.source.url} target="_blank" rel="noopener noreferrer" className="underline">
+                    From issue #{s.source.number}
+                  </a>
+                )}
               </div>
             </Card>
           </li>
