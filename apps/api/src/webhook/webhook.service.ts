@@ -1,3 +1,4 @@
+import { mergeOperatorActions } from '../run/operator-actions.js';
 import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
@@ -346,7 +347,7 @@ export class WebhookService {
         if (parsed.runId && parsed.runId !== run.id) return `ignored: body belongs to run ${parsed.runId}, not the current run of the job`;
         await this.runs.update(
             { id: run.id },
-            { result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
+            { result: parsed.result, resultError: parsed.resultError, retro: parsed.retro, operatorActions: mergeOperatorActions(run.operatorActions, parsed.result?.operatorActions) },
         );
         await this.events.recordProposals(job, run, parsed);
         return `updated result of run ${run.attempt} for PR #${pr.number}`;

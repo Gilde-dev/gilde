@@ -12,6 +12,7 @@ import { withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
 import { JobActions } from './job-actions';
 import { MergeConflictBadge } from './merge-conflict-badge';
+import { OperatorActionBadge, OperatorActionsList } from './operator-actions';
 import { StatusBadge } from './status-badge';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -487,6 +488,7 @@ export function JobDetailView() {
           <h1 className="text-display-sm">{j.title}</h1>
           <StatusBadge status={j.status} mergedBlocked={j.mergedBlocked} />
           <MergeConflictBadge job={j} />
+          <OperatorActionBadge job={j} />
         </div>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           <code className="font-mono text-sm">{repoName}</code>
@@ -506,6 +508,7 @@ export function JobDetailView() {
           {latestCi && <Badge variant={latestCi === 'success' ? 'success' : 'danger'}>CI {latestCi}</Badge>}
         </div>
         <JobActions job={j} onChanged={refreshAll} showSync={me.data !== undefined} />
+        <OperatorActionsList job={j} onChanged={refreshAll} />
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">

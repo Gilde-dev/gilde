@@ -68,7 +68,7 @@ describe('LessonSkillProposalService', () => {
             getById: async (id: string) => repoDto(await ds.getRepository(Repo).findOneByOrFail({ id })),
             listForProject: async () => (await ds.getRepository(Repo).find()).map(repoDto),
         };
-        const jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs(), ds.getRepository(JobDependency), ds.getRepository(Feature));
+        const jobService = new JobService(new JobMapper(), repoService as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobs(), ds.getRepository(JobDependency), ds.getRepository(Feature));
         return new LessonSkillProposalService(
             lessons(), jobs(),
             (over.patterns ?? { list: async () => ({ patterns: [pattern] }) }) as never,

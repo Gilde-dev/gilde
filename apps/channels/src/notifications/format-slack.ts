@@ -17,6 +17,7 @@ const HEADINGS: Record<NotificationKind, string> = {
   'executor.exhausted': ':hourglass_flowing_sand: Executor exhausted',
   'spec.planned': ':clipboard: Spec planned',
   'spec.plan_failed': ':x: Spec planning failed',
+  'operator.actions': ':hammer_and_wrench: Operator actions needed',
 };
 
 /** Escapes Slack control characters and defuses @channel/@here/@everyone and user-group mentions. */

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 
+import { hasOpenOperatorActions, type OperatorActionStateDto } from '../run/operator-actions.js';
 import type { BlockingJobDto, JobResponseDto } from './job.dto.js';
 import { Job } from './job.entity.js';
 
@@ -10,7 +11,7 @@ const isOpenPr = (e: Job) => e.prNumber !== null && (e.status === 'pr_open' || e
 @Injectable()
 export class JobMapper {
 
-    toDTO(e: Job, deps: { dependsOn: string[]; blockedBy: BlockingJobDto[]; pendingRevisions?: number; revision?: number; replacedById?: string | null; createdBy?: { id: string; name: string } | null; ownerId?: string | null } = { dependsOn: [], blockedBy: [] }): JobResponseDto {
+    toDTO(e: Job, deps: { dependsOn: string[]; blockedBy: BlockingJobDto[]; pendingRevisions?: number; revision?: number; replacedById?: string | null; createdBy?: { id: string; name: string } | null; ownerId?: string | null; operatorActions?: OperatorActionStateDto[] } = { dependsOn: [], blockedBy: [] }): JobResponseDto {
         return {
             id: e.id,
             projectId: e.projectId,
@@ -38,6 +39,8 @@ export class JobMapper {
             mergedBlocked: e.status === 'merged' && e.mergedBlocked,
             replacedById: deps.replacedById ?? null,
             recreatedFromId: e.recreatedFromId ?? null,
+            operatorActions: deps.operatorActions ?? [],
+            needsOperatorAction: hasOpenOperatorActions(deps.operatorActions),
             createdBy: deps.createdBy ?? null,
             ownerId: deps.ownerId ?? null,
             waitingReason: e.status === 'queued' ? e.waitingReason : null,

@@ -106,3 +106,55 @@ describe('parsePrBody', () => {
         });
     });
 });
+
+
+describe('operatorActions', () => {
+    const action = { kind: 'env', when: 'before_deploy', instruction: 'Generate a 32+ character secret with openssl rand -hex 32', name: 'EXECUTOR_SECRET_KEY', where: 'apiEnv', required: true };
+    const parse = (extra: unknown) => parsePrBody(block(JSON.stringify({ outcome: 'done', summary: 's', operatorActions: extra })));
+
+    it('accepts valid actions with and without the optional fields', () => {
+        const minimal = { kind: 'cli', when: 'after_deploy', instruction: 'Run the backfill' };
+        const parsed = parse([action, minimal]);
+        expect(parsed.resultError).toBeNull();
+        expect(parsed.result?.operatorActions).toEqual([action, minimal]);
+    });
+
+    it('leaves the field out when the result has none', () => {
+        expect(parsePrBody(block(RESULT)).result).not.toHaveProperty('operatorActions');
+    });
+
+    it('rejects more than 20 actions without losing the rest of the result', () => {
+        const parsed = parse(Array.from({ length: 21 }, () => action));
+        expect(parsed.result).toEqual({ outcome: 'done', summary: 's' });
+        expect(parsed.resultError).toContain('at most 20');
+    });
+
+    it('keeps the valid entries and reports an unknown kind or an empty instruction', () => {
+        const parsed = parse([action, { ...action, kind: 'magic' }, { ...action, instruction: '' }]);
+        expect(parsed.result).toMatchObject({ outcome: 'done', summary: 's', operatorActions: [action] });
+        expect(parsed.resultError).toMatch(/operatorActions 1: kind.*operatorActions 2: instruction/);
+    });
+
+    it('rejects a non-array', () => {
+        const parsed = parse('oops');
+        expect(parsed.result).toEqual({ outcome: 'done', summary: 's' });
+        expect(parsed.resultError).toBe('invalid operatorActions: must be an array');
+    });
+
+    it.each([
+        'gk_abcd_0123456789', 'sk-proj-abc123', 'ghp_0123456789abcdef', 'github_pat_11ABC', 'xoxb-123-456', '-----BEGIN PRIVATE KEY-----',
+    ])('rejects secret-looking values (%s) in any text field', (secret) => {
+        for (const field of ['instruction', 'name', 'where']) {
+            const parsed = parse([{ ...action, [field]: `use ${secret}` }]);
+            expect(parsed.result?.operatorActions).toBeUndefined();
+            expect(parsed.result).toMatchObject({ outcome: 'done' });
+            expect(parsed.resultError).toContain('looks like a secret');
+            expect(parsed.resultError).not.toContain(secret);
+        }
+    });
+
+    it('does not mistake ordinary words for secrets', () => {
+        const parsed = parse([{ ...action, instruction: 'Set the task-queue size; keys start with the sk- prefix' }]);
+        expect(parsed.resultError).toBeNull();
+    });
+});

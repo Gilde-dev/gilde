@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { gildeResultSchema } from '../webhook/pr-body.js';
+import { OperatorActionStateSchema } from './operator-actions.js';
 import { RunContextSchema } from './run-context.js';
 import { RunKnowledgeSchema } from './run-knowledge.js';
 import { RUN_KINDS, RUN_STATUSES } from './run-status.js';
@@ -38,6 +39,7 @@ export const RunResponseSchema = z.object({
     error: z.string().nullable(),
     ciConclusion: z.string().nullable(),
     result: gildeResultSchema.nullable(),
+    operatorActions: z.array(OperatorActionStateSchema),
     retro: z.string().nullable(),
     firedAt: z.string().datetime().nullable(),
     finishedAt: z.string().datetime().nullable(),

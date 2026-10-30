@@ -258,6 +258,28 @@ not rendered, so there is only one chat at a time. Below `md` the conversation l
   sets them on the agent (`agent.setMessages`) before the chat mounts, with the thread id on the chat configuration. The next
   message then continues the same Mastra thread.
 
+## Operator actions
+
+A PR often needs manual steps outside the code: a new environment variable, a GitHub App permission, a one-off CLI, an infra change. The coding agent lists them in the optional `operatorActions` array of its `gilde-result` block (and mirrors them in a `## Operator actions` section of the PR body for humans). The format is a contract: the infra workflow in the infra repo reads the same block from merged PR bodies and collects the steps in the deploy PR, so keep the fields exactly.
+
+| Field | Meaning |
+| --- | --- |
+| `kind` | `env`, `permission`, `cli`, `infra` or `manual` |
+| `when` | `before_deploy` or `after_deploy` |
+| `instruction` | 1-1000 characters: how to do the step or obtain the value |
+| `name` | optional, e.g. the environment variable |
+| `where` | optional, e.g. `apiEnv`, `channelsEnv`, `GitHub App` |
+| `required` | optional, read as `true` when omitted |
+
+At most 20 actions. Instructions never contain secrets: entries with a known token format (`gk_`, `sk-`, `ghp_`, `github_pat_`, `xox`, PEM headers) are rejected. An invalid entry is reported as a result error on the run (`resultError`); the valid entries and the rest of the result are kept.
+
+Where they show up:
+
+- The latest run stores the actions; job reads (`GET /api/v1/jobs`, `/jobs/:id`, the co-pilot and MCP job tools) expose `operatorActions` with a per-action `doneAt` and `doneById`, and `needsOperatorAction` while any is not done.
+- Board cards and the job dialog and page show a "Needs operator action" badge; the job views list the actions grouped by before/after deploy, each with a "Mark done".
+- `POST /api/v1/jobs/:id/operator-actions/:index/done` marks one action of the latest run done. Verified humans only (not API keys or bots); the first `doneAt` and `doneById` are kept. It never changes the job's status.
+- When a job with operator actions is merged, one `operator.actions` notification goes through the outbox (the Slack bot posts it), with the job title, PR link and the actions grouped by when.
+
 ## Blocked results and merged-without-work
 
 An agent reports `blocked` in its `gilde-result` block when it could not do the task. Gilde treats that as follows:

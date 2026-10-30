@@ -297,6 +297,7 @@ export class JobService {
             : [];
         const creatorById = new Map(creators.map((u) => [u.id, { id: u.id, name: u.name }]));
         const botIds = new Set(creators.filter((u) => u.isBot).map((u) => u.id));
+        const operatorActions = await this.runService.latestOperatorActions(entities.map((e) => e.id));
         return entities.map((e) => {
             const own = revisions.filter((r) => r.jobId === e.id);
             const revision = {
@@ -308,7 +309,7 @@ export class JobService {
                 .map((id) => depById.get(id))
                 .filter((d): d is Job => !!d && (d.status !== 'merged' || d.mergedBlocked))
                 .map((d) => ({ id: d.id, title: d.title, status: d.status, mergedBlocked: d.status === 'merged' && d.mergedBlocked }));
-            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, replacedById: replacedBy.get(e.id) ?? null, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null, ownerId: jobOwnerId(e, !!e.createdById && botIds.has(e.createdById)) });
+            return this.jobMapper.toDTO(e, { dependsOn: ids, blockedBy, ...revision, replacedById: replacedBy.get(e.id) ?? null, createdBy: e.createdById ? creatorById.get(e.createdById) ?? null : null, ownerId: jobOwnerId(e, !!e.createdById && botIds.has(e.createdById)), operatorActions: operatorActions.get(e.id) });
         });
     }
 
@@ -383,6 +384,13 @@ export class JobService {
         const owners = await m.getRepository(User).find({ where: { id: In([...new Set(executors.map((e) => e.ownerId))]) }, select: { id: true, name: true } });
         const ownerName = new Map(owners.map((u) => [u.id, u.name]));
         return new Map(executors.map((e) => [e.id, { id: e.id, name: e.name, ownerId: e.ownerId, ownerName: ownerName.get(e.ownerId) ?? '' }]));
+    }
+
+    /** Marks one operator action of the job's latest run done; the job's status does not change. */
+    async markOperatorActionDone(id: string, index: number, userId: string): Promise<JobResponseDto> {
+        await this.getOrFail(id);
+        if (!(await this.runService.markOperatorActionDone(id, index, userId))) throw new NotFoundException(`Job ${id} has no operator action ${index}`);
+        return this.getById(id);
     }
 
     async cancel(id: string): Promise<JobResponseDto> {

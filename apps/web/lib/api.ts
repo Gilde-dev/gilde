@@ -301,6 +301,21 @@ export interface Repo {
   updatedAt: string;
 }
 
+export type OperatorActionKind = 'env' | 'permission' | 'cli' | 'infra' | 'manual';
+export type OperatorActionWhen = 'before_deploy' | 'after_deploy';
+
+/** A manual step a PR needs outside the code. `doneAt` and `doneById` record who marked it done. */
+export interface OperatorAction {
+  kind: OperatorActionKind;
+  when: OperatorActionWhen;
+  instruction: string;
+  name: string | null;
+  where: string | null;
+  required: boolean;
+  doneAt: string | null;
+  doneById: string | null;
+}
+
 export interface Job {
   id: string;
   projectId: string;
@@ -341,6 +356,10 @@ export interface Job {
   mergeConflictCheckedAt: string | null;
   /** Merged on GitHub, but the latest run reported blocked: no work was done and it does not satisfy dependencies. */
   mergedBlocked: boolean;
+  /** Manual steps the latest run's PR needs, with per-action done state; empty when none. */
+  operatorActions: OperatorAction[];
+  /** At least one operator action is not done yet. */
+  needsOperatorAction: boolean;
   /** The job created by "Recreate job" to replace this one. */
   replacedById: string | null;
   /** The merged-without-work job this one was recreated from. */
@@ -625,6 +644,7 @@ export interface RunResult {
   testsRun?: boolean;
   testsPassed?: boolean;
   suggestedLesson?: string | null;
+  operatorActions?: Array<Pick<OperatorAction, 'kind' | 'when' | 'instruction'> & Partial<Pick<OperatorAction, 'name' | 'where'>> & { required?: boolean }>;
 }
 
 /** Name and owner of the executor of a run, never its token. */
@@ -670,6 +690,7 @@ export interface Run {
   error: string | null;
   ciConclusion: string | null;
   result: RunResult | null;
+  operatorActions: OperatorAction[];
   retro: string | null;
   firedAt: string | null;
   finishedAt: string | null;
@@ -1661,6 +1682,8 @@ export const api = {
   reconcileProject: (projectId: string) => request<ReconcileResult>(`/v1/projects/${id(projectId)}/reconcile`, 'POST'),
   sendBackJob: (jobId: string, reason: string) => request<Job>(`/v1/jobs/${id(jobId)}/send-back`, 'POST', { reason }),
   /** Sends a conflicted PR back with the fixed merge instruction; uses no attempt. */
+  markOperatorActionDone: (jobId: string, index: number) =>
+    request<Job>(`/v1/jobs/${id(jobId)}/operator-actions/${index}/done`, 'POST'),
   fixConflicts: (jobId: string) => request<Job>(`/v1/jobs/${id(jobId)}/fix-conflicts`, 'POST'),
   setRepoPaused: (repoId: string, paused: boolean) =>
     request<Repo>(`/v1/repos/${id(repoId)}/${paused ? 'pause' : 'resume'}`, 'POST'),
