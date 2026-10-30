@@ -245,6 +245,10 @@ export class PrReviewService implements OnApplicationBootstrap {
         return !!res.affected;
     }
 
+    findById(id: string): Promise<PrReview | null> {
+        return this.reviews.findOneBy({ id });
+    }
+
     /** Reviews that were claimed but whose model call never started; safe to start. */
     listPending(limit = 50): Promise<PrReview[]> {
         return this.reviews.find({ where: { status: 'pending' }, order: { createdAt: 'ASC' }, take: limit });
