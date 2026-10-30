@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api, type Job, type JobDetail, type Repo, type Revision } from '@/lib/api';
 import { agentTotals, noAgentUsage } from './agent-usage.fixture';
+import { blockingResult, page, review } from './job-review.fixture';
 import { JobDetailView, RunContextSummary, buildTimeline } from './job-detail';
 
 vi.mock('next/navigation', () => ({ useParams: () => ({ id: 'j1' }) }));
@@ -41,6 +42,7 @@ const proposed: Revision = {
 beforeEach(() => {
   vi.spyOn(api, 'getJob').mockResolvedValue(detail);
   vi.spyOn(api, 'listJobRevisions').mockResolvedValue([proposed]);
+  vi.spyOn(api, 'listJobReviews').mockResolvedValue({ items: [], page: 1, pageSize: 20, total: 0, revisionCount: 0 });
   vi.spyOn(api, 'listRepos').mockResolvedValue([{ id: 'r', fullName: 'o/repo' } as Repo]);
   vi.spyOn(api, 'listJobs').mockResolvedValue([{ ...base, id: 'x1', title: 'Downstream', dependsOn: ['j1'], status: 'queued' }]);
   vi.spyOn(api, 'getFeature').mockResolvedValue({ id: 'f1', title: 'Checkout flow' } as never);
@@ -49,6 +51,13 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('JobDetailView', () => {
+  it('shows why a job was returned and the review history', async () => {
+    vi.spyOn(api, 'listJobReviews').mockResolvedValue(page([review({ result: blockingResult, routing: { state: 'done', action: 'revision', routedAt: 'x' } })], { revisionCount: 1 }));
+    render(<JobDetailView />);
+    expect(await screen.findByText(/Returned to the agent by the automatic review \(revision 1\)/)).toBeInTheDocument();
+    expect(await screen.findByRole('tab', { name: 'Reviews (1)' })).toBeInTheDocument();
+  });
+
   it('renders header, tabs and timeline', async () => {
     render(<JobDetailView />);
     expect(await screen.findByRole('heading', { name: 'Add thing' })).toBeInTheDocument();

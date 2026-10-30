@@ -11,6 +11,7 @@ import { usePolling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
 import { CopilotPageContext } from './copilot-provider';
 import { JobActions } from './job-actions';
+import { JobReviews, REVIEW_PAGE_SIZE, ReviewBanner } from './job-review';
 import { MergeConflictBadge } from './merge-conflict-badge';
 import { OperatorActionBadge, OperatorActionsList } from './operator-actions';
 import { StatusBadge } from './status-badge';
@@ -443,6 +444,8 @@ export function JobDetailView() {
   const me = usePolling(fetchMe, 5 * 60_000);
   const fetchRevisions = useCallback(() => api.listJobRevisions(id), [id]);
   const revisions = usePolling(fetchRevisions, 15_000);
+  const fetchReviews = useCallback(() => api.listJobReviews(id, 1, REVIEW_PAGE_SIZE), [id]);
+  const reviews = usePolling(fetchReviews, 15_000);
   const j = job.data;
   const projectId = j?.projectId;
   const fetchRepos = useCallback(() => (projectId ? api.listRepos(projectId) : Promise.resolve([])), [projectId]);
@@ -474,7 +477,7 @@ export function JobDetailView() {
   const revs = revisions.data ?? [];
   const timeline = buildTimeline(j, revs);
   const refreshAll = async () => {
-    await Promise.all([job.refresh(), revisions.refresh()]);
+    await Promise.all([job.refresh(), revisions.refresh(), reviews.refresh()]);
   };
 
   return (
@@ -509,6 +512,7 @@ export function JobDetailView() {
         </div>
         <JobActions job={j} onChanged={refreshAll} showSync={me.data !== undefined} />
         <OperatorActionsList job={j} onChanged={refreshAll} />
+        <ReviewBanner latest={reviews.data?.items[0]} revisionCount={reviews.data?.revisionCount ?? 0} />
       </header>
 
       <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -517,6 +521,7 @@ export function JobDetailView() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="runs">Runs ({j.runs.length})</TabsTrigger>
             <TabsTrigger value="revisions">Revisions ({revs.length})</TabsTrigger>
+            <TabsTrigger value="reviews">Reviews{reviews.data ? ` (${reviews.data.total})` : ''}</TabsTrigger>
             <TabsTrigger value="feedback">Feedback ({j.feedback.length})</TabsTrigger>
             <TabsTrigger value="prompt">Prompt</TabsTrigger>
           </TabsList>
@@ -532,6 +537,13 @@ export function JobDetailView() {
           </TabsContent>
           <TabsContent value="revisions" className="pt-4">
             <Revisions revisions={revs} onChanged={refreshAll} />
+          </TabsContent>
+          <TabsContent value="reviews" className="pt-4">
+            {reviews.error && !reviews.data ? (
+              <p role="alert" className="text-sm text-danger">{reviews.error.message}</p>
+            ) : (
+              <JobReviews job={j} first={reviews.data} onChanged={refreshAll} canOverride={me.data !== undefined} />
+            )}
           </TabsContent>
           <TabsContent value="feedback" className="pt-4">
             <FeedbackList feedback={j.feedback} />
