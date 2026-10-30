@@ -36,6 +36,7 @@ import { BudgetModule } from './budget/budget.module.js';
 import { IntakeModule } from './intake/intake.module.js';
 import { SpecModule } from './spec/spec.module.js';
 import { McpModule } from './mcp/mcp.module.js';
+import { PrReviewModule } from './pr-review/pr-review.module.js';
 import { ScoutSignalModule } from './scout-signal/scout-signal.module.js';
 
 
@@ -83,6 +84,7 @@ export const { ObserveModule, ObserveInstrument } = createObserveModule();
     McpModule.register(),
     NotificationModule,
     OtelModule,
+    PrReviewModule,
   ],
 })
 export class AppModule { }

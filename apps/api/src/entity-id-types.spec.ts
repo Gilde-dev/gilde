@@ -17,6 +17,7 @@ const EXTERNAL_IDS = new Set([
   'history_entries.project_id',
   'history_state.pass_id',
   'webhook_deliveries.delivery_id',
+  'pr_reviews.publication_id',
   'intake_items.external_id',
   'intake_items.status_comment_id',
   // The run log: an agent's slug and polymorphic references (a thread id, a tool name, a row of one of several tables).
