@@ -266,3 +266,13 @@ describe('JobCard merge conflicts', () => {
     expect(screen.queryByText('Merge conflicts')).toBeNull();
   });
 });
+
+describe('JobCard operator actions', () => {
+  it('shows a Needs operator action badge only while an action is open', () => {
+    const open = { kind: 'env', when: 'before_deploy', instruction: 'Set it', name: null, where: null, required: true, doneAt: null, doneById: null } as const;
+    const { rerender } = render(<JobCard job={{ ...base, operatorActions: [open], needsOperatorAction: true }} onOpen={() => {}} />);
+    expect(screen.getByText('Needs operator action')).toBeInTheDocument();
+    rerender(<JobCard job={{ ...base, operatorActions: [{ ...open, doneAt: '2026-01-01T00:00:00.000Z' }], needsOperatorAction: false }} onOpen={() => {}} />);
+    expect(screen.queryByText('Needs operator action')).toBeNull();
+  });
+});

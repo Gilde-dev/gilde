@@ -47,7 +47,7 @@ describe('a blocked result parks the job', () => {
         scout.register(async (_p, e) => { sent.push(e); });
         await ds.getRepository(Project).save({ id: P1, slug: 's', name: 'n', maxAttempts: 3 } as Partial<Project>);
         await jobs.save({ id: J1, projectId: P1, repoId: REPO, title: 't', task: 't', queuedAt: new Date(), status: 'dispatched', attempts: 1 });
-        events = new JobEventsService(jobs, runs, ds.getRepository(Project), undefined, undefined, undefined, { jobParked: parked, featureReadiness: vi.fn(), jobAwaitingReview: vi.fn() } as never, scout);
+        events = new JobEventsService(jobs, runs, ds.getRepository(Project), undefined, undefined, undefined, { jobParked: parked, featureReadiness: vi.fn(), operatorActions: vi.fn(), jobAwaitingReview: vi.fn() } as never, scout);
     });
     afterEach(() => ds.destroy());
 

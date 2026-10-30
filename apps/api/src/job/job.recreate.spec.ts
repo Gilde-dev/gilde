@@ -32,7 +32,7 @@ beforeEach(async () => {
     user = await ds.getRepository(User).save({ name: 'Ann', email: 'ann@example.com', password: 'x' } as Partial<User>);
     feature = await ds.getRepository(Feature).save({ projectId: project.id, title: 'F', spec: 's', status: 'active' } as Partial<Feature>);
     const repoService = { getById: (id: string) => ds.getRepository(Repo).findOneByOrFail({ id }) };
-    service = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, deps, ds.getRepository(Feature));
+    service = new JobService(new JobMapper(), repoService as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobs, deps, ds.getRepository(Feature));
 });
 afterEach(() => ds.destroy());
 

@@ -2,6 +2,7 @@ import { Clock, GitBranch, GitPullRequest, Repeat, Sparkles } from 'lucide-react
 import type { Job } from '@/lib/api';
 import { JobActions } from './job-actions';
 import { MergeConflictBadge } from './merge-conflict-badge';
+import { OperatorActionBadge } from './operator-actions';
 import { StatusBadge } from './status-badge';
 import { Avatar } from './ui/avatar';
 import { Badge } from './ui/badge';
@@ -84,6 +85,7 @@ export function JobCard({
       <div className="flex flex-wrap items-center gap-1.5">
         <StatusBadge status={job.status} mergedBlocked={job.mergedBlocked} />
         <MergeConflictBadge job={job} />
+        <OperatorActionBadge job={job} />
         {scoutUserId && job.createdBy?.id === scoutUserId && (
           <Badge variant="pr" icon={Sparkles} title="Suggested by Verkenner, the scout">
             Suggested

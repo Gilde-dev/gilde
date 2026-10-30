@@ -51,7 +51,7 @@ beforeEach(async () => {
     const repoService = { getById: (id: string) => repos.findOneByOrFail({ id }) };
     notifications = ds.getRepository(Notification);
     capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, features);
-    jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency), features, undefined, capture);
+    jobService = new JobService(new JobMapper(), repoService as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobs, ds.getRepository(JobDependency), features, undefined, capture);
     service = new FeatureService(new FeatureMapper(), { getById: async () => p1 } as never, jobService, features, jobs, capture);
 });
 

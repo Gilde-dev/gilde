@@ -49,7 +49,7 @@ describe('ScoutSuggestionService', () => {
 
     async function build(quota = 3): Promise<ScoutSuggestionService> {
         const repos = ds.getRepository(Repo);
-        jobService = new JobService(new JobMapper(), { getById: (id: string) => repos.findOneByOrFail({ id }) } as never, {} as never, {} as never, jobsRepo(), ds.getRepository(JobDependency), ds.getRepository(Feature));
+        jobService = new JobService(new JobMapper(), { getById: (id: string) => repos.findOneByOrFail({ id }) } as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobsRepo(), ds.getRepository(JobDependency), ds.getRepository(Feature));
         const find = (map: Record<string, string>) => async (id: string) => { if (!map[id]) throw new Error('not found'); return { id, projectId: map[id] }; };
         return new ScoutSuggestionService(
             ds, jobService,

@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 import { PromptTrimmedSchema } from '../execution/execution.port.js';
 import { FeedbackResponseSchema } from '../feedback/feedback.dto.js';
+import { OperatorActionStateSchema } from '../run/operator-actions.js';
 import { RunDetailResponseSchema } from '../run/run.dto.js';
 import { AgentTotalsSchema } from '../usage/agent-totals.dto.js';
 import { JOB_STATUSES } from './job-state.js';
@@ -97,6 +98,10 @@ export const JobResponseSchema = z.object({
     replacedById: z.string().uuid().nullable(),
     /** The merged-without-work job this one was recreated from, if any. */
     recreatedFromId: z.string().uuid().nullable(),
+    /** Manual steps the latest run's PR needs (env, permissions, CLI, infra), with per-action done state; empty when none. */
+    operatorActions: z.array(OperatorActionStateSchema),
+    /** At least one operator action is not done yet. Marking actions done never changes the job's status. */
+    needsOperatorAction: z.boolean(),
     createdBy: JobCreatorSchema.nullable(),
     /** Whose executors may run the job: the non-bot creator, otherwise the human who queued it; null when unknown. */
     ownerId: z.string().uuid().nullable(),

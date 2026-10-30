@@ -1,3 +1,4 @@
+import { mergeOperatorActions } from '../run/operator-actions.js';
 import { ConflictException, Injectable, Logger, NotFoundException, Optional } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
@@ -86,7 +87,7 @@ export class JobEventsService {
         if (run) {
             await this.runs.update(
                 { id: run.id, status: In(['firing', 'fired', 'pr_opened']) },
-                { status: 'pr_opened', result: parsed.result, resultError: parsed.resultError, retro: parsed.retro },
+                { status: 'pr_opened', result: parsed.result, resultError: parsed.resultError, retro: parsed.retro, operatorActions: mergeOperatorActions(run.operatorActions, parsed.result?.operatorActions) },
             );
             await this.recordProposals(job, run, parsed);
             // The agent's work is done once it opened the PR: blocked is the agent declining the task.
@@ -202,6 +203,7 @@ export class JobEventsService {
         }
         await this.lessons?.onJobEnded(job.id, to);
         if (merged) await this.syncMergedBlocked(job.id);
+        if (merged) await this.capture?.operatorActions(job);
         if (merged) await this.manifests?.refreshQuietly(job.repoId);
         if (merged) await this.capture?.featureReadiness(job.featureId);
         if (merged) await this.scout?.publish(job.projectId, { type: 'job_merged', jobId: job.id, repoId: job.repoId });

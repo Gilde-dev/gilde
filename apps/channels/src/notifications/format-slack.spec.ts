@@ -142,3 +142,16 @@ describe('deepLink', () => {
 describe('escapeSlack', () => {
   it('collapses whitespace', () => expect(escapeSlack('a\n\nb')).toBe('a b'));
 });
+
+describe('formatSlack operator actions', () => {
+  it('shows the job, the PR and the grouped actions', () => {
+    const text = formatSlack(notification({
+      kind: 'operator.actions', title: 'Add the thing', repos: ['o/r'], reason: 'Before deploy: SOME_KEY: Generate a key. After deploy: cli: Run the backfill',
+      prLinks: [{ repo: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7' }],
+    }), ctx);
+    expect(text).toContain('Operator actions needed');
+    expect(text).toContain('Add the thing');
+    expect(text).toContain('Before deploy: SOME_KEY: Generate a key. After deploy: cli: Run the backfill');
+    expect(text).toContain('<https://github.com/o/r/pull/7|o/r#7>');
+  });
+});

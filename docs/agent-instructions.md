@@ -44,8 +44,15 @@ and lessons [{ id, text, scope, status, relevance }] (optional lessons from earl
    - [x] <each acceptance criterion from the payload, checked only when it is met>
 
    ```gilde-result
-   {"outcome":"done|partial|blocked","summary":"<one or two sentences>","testsRun":true,"testsPassed":true,"suggestedLesson":"<one reusable lesson for future agents, or null>"}
+   {"outcome":"done|partial|blocked","summary":"<one or two sentences>","testsRun":true,"testsPassed":true,"suggestedLesson":"<one reusable lesson for future agents, or null>","operatorActions":[{"kind":"env|permission|cli|infra|manual","when":"before_deploy|after_deploy","instruction":"<how to do or obtain it>","name":"<optional, e.g. the env variable>","where":"<optional, e.g. apiEnv, channelsEnv, GitHub App>","required":true}]}
    ```
+
+   `operatorActions` is optional: when the change needs anything outside the code to be done by a human (a new or
+   changed environment variable or secret, an external permission or webhook event, a one-off CLI or data step, an
+   infra/deployment change), list each step with `when` it must happen, before or after deploy (at most 20, the
+   instruction 1-1000 characters). Otherwise omit the field. Never put a secret in it: say how to obtain or generate
+   the value, never the value itself (entries that look like tokens or keys are rejected). Also mirror the same steps
+   in a short `## Operator actions` section in the PR body, for humans.
 
    Only when you have proposals (omit the block otherwise), add a fenced `gilde-proposals` block after the
    `gilde-result` block, with a JSON array of { jobId, title?, task?, acceptanceCriteria?, dependsOn?, reason }:

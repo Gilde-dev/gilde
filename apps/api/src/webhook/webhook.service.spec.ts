@@ -53,7 +53,7 @@ beforeEach(async () => {
     feedbackService = new FeedbackService(new FeedbackMapper(), ds.getRepository(Feedback));
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(
-        new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature),
+        new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature), runs,
     );
     const events = new JobEventsService(jobs, runs, projects, undefined, undefined, undefined, capture);
     installations = new GithubInstallationService(ds.getRepository(GithubInstallation), { mode: 'app' } as never);
@@ -761,5 +761,59 @@ describe('app deliveries', () => {
             spy.mockRestore();
             expect(await service.handle('pull_request_review_comment', payload, 'del-2')).toBe('stored review comment for PR #12');
         });
+    });
+});
+
+describe('WebhookService operator actions', () => {
+    const actions = [
+        { kind: 'env', when: 'before_deploy', instruction: 'Generate a key with openssl rand -hex 32', name: 'SOME_KEY', where: 'apiEnv' },
+        { kind: 'cli', when: 'after_deploy', instruction: 'Run the backfill', required: false },
+    ];
+    const withActions = (job: Job, run: JobRun, list: unknown) => [
+        `gilde-job: ${job.id}`, `gilde-run: ${run.id}`, '```gilde-result',
+        JSON.stringify({ outcome: 'done', summary: 'ok', operatorActions: list }), '```',
+    ].join('\n');
+
+    it('stores the actions on the run and keeps done state across an edit of the body', async () => {
+        const job = await seedJob();
+        const run = await seedRun(job);
+        await service.handle('pull_request', prPayload('opened', { body: withActions(job, run, actions) }));
+        const stored = (await reloadRun(run.id)).operatorActions!;
+        expect(stored).toHaveLength(2);
+        await runs.update({ id: run.id }, { operatorActions: stored.map((a, i) => (i === 0 ? { ...a, doneAt: '2026-01-01T00:00:00.000Z', doneById: 'u1' } : a)) });
+
+        await service.handle('pull_request', prPayload('edited', { body: withActions(job, run, [...actions, { kind: 'infra', when: 'after_deploy', instruction: 'Add a DNS record' }]) }));
+        const edited = (await reloadRun(run.id)).operatorActions!;
+        expect(edited.map((a) => a.doneAt ?? null)).toEqual(['2026-01-01T00:00:00.000Z', null, null]);
+    });
+
+    it('still stores the result when an action is invalid', async () => {
+        const job = await seedJob();
+        const run = await seedRun(job);
+        await service.handle('pull_request', prPayload('opened', { body: withActions(job, run, [{ kind: 'nope', when: 'before_deploy', instruction: 'x' }]) }));
+        expect(await reloadRun(run.id)).toMatchObject({ result: { outcome: 'done', summary: 'ok' }, operatorActions: null });
+        expect((await reloadRun(run.id)).resultError).toContain('invalid operatorActions');
+    });
+
+    it('sends one operator.actions notification on merge, grouped by when, and none without actions', async () => {
+        const job = await seedJob();
+        const run = await seedRun(job);
+        await service.handle('pull_request', prPayload('opened', { body: withActions(job, run, actions) }));
+        await service.handle('pull_request', prPayload('closed', { merged: true }));
+        await service.handle('pull_request', prPayload('closed', { merged: true }));
+
+        const rows = await notifications.findBy({ kind: 'operator.actions' });
+        expect(rows).toHaveLength(1);
+        expect(rows[0]).toMatchObject({ jobId: job.id, title: 'T', occurrenceKey: `operator.actions:${run.id}` });
+        expect(rows[0].prLinks).toEqual([{ repo: 'gilde-dev/gilde', number: 12, url: 'https://github.com/gilde-dev/gilde/pull/12' }]);
+        expect(rows[0].reason).toBe('Before deploy: SOME_KEY: Generate a key with openssl rand -hex 32. After deploy: cli (optional): Run the backfill');
+    });
+
+    it('sends nothing when the merged job had no actions', async () => {
+        const job = await seedJob();
+        const run = await seedRun(job);
+        await service.handle('pull_request', prPayload('opened', { body: body(job, run) }));
+        await service.handle('pull_request', prPayload('closed', { merged: true }));
+        expect(await notifications.countBy({ kind: 'operator.actions' })).toBe(0);
     });
 });
