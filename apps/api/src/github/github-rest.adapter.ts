@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 
 import { GitHubCredentials } from './github-credentials.js';
-import { GITHUB_ISSUE_PAGE_SIZE, GitHubRequestError, type GitHubIssueCommentRef, type GitHubDirEntry, type GitHubFile, type GitHubIssue, type GitHubIssuePage, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from './github.port.js';
+import { DIFF_MAX_PAGES, DIFF_PAGE_SIZE, GITHUB_ISSUE_PAGE_SIZE, GitHubRequestError, type GitHubIssueCommentRef, type GitHubDirEntry, type GitHubFile, type GitHubIssue, type GitHubIssuePage, type GitHubPort, type GitHubDiffFile, type GitHubPull, type GitHubPullDiff, type GitHubReviewRef, type GitHubWorkflowRun, type DiffIncompleteReason } from './github.port.js';
 
 const API = 'https://api.github.com';
 const TIMEOUT_MS = 15_000;
@@ -14,6 +14,9 @@ interface PullJson {
     html_url: string;
     body: string | null;
     head: { sha: string; ref: string };
+    base?: { sha?: string; ref?: string };
+    draft?: boolean;
+    changed_files?: number;
     mergeable_state?: string | null;
 }
 
@@ -45,6 +48,29 @@ interface ContentEntryJson {
     name: string;
     path: string;
 }
+
+interface PullFileJson {
+    filename: string;
+    previous_filename?: string | null;
+    status?: string;
+    additions?: number;
+    deletions?: number;
+    changes?: number;
+    patch?: string | null;
+}
+
+interface ReviewJson {
+    id: number;
+    html_url: string;
+    body?: string | null;
+    commit_id?: string | null;
+    state?: string;
+    user?: { type?: string; login?: string } | null;
+    performed_via_github_app?: { id?: number } | null;
+}
+
+/** GitHub rejects review bodies above 65536 characters. */
+const REVIEW_BODY_LIMIT = 65_000;
 
 @Injectable()
 export class GitHubRestAdapter implements GitHubPort {
@@ -97,6 +123,48 @@ export class GitHubRestAdapter implements GitHubPort {
         return entries
             .filter((e) => e.type === 'file' || e.type === 'dir')
             .map((e) => ({ name: e.name, path: e.path, type: e.type === 'dir' ? 'dir' : 'file' }));
+    }
+
+    async getPullDiff(fullName: string, number: number, expected: { headSha: string; baseSha: string }): Promise<GitHubPullDiff> {
+        const before = await this.getPull(fullName, number);
+        const reasons = new Set<DiffIncompleteReason>();
+        const files: GitHubDiffFile[] = [];
+        let capped = false;
+        for (let page = 1; page <= DIFF_MAX_PAGES; page++) {
+            const rows = await this.get<PullFileJson[]>(`/repos/${fullName}/pulls/${number}/files?per_page=${DIFF_PAGE_SIZE}&page=${page}`);
+            files.push(...rows.map(toDiffFile));
+            if (rows.length < DIFF_PAGE_SIZE) break;
+            if (page === DIFF_MAX_PAGES) capped = true;
+        }
+        if (capped) reasons.add('pagination_cap');
+        if (before.changedFiles !== undefined && files.length !== before.changedFiles) reasons.add('file_count_mismatch');
+        const filesWithoutPatch = files.filter((f) => f.patch === null && f.changes > 0).map((f) => f.path);
+        if (filesWithoutPatch.length > 0) reasons.add('missing_patch');
+        // The listing has no sha of its own: the pull is read again after it, and both reads must be the expected commits.
+        const after = await this.getPull(fullName, number);
+        if (before.headSha !== expected.headSha || after.headSha !== expected.headSha) reasons.add('head_changed');
+        if ((before.baseSha ?? '') !== expected.baseSha || (after.baseSha ?? '') !== expected.baseSha) reasons.add('base_changed');
+        return { headSha: expected.headSha, baseSha: expected.baseSha, files, complete: reasons.size === 0, incompleteReasons: [...reasons], filesWithoutPatch };
+    }
+
+    async publishCommentReview(fullName: string, number: number, input: { commitId: string; marker: string; body: string }): Promise<GitHubReviewRef> {
+        const body = input.body.startsWith(input.marker) ? input.body : `${input.marker}\n${input.body}`;
+        if (body.length > REVIEW_BODY_LIMIT) throw new Error(`Review body is ${body.length} characters; GitHub accepts at most ${REVIEW_BODY_LIMIT}`);
+        const res = await this.send(`/repos/${fullName}/pulls/${number}/reviews`, 'POST', { commit_id: input.commitId, body, event: 'COMMENT' });
+        if (!res.ok) throw new GitHubRequestError(`GitHub POST /repos/:repo/pulls/:number/reviews failed: ${res.status}`, res.status);
+        const created = (await res.json()) as ReviewJson;
+        return { id: String(created.id), htmlUrl: created.html_url, commitId: created.commit_id ?? input.commitId };
+    }
+
+    async findReviewByMarker(fullName: string, number: number, marker: string, commitId: string): Promise<GitHubReviewRef | null> {
+        const own = await this.ownAuthor(fullName);
+        for (let page = 1; page <= DIFF_MAX_PAGES; page++) {
+            const rows = await this.get<ReviewJson[]>(`/repos/${fullName}/pulls/${number}/reviews?per_page=100&page=${page}`);
+            const hit = rows.find((r) => (r.body ?? '').trimStart().startsWith(marker) && r.commit_id === commitId && own(r));
+            if (hit) return { id: String(hit.id), htmlUrl: hit.html_url, commitId };
+            if (rows.length < 100) return null;
+        }
+        throw new Error(`GitHub review listing of ${fullName}#${number} has more than ${DIFF_MAX_PAGES * 100} reviews; cannot tell whether ours exists`);
     }
 
     async listOpenIssuesWithLabel(fullName: string, label: string): Promise<GitHubIssuePage> {
@@ -219,6 +287,20 @@ const toPull = (p: PullJson): GitHubPull => ({
     htmlUrl: p.html_url,
     body: p.body,
     mergeableState: p.mergeable_state ?? null,
+    draft: p.draft,
+    baseRef: p.base?.ref,
+    baseSha: p.base?.sha,
+    changedFiles: p.changed_files,
+});
+
+const toDiffFile = (f: PullFileJson): GitHubDiffFile => ({
+    path: f.filename,
+    previousPath: f.previous_filename ?? null,
+    status: f.status ?? 'modified',
+    additions: f.additions ?? 0,
+    deletions: f.deletions ?? 0,
+    changes: f.changes ?? (f.additions ?? 0) + (f.deletions ?? 0),
+    patch: typeof f.patch === 'string' ? f.patch : null,
 });
 
 const toIssue = (i: IssueJson): GitHubIssue => ({
