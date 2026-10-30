@@ -66,16 +66,38 @@ describe('Agent settings (e2e)', () => {
     await http().put('/api/v1/agents/gilde/settings').send({}).expect(401);
   });
 
-  it('lists the six agents with status, field definitions and no secret', async () => {
+  it('lists the seven agents with status, field definitions and no secret', async () => {
     const res = await http().get('/api/v1/agents').set(bearer(token)).expect(200);
     const agents = res.body as Agent[];
-    expect(agents.map((a) => a.id)).toEqual(['gilde', 'verkenner', 'verfijner', 'werkmeester', 'mcp', 'coding']);
+    expect(agents.map((a) => a.id)).toEqual(['gilde', 'verkenner', 'verfijner', 'werkmeester', 'reviewer', 'mcp', 'coding']);
     for (const a of agents) {
       expect(['on', 'off', 'misconfigured', 'disabled_by_env']).toContain(a.status);
       expect(a.fields.length).toBeGreaterThan(0);
     }
     expect(JSON.stringify(res.body)).not.toContain('sk-e2e-not-a-real-key');
     expect(agents.find((a) => a.id === 'mcp')).toMatchObject({ settings: { dailyJobLimit: expect.any(Number) } });
+  });
+
+  it('round-trips the five reviewer limits, rejects invalid ones with field errors and audits changes', async () => {
+    const current = await get('reviewer');
+    expect(current).toMatchObject({ hasBotUser: false, settings: { timeoutSeconds: 300, maxSteps: 12, maxInputTokens: 60000, maxOutputTokens: 4000, maxRevisions: 2 } });
+    expect(current.fields.map((f) => f.key)).toEqual(['timeoutSeconds', 'maxSteps', 'maxInputTokens', 'maxOutputTokens', 'maxRevisions']);
+    const body = (settings: Record<string, unknown>) => ({ enabled: false, botUserId: null, model: null, settings });
+    for (const bad of [0, -1, 1.5, 9007199254740993, '5', null]) {
+      const res = await put('reviewer', body({ ...current.settings, maxRevisions: bad })).expect(400);
+      expect(res.body.issues).toEqual([expect.objectContaining({ path: 'settings.maxRevisions' })]);
+    }
+    const { maxSteps: _omitted, ...missing } = current.settings;
+    expect((await put('reviewer', body(missing)).expect(400)).body.issues).toEqual([{ path: 'settings.maxSteps', message: 'Required' }]);
+
+    const next = { timeoutSeconds: 90, maxSteps: 6, maxInputTokens: 20000, maxOutputTokens: 1000, maxRevisions: 1 };
+    await put('reviewer', body(next)).expect(200);
+    expect((await get('reviewer')).settings).toEqual(next);
+    const trail = (await http().get('/api/v1/agents/reviewer/audit').set(bearer(token)).expect(200)).body as Array<{ field: string }>;
+    expect(trail.map((t) => t.field).sort()).toEqual(['settings.maxInputTokens', 'settings.maxOutputTokens', 'settings.maxRevisions', 'settings.maxSteps', 'settings.timeoutSeconds']);
+
+    const plain = tokenFor(app, await createTestUser(app, { name: 'PlainReviewer' }));
+    await put('reviewer', body(next), plain).expect(403);
   });
 
   it('answers 404 for an unknown agent', async () => {

@@ -32,6 +32,7 @@ const TRIGGER_LABEL: Record<AgentRunTrigger, string> = {
   spec_version: 'Spec version',
   dispatch: 'Dispatch',
   mcp_call: 'MCP call',
+  pr_review: 'PR review',
 };
 const OUTCOME: Record<AgentRunOutcome | 'running', { label: string; variant: BadgeVariant }> = {
   ok: { label: 'OK', variant: 'success' },

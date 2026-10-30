@@ -83,6 +83,8 @@ export class AgentPromptService {
             case 'werkmeester':
                 return this.llm(id, settings, text('Instructions', WERKMEESTER_INSTRUCTIONS), text('Run prompt', planPrompt(EXAMPLE_SPEC, EXAMPLE_NONCE)),
                     'Example binding: a made-up approved spec version. A real run uses the spec version of the queued planning run and a random nonce for the boundary lines.', null);
+            case 'reviewer':
+                return this.none(id, 'The reviewer is configured here (model and limits), but its instructions are written by the review execution; they are not shown on this page yet.');
             case 'mcp':
                 return this.none(id, 'The MCP server has no LLM and no prompt: operators\' own clients call its tools. See Tools for the tool descriptions.');
             case 'coding':

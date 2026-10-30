@@ -1006,7 +1006,7 @@ export function mcpServerReplacement(s: McpServer, changes: Partial<ReplaceMcpSe
   };
 }
 
-export const AGENT_IDS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'mcp', 'coding'] as const;
+export const AGENT_IDS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'reviewer', 'mcp', 'coding'] as const;
 export type AgentId = (typeof AGENT_IDS)[number];
 export const AGENT_STATUSES = ['on', 'off', 'misconfigured', 'disabled_by_env'] as const;
 export type AgentStatus = (typeof AGENT_STATUSES)[number];
@@ -1095,9 +1095,9 @@ export interface SlackBot {
   notificationKinds: string[];
 }
 
-export type AgentRunTrigger = 'chat' | 'signal' | 'schedule' | 'intake_item' | 'spec_version' | 'dispatch' | 'mcp_call';
+export type AgentRunTrigger = 'chat' | 'signal' | 'schedule' | 'intake_item' | 'spec_version' | 'dispatch' | 'mcp_call' | 'pr_review';
 export type AgentRunOutcome = 'ok' | 'error' | 'refused' | 'skipped';
-export const AGENT_RUN_TRIGGERS: readonly AgentRunTrigger[] = ['chat', 'signal', 'schedule', 'intake_item', 'spec_version', 'dispatch', 'mcp_call'];
+export const AGENT_RUN_TRIGGERS: readonly AgentRunTrigger[] = ['chat', 'signal', 'schedule', 'intake_item', 'spec_version', 'dispatch', 'mcp_call', 'pr_review'];
 export const AGENT_RUN_OUTCOMES: readonly AgentRunOutcome[] = ['ok', 'error', 'refused', 'skipped'];
 
 /** Mirrors AgentRunSchema. Another user's co-pilot run has `metadataOnly` and no trigger reference or reason. */

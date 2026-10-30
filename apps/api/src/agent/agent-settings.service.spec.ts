@@ -151,3 +151,90 @@ describe('replacing settings', () => {
         expect(await service.botUsers()).toEqual([{ id: BOT.id, name: 'Bot', email: BOT.email }]);
     });
 });
+
+describe('the reviewer agent', () => {
+    const reviewerBody = (over: object = {}) => ({ enabled: true, botUserId: null, model: 'openai/review', settings: defaultSettings('reviewer'), ...over });
+    const start = async (env: NodeJS.ProcessEnv = { OPENAI_API_KEY: 'sk-x', COPILOT_MODEL: 'openai/main' }) => {
+        const h = harness(env);
+        await h.service.seed();
+        return h;
+    };
+
+    it('is seeded once, off by default, with the five default limits, and never overwritten', async () => {
+        const { service, store } = await start();
+        expect(store.get('reviewer')).toMatchObject({ enabled: false, botUserId: null, model: null, settings: { timeoutSeconds: 300, maxSteps: 12, maxInputTokens: 60000, maxOutputTokens: 4000, maxRevisions: 2 } });
+        const seeded = harness({ REVIEWER_ENABLED: 'true', REVIEWER_MODEL: 'openai/env', REVIEWER_MAX_REVISIONS: '4' }, [{ id: 'reviewer', enabled: false, model: 'openai/kept', settings: defaultSettings('reviewer') }]);
+        expect(await seeded.service.seed()).not.toContain('reviewer');
+        expect(seeded.store.get('reviewer')).toMatchObject({ enabled: false, model: 'openai/kept', settings: defaultSettings('reviewer') });
+        expect(await service.seed()).toEqual([]);
+    });
+
+    it('is seeded from REVIEWER_* variables, and an invalid limit seeds the default and switches it off', async () => {
+        const ok = await start({ OPENAI_API_KEY: 'k', REVIEWER_ENABLED: 'true', REVIEWER_MODEL: 'openai/env', REVIEWER_TIMEOUT_SECONDS: '90' });
+        expect(ok.store.get('reviewer')).toMatchObject({ enabled: true, model: 'openai/env', settings: { ...defaultSettings('reviewer'), timeoutSeconds: 90 } });
+        const bad = await start({ OPENAI_API_KEY: 'k', REVIEWER_ENABLED: 'true', REVIEWER_MODEL: 'openai/env', REVIEWER_MAX_STEPS: '0' });
+        expect(bad.store.get('reviewer')).toMatchObject({ enabled: false, settings: defaultSettings('reviewer') });
+    });
+
+    it.each([0, -1, 1.5, Number.MAX_SAFE_INTEGER + 2, Number.POSITIVE_INFINITY, Number.NaN, '5', null, undefined])('rejects %s for every limit with a field error and audits nothing', async (bad) => {
+        const { service, audit } = await start();
+        for (const key of Object.keys(defaultSettings('reviewer'))) {
+            const settings = { ...defaultSettings('reviewer'), [key]: bad };
+            if (bad === undefined) delete (settings as Record<string, unknown>)[key];
+            await expect(service.replace(jwt, 'reviewer', reviewerBody({ settings }))).rejects.toMatchObject({
+                response: { issues: [expect.objectContaining({ path: `settings.${key}` })] },
+            });
+        }
+        expect(audit).toEqual([]);
+    });
+
+    it('round-trips the limits, audits each changed field and shows them on the next read without a restart', async () => {
+        const { service, audit, runtime } = await start();
+        const settings = { timeoutSeconds: 120, maxSteps: 5, maxInputTokens: 30000, maxOutputTokens: 2000, maxRevisions: 3 };
+        const result = await service.replace(jwt, 'reviewer', reviewerBody({ settings }));
+        expect(result).toMatchObject({ status: 'on', effectiveModel: 'openai/review', settings });
+        expect(audit.map((a) => a.field)).toEqual(['enabled', 'model', 'settings.timeoutSeconds', 'settings.maxSteps', 'settings.maxInputTokens', 'settings.maxOutputTokens', 'settings.maxRevisions']);
+        expect(audit.every((a) => a.agent === 'reviewer' && a.changedById === HUMAN.id)).toBe(true);
+        expect(await runtime.reviewerSetup()).toEqual({ config: { enabled: true, model: 'openai/review', ...settings } });
+
+        await service.replace(jwt, 'reviewer', reviewerBody({ settings: { ...settings, maxSteps: 7 }, model: 'openai/other' }));
+        expect(await runtime.reviewerSetup()).toMatchObject({ config: { model: 'openai/other', maxSteps: 7 } });
+        await service.replace(jwt, 'reviewer', reviewerBody({ enabled: false }));
+        expect(await runtime.reviewerSetup()).toMatchObject({ config: null, status: 'off', reason: expect.stringContaining('switched off') });
+    });
+
+    it('refuses API keys, bots, non-admins and anonymous callers', async () => {
+        const { service, audit } = await start();
+        await expect(service.replace({ ...jwt, credential: 'api_key' }, 'reviewer', reviewerBody())).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.replace({ ...jwt, id: BOT.id }, 'reviewer', reviewerBody())).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.replace({ ...jwt, id: PLAIN.id }, 'reviewer', reviewerBody())).rejects.toBeInstanceOf(ForbiddenException);
+        await expect(service.replace(undefined, 'reviewer', reviewerBody())).rejects.toBeInstanceOf(ForbiddenException);
+        expect(audit).toEqual([]);
+    });
+
+    it('has no bot user and rejects one', async () => {
+        const { service } = await start();
+        await expect(service.replace(jwt, 'reviewer', reviewerBody({ botUserId: BOT.id }))).rejects.toMatchObject({ response: { issues: [{ path: 'botUserId', message: 'This agent has no bot user' }] } });
+    });
+
+    it('reports misconfigured without a model or key, and env-disabled for AGENTS_DISABLED including all', async () => {
+        const noKey = await start({ COPILOT_MODEL: 'openai/main' });
+        await noKey.service.replace(jwt, 'reviewer', reviewerBody());
+        expect(await noKey.runtime.reviewerSetup()).toMatchObject({ config: null, status: 'misconfigured', reason: expect.stringContaining('OPENAI_API_KEY') });
+
+        const noModel = await start({ OPENAI_API_KEY: 'k' });
+        await noModel.service.replace(jwt, 'reviewer', reviewerBody({ model: null }));
+        expect(await noModel.runtime.reviewerSetup()).toMatchObject({ config: null, status: 'misconfigured', reason: expect.stringContaining('No model is set') });
+
+        for (const disabled of ['reviewer', 'all']) {
+            const h = harness({ OPENAI_API_KEY: 'k', COPILOT_MODEL: 'openai/main', AGENTS_DISABLED: disabled }, [{ id: 'reviewer', enabled: true, model: 'openai/review', settings: defaultSettings('reviewer') }]);
+            expect(await h.runtime.reviewerSetup()).toMatchObject({ config: null, status: 'disabled_by_env', reason: expect.stringContaining('AGENTS_DISABLED') });
+        }
+    });
+
+    it('uses the co-pilot model when none is stored', async () => {
+        const { service, runtime } = await start();
+        await service.replace(jwt, 'reviewer', reviewerBody({ model: null }));
+        expect(await runtime.reviewerSetup()).toMatchObject({ config: { model: 'openai/main' } });
+    });
+});

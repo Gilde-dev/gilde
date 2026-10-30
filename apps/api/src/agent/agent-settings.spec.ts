@@ -6,6 +6,7 @@ import { mcpConfig } from '../mcp/mcp.config.js';
 import { mcpToolLimits } from '../project-mcp/project-mcp-tools.service.js';
 import { refineConfig } from '../copilot/verfijner.config.js';
 import { scoutConfig } from '../copilot/verkenner.config.js';
+import { reviewerConfig } from '../copilot/reviewer.config.js';
 import { planConfig } from '../copilot/werkmeester.config.js';
 
 import { agentsDisabled } from './agents-disabled.js';
@@ -25,6 +26,8 @@ function parserAccepts(agent: AgentId, key: string, value: number): boolean {
             return refineConfig({ ...KEY, ...env, REFINE_ENABLED: 'true', REFINE_USER_EMAIL: 'bot@example.com', REFINE_MODEL: 'openai/m' }).enabled;
         case 'werkmeester':
             return planConfig({ ...KEY, ...env, PLAN_ENABLED: 'true', PLAN_USER_EMAIL: 'bot@example.com', PLAN_MODEL: 'openai/m' }).enabled;
+        case 'reviewer':
+            return reviewerConfig({ ...KEY, ...env, REVIEWER_ENABLED: 'true', REVIEWER_MODEL: 'openai/m' }).enabled;
         case 'mcp': {
             try { mcpConfig({ ...env, MCP_ENABLED: 'true' }); } catch { return false; }
             // The tool limits fall back to their default instead of failing: accepted iff the value survives unchanged.
@@ -59,6 +62,8 @@ describe('agent settings validate like the existing parsers', () => {
         expect(scoutConfig({ ...KEY, SCOUT_ENABLED: 'true', SCOUT_USER_EMAIL: 'b@example.com', SCOUT_MODEL: 'openai/m' })).toMatchObject(defaultSettings('verkenner'));
         expect(refineConfig({ ...KEY, REFINE_ENABLED: 'true', REFINE_USER_EMAIL: 'b@example.com', REFINE_MODEL: 'openai/m' })).toMatchObject(defaultSettings('verfijner'));
         expect(planConfig({ ...KEY, PLAN_ENABLED: 'true', PLAN_USER_EMAIL: 'b@example.com', PLAN_MODEL: 'openai/m' })).toMatchObject(defaultSettings('werkmeester'));
+        expect(reviewerConfig({ ...KEY, REVIEWER_ENABLED: 'true', REVIEWER_MODEL: 'openai/m' })).toMatchObject(defaultSettings('reviewer'));
+        expect(defaultSettings('reviewer')).toEqual({ timeoutSeconds: 300, maxSteps: 12, maxInputTokens: 60000, maxOutputTokens: 4000, maxRevisions: 2 });
         const mcp = mcpConfig({});
         expect(defaultSettings('mcp')).toMatchObject({ dailyJobLimit: mcp.dailyJobLimit, dailyFeatureLimit: mcp.dailyFeatureLimit });
         const limits = mcpToolLimits({});

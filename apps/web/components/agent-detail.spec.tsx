@@ -46,6 +46,60 @@ describe('AgentDetailView: Configuration', () => {
     expect(form.getByLabelText('Runs per project per day')).toBeDisabled();
   });
 
+  const reviewer = (over: Partial<Parameters<typeof agent>[0]> = {}) =>
+    agent({
+      id: 'reviewer', label: 'Reviewer', hasBotUser: false, botUserId: null, botUser: null,
+      settings: { timeoutSeconds: 300, maxSteps: 12, maxInputTokens: 60000, maxOutputTokens: 4000, maxRevisions: 2 },
+      fields: [
+        { key: 'timeoutSeconds', label: 'Timeout per review (seconds)', kind: 'int', min: 1, max: 9007199254740991, default: 300 },
+        { key: 'maxSteps', label: 'Maximum steps per review', kind: 'int', min: 1, max: 9007199254740991, default: 12 },
+        { key: 'maxInputTokens', label: 'Input tokens per review (all steps)', kind: 'int', min: 1, max: 9007199254740991, default: 60000 },
+        { key: 'maxOutputTokens', label: 'Output tokens per review (all steps)', kind: 'int', min: 1, max: 9007199254740991, default: 4000 },
+        { key: 'maxRevisions', label: 'Automatic revision rounds per job', kind: 'int', min: 1, max: 9007199254740991, default: 2 },
+      ],
+      ...over,
+    });
+
+  it('edits the five reviewer limits with a labelled timeout unit and shows field errors', async () => {
+    nav.params = { id: 'reviewer' };
+    vi.spyOn(api, 'getAgent').mockResolvedValue(reviewer());
+    const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(reviewer());
+    render(<AgentDetailView />);
+    const form = within(await screen.findByRole('form', { name: 'Settings' }));
+    expect(form.getByLabelText('Timeout per review (seconds)')).toHaveValue(300);
+    expect(form.getByLabelText('Maximum steps per review')).toHaveValue(12);
+    expect(form.getByLabelText('Input tokens per review (all steps)')).toHaveValue(60000);
+    expect(form.getByLabelText('Output tokens per review (all steps)')).toHaveValue(4000);
+    expect(form.getByLabelText('Automatic revision rounds per job')).toHaveValue(2);
+    expect(screen.getByText(/does not turn on automatic review for any project/)).toBeInTheDocument();
+
+    fireEvent.change(form.getByLabelText('Timeout per review (seconds)'), { target: { value: '120' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save settings' }));
+    await waitFor(() =>
+      expect(put).toHaveBeenCalledWith('reviewer', expect.objectContaining({ botUserId: null, settings: { timeoutSeconds: 120, maxSteps: 12, maxInputTokens: 60000, maxOutputTokens: 4000, maxRevisions: 2 } })),
+    );
+
+    put.mockRejectedValueOnce(new ApiError('x', 400, 'Validation failed', [{ path: 'settings.maxSteps', message: 'Must be at least 1' }]));
+    fireEvent.change(form.getByLabelText('Maximum steps per review'), { target: { value: '0' } });
+    fireEvent.click(form.getByRole('button', { name: 'Save settings' }));
+    expect(await screen.findByText('Must be at least 1')).toBeInTheDocument();
+  });
+
+  it('shows distinct reasons for off, misconfigured and env-disabled reviewers', async () => {
+    nav.params = { id: 'reviewer' };
+    const cases = [
+      { over: { status: 'off' as const, enabled: false, reason: 'The reviewer is switched off in the agent settings' }, text: /Off: The reviewer is switched off/ },
+      { over: { status: 'misconfigured' as const, reason: 'No model is set (neither for this agent nor for the co-pilot)' }, text: /Misconfigured: No model is set/ },
+      { over: { status: 'disabled_by_env' as const, reason: 'AGENTS_DISABLED names this agent' }, text: /Disabled by the environment: AGENTS_DISABLED/ },
+    ];
+    for (const c of cases) {
+      vi.spyOn(api, 'getAgent').mockResolvedValue(reviewer(c.over));
+      const { unmount } = render(<AgentDetailView />);
+      expect(await screen.findByText(c.text)).toBeInTheDocument();
+      unmount();
+    }
+  });
+
   it('shows the stored settings and saves a full replacement built from the loaded agent', async () => {
     vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
     const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());

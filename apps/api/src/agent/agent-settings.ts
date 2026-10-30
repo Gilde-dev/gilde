@@ -4,6 +4,7 @@ import { DEFAULT_SCOUT_DAILY_SUGGESTIONS, DEFAULT_SCOUT_MAX_WAKES_PER_DAY, DEFAU
 import { DEFAULT_REFINE_DAILY_LIMIT } from '../copilot/verfijner.config.js';
 import { DEFAULT_PLAN_DAILY_LIMIT } from '../copilot/werkmeester.config.js';
 import { DEFAULT_MCP_DAILY_FEATURE_LIMIT, DEFAULT_MCP_DAILY_JOB_LIMIT } from '../mcp/mcp.config.js';
+import { DEFAULT_REVIEWER_MAX_INPUT_TOKENS, DEFAULT_REVIEWER_MAX_OUTPUT_TOKENS, DEFAULT_REVIEWER_MAX_REVISIONS, DEFAULT_REVIEWER_MAX_STEPS, DEFAULT_REVIEWER_TIMEOUT_SECONDS } from '../copilot/reviewer.config.js';
 import { LESSON_PATTERN_MIN_SIZE } from '../lesson/lesson.dto.js';
 
 import type { AgentId } from './agent-ids.js';
@@ -41,6 +42,13 @@ export const SETTING_FIELDS: Record<AgentId, SettingField[]> = {
     ],
     werkmeester: [
         { key: 'dailyLimit', env: 'PLAN_DAILY_LIMIT', label: 'Runs per project per day', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_PLAN_DAILY_LIMIT },
+    ],
+    reviewer: [
+        { key: 'timeoutSeconds', env: 'REVIEWER_TIMEOUT_SECONDS', label: 'Timeout per review (seconds)', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_REVIEWER_TIMEOUT_SECONDS },
+        { key: 'maxSteps', env: 'REVIEWER_MAX_STEPS', label: 'Maximum steps per review', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_REVIEWER_MAX_STEPS },
+        { key: 'maxInputTokens', env: 'REVIEWER_MAX_INPUT_TOKENS', label: 'Input tokens per review (all steps)', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_REVIEWER_MAX_INPUT_TOKENS },
+        { key: 'maxOutputTokens', env: 'REVIEWER_MAX_OUTPUT_TOKENS', label: 'Output tokens per review (all steps)', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_REVIEWER_MAX_OUTPUT_TOKENS },
+        { key: 'maxRevisions', env: 'REVIEWER_MAX_REVISIONS', label: 'Automatic revision rounds per job', kind: 'int', min: 1, max: INT_MAX, default: DEFAULT_REVIEWER_MAX_REVISIONS },
     ],
     mcp: [
         { key: 'dailyJobLimit', env: 'MCP_DAILY_JOB_LIMIT', label: 'Jobs per user per day', kind: 'int', min: 0, max: INT_MAX, default: DEFAULT_MCP_DAILY_JOB_LIMIT },
