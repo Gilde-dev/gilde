@@ -108,6 +108,7 @@ export class ReviewExecutionService {
         let usage: Usage = {};
         try {
             const out = await this.execute(review, options, log, (u) => { usage = u; });
+            if ('lostClaim' in out) return { executed: false, reason: 'not_pending' };
             return await this.finish(review, out.result, usage, log, out.executedModel);
         } catch (error) {
             // Whatever went wrong after the claim: stored as an error, never repeated.
@@ -130,7 +131,7 @@ export class ReviewExecutionService {
         return { executed: true, review: stored, result: final };
     }
 
-    private async execute(review: PrReview, options: RunOptions, log: AgentRunHandle | undefined, setUsage: (u: Usage) => void): Promise<{ result: ReviewResult; executedModel: boolean }> {
+    private async execute(review: PrReview, options: RunOptions, log: AgentRunHandle | undefined, setUsage: (u: Usage) => void): Promise<{ result: ReviewResult; executedModel: boolean } | { lostClaim: true }> {
         const limits = ReviewLimitsSchema.safeParse(review.limits);
         if (!limits.success) return { result: errorResult('execution_error', 'The review has no valid limits snapshot'), executedModel: false };
         const count = options.count ?? conservativeTokenCount;
@@ -165,7 +166,10 @@ export class ReviewExecutionService {
 
         // 4. The one execution of this head: only the winner of this conditional write may call the model.
         if (!(await this.reviews.markRunning(review.id))) {
-            return { result: skipped('superseded', 'The review was not started: the job moved on or another worker owns it'), executedModel: false };
+            // Not ours to finish: another worker owns the running review (it stores the result), or the job moved on and only a
+            // still-pending row is superseded. Never overwrite a running execution of the winner.
+            await this.reviews.supersedePending(review.id, skipped('superseded', 'The review was not started: the job moved on'));
+            return { lostClaim: true };
         }
         const reader = this.inputs.contextReader(repo.fullName, review.headSha, count);
         const run = await this.model(assembled.review, reader, limits.data, model, count, options);

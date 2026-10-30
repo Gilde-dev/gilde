@@ -205,6 +205,16 @@ export class PrReviewService implements OnApplicationBootstrap {
     }
 
     /** Stores the GitHub review reference, once. Returns false when one is already stored. */
+    /** Finalizes a review that is still `pending` only; a running execution of another worker is never overwritten. */
+    async supersedePending(reviewId: string, result: ReviewResult): Promise<boolean> {
+        const parsed = ReviewResultSchema.parse(result);
+        const res = await this.reviews.createQueryBuilder().update(PrReview)
+            .set({ status: parsed.kind, reasonCode: parsed.kind === 'complete' ? null : parsed.reasonCode, reason: parsed.kind === 'complete' ? null : parsed.reason, result: parsed, completedAt: new Date() })
+            .where(`id = :id AND status = 'pending' AND NOT (${FENCE})`, { id: reviewId, st: REVIEW_FENCE_STATUSES })
+            .execute();
+        return !!res.affected;
+    }
+
     async recordPublication(reviewId: string, publication: { id: string; url: string }): Promise<boolean> {
         const res = await this.reviews.createQueryBuilder().update(PrReview)
             .set({ publicationId: publication.id, publicationUrl: publication.url })

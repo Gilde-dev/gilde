@@ -898,6 +898,37 @@ With several executors, agent PRs increasingly conflict with the default branch.
 - **No attempt used.** A conflict-fix round is recorded on its run (`kind: 'conflict_fix'`) and does not count toward the project's `maxAttempts`: the job's `attempts` is not incremented, and the round is never parked for lack of attempts (only a failed fire parks it). Normal send-backs and CI retries still count.
 - **Automatic fixing.** The project setting `autoFixConflicts` (default off; project settings, Policies) makes Gilde start the fix itself when `mergeConflict` becomes true: at most one automatic round per PR head (the head sha is stored on the job), only for a `pr_open` or `awaiting_review` job, so never while a job is dispatched, and never a second one for the same head. Manual fixes are always possible.
 
+## Automatic review after CI
+
+Gilde can review an agent PR itself once CI is green, before a human is told it is ready, and send actionable findings back to the agent on the same branch and PR. It is **off by default** and is independent of the label-triggered review below. Requirements and decisions: `docs/specs/issue-164-automatically-review-agent-prs-after-ci-and-route-acti.md` (approved version 2).
+
+**Opt-in.** Two switches, both needed: the project setting `autoReview` (project settings, Policies; `autoReview` on `POST /api/v1/projects` and `PUT /api/v1/projects/:id`, default `false` for existing and new projects, persisted per project) and a working `reviewer` runtime (Agent settings above). Configuring the runtime alone starts no review for any project; opting a project in without a runtime is a visible skip. Configuration is runtime-only: nothing is read from the environment per project.
+
+**Setup.** Switch the `reviewer` on in Agent settings, give it a model (empty follows the co-pilot's; `OPENAI_API_KEY` is needed) and check its limits. It has no bot user: the review is a GitHub `COMMENT` review posted with Gilde's own GitHub credentials. The GitHub App (or the PAT) therefore needs **Pull requests: read and write** to publish reviews (the read-only list in "GitHub App" is enough only while no project has `autoReview` on). Without that permission publication fails visibly (below) and the job goes to a human.
+
+**Limits.** Five finite positive whole numbers, saved through Agent settings and read fresh for every new review (a review keeps the snapshot it started with; no restart needed): `timeoutSeconds` 300, `maxSteps` 12, `maxInputTokens` 60000, `maxOutputTokens` 4000 and `maxRevisions` 2. Budgets are checked before the model is called, `AGENTS_DISABLED` naming `reviewer` or `all` is honoured, and usage and activity are recorded in the agent run log.
+
+**What is reviewed.** Only a current, open, non-draft job PR whose tracked CI is green on the head (read from GitHub at that moment). Inputs come from Gilde, never from the PR: the job's persisted task and criteria, the exact pinned feature spec version (a later spec version or edit changes nothing), conventions (`AGENTS.md`) read from the trusted **base** commit, and the **complete** diff plus the sibling tests it needs. The PR title and body are never input, so instructions in them cannot influence the review. Criteria assigned to other jobs of the feature are not this job's to satisfy and alone never cause a send-back. A result has a verdict, per-criterion coverage and evidence-backed blocking findings, kept apart from suggestions.
+
+**Too large.** The diff is never truncated. If the complete diff plus required context does not fit `maxInputTokens`, the review is *incomplete* with the reason `too large`, with no model call when it is known up front (preflight) and also when a file the reviewer needs later no longer fits. It is never a clean verdict and never sends the job back: it goes to a human.
+
+**Routing.** A complete result without blockers is published as a head-bound `COMMENT` review and the job moves to `awaiting_review` with the usual notification. A complete result with blocking findings is published and queues a same-branch, same-PR revision (a normal attempt, no readiness notification); the dispatcher still applies the executor, pause, concurrency, budget and protected-path gates. A job gets at most `maxRevisions` automatic revisions (counted across heads) and never more than the project's `maxAttempts`; at the limit it is **parked** with the findings and the reason. The GitHub review webhook cannot repeat the action.
+
+| Situation | Review row | Job goes to |
+|---|---|---|
+| Project opted out (`project_opt_out`), runtime off, unconfigured or disabled by the environment | skipped, with its own reason | `awaiting_review` (the plain CI-to-human path) |
+| CI not green, PR closed or draft, GitHub unreadable | none yet | stays `pr_open`; a later observation tries again |
+| `too large`, timeout, step/token limit, malformed output, context unavailable, budget refused, abandoned by a restart | incomplete | `awaiting_review`, no revision |
+| Model or execution error, publication failed | error (findings kept) | `awaiting_review`, no revision |
+| Blocking result within the limits | complete | `queued` (same PR), once |
+| Blocking result at a revision or attempt limit | complete | `parked` with findings |
+
+**Human fallback and durability.** Every failure ends with a human, never an automatic revision, and **the model is never called twice for the same head**: the review row (unique per job, PR and head) is the durable claim, so simultaneous webhook and reconcile observations, other workers and restarts share it. A restart starts a claimed review that never began, publishes and routes a finished result that was not routed (a publication of unknown outcome is looked up by its marker, never posted twice), and turns an execution that had started and was cut off into an incomplete `abandoned` result that is not retried. A result for an old head, a closed PR or a job that moved on is kept as history but never routes or notifies.
+
+**Audit and override.** The job details show the history: head SHA, verdict, coverage, findings, limits, revision count, errors and skips (including `too large`) and the GitHub links. A verified human (JWT; not an API key, bot or the scout) can override the decision for the **current head** with a reason (`POST /api/v1/jobs/:id/review-override`): a pending review, an automatic park or a still-queued automatic revision goes to `awaiting_review`. It is refused for a stale head, a terminal job, an active coding round, or a decision already overridden, is audited, and does not survive a new head (that head is reviewed afresh). It neither bypasses CI nor protected-path approval (`needsApproval` stays), and the final merge always stays with a human.
+
+**Separate from label reviews.** `.github/workflows/agent-review.yaml` (the `gilde:review` label, below) only posts comments, keeps its own trigger and is not a routing authority for this feature.
+
 ## Agent review
 
 Add the `gilde:review` label to a PR to get a Claude Code review (the `Agent review` workflow). It works on any non-draft PR, also human ones. While the label is present, the PR is re-reviewed on every new push, reopen and ready-for-review; remove the label to stop. Other labels never trigger a review. Reviews use the Claude subscription (`CLAUDE_CODE_OAUTH_TOKEN`), so apply the label deliberately.
