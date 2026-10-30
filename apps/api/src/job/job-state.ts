@@ -22,15 +22,16 @@ export type JobEvent =
     | 'merged'
     | 'closed'       // PR closed without merge
     | 'cancel'
-    | 'manual_retry'; // you requeue a parked job
+    | 'manual_retry' // you requeue a parked job
+    | 'review_override'; // a verified human overrides an automatic review decision: straight to awaiting_review
 
 const TRANSITIONS: Record<JobStatus, Partial<Record<JobEvent, JobStatus>>> = {
     triage: { enqueue: 'queued', cancel: 'cancelled' },
-    queued: { triage: 'triage', fire: 'dispatched', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
+    queued: { triage: 'triage', fire: 'dispatched', review_override: 'awaiting_review', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
     dispatched: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
-    pr_open: { pr_activity: 'pr_open', ci_passed: 'awaiting_review', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
+    pr_open: { review_override: 'awaiting_review', pr_activity: 'pr_open', ci_passed: 'awaiting_review', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
     awaiting_review: { pr_activity: 'pr_open', retry: 'queued', park: 'parked', merged: 'merged', closed: 'rejected' },
-    parked: { manual_retry: 'queued', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
+    parked: { manual_retry: 'queued', review_override: 'awaiting_review', cancel: 'cancelled', merged: 'merged', closed: 'rejected' },
     merged: {},
     rejected: {},
     cancelled: {},

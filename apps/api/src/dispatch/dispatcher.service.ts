@@ -365,10 +365,12 @@ export class DispatcherService {
         // A conflict-fix round continues the PR and uses no attempt.
         const kind: RunKind = queued.nextRoundKind === 'conflict_fix' && queued.prNumber !== null ? 'conflict_fix' : 'attempt';
 
-        // Conditional claim: only one concurrent dispatcher can move the job out of queued.
+        // Conditional claim: only one concurrent dispatcher can move the job out of queued. The same row-level condition
+        // fences a human review override (pr-review): whichever write wins excludes the other, and a claim consumes the
+        // pending automatic revision's provenance so a dispatched round can no longer be overridden.
         const claim = await this.jobRepository.update(
             { id: jobId, status: 'queued' },
-            { status: to, waitingReason: null, ...(kind === 'attempt' ? { attempts: () => 'attempts + 1' } : {}) },
+            { status: to, waitingReason: null, autoRevisionReviewId: null, ...(kind === 'attempt' ? { attempts: () => 'attempts + 1' } : {}) },
         );
         if (!claim.affected) return 'skipped';
 

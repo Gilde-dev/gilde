@@ -73,6 +73,27 @@ class RollbackApply extends Error {
     constructor(readonly outcome: AppliedRouting) { super('rollback'); }
 }
 
+class RollbackOverride extends Error {
+    constructor() { super('rollback'); }
+}
+
+/** Which automatic decision state a human override acts on; each has its own job status and routing provenance. */
+export type OverrideKind = 'review_pending' | 'auto_parked' | 'auto_revision_queued';
+
+export interface OverrideInput {
+    kind: OverrideKind;
+    reviewId: string;
+    actorId: string;
+    reason: string;
+}
+
+export type AppliedOverride =
+    | { applied: true; job: Job; review: PrReview }
+    /** The review or the job changed since it was read (routed, dispatched, new head, ...): nothing was written. */
+    | { applied: false };
+
+const OVERRIDE_FROM: Record<OverrideKind, JobStatus> = { review_pending: 'pr_open', auto_parked: 'parked', auto_revision_queued: 'queued' };
+
 /**
  * The durable review ledger. Every state change is a conditional write, so concurrent observations, a restarted process and a
  * moved-on job all resolve in the database, never in process memory. Methods returning entities are internal (the worker and
@@ -297,6 +318,56 @@ export class PrReviewService implements OnApplicationBootstrap {
             });
         } catch (e) {
             if (e instanceof RollbackApply) return e.outcome;
+            throw e;
+        }
+    }
+
+    /**
+     * The audited human override of one automatic decision, as one compare-and-set over the review row and the job row in a
+     * transaction. The review is suppressed (head-bound: a new head has its own row) only while its routing is still in the
+     * state the kind needs, and the job moves to awaiting_review only while it still has this PR and head, the status the
+     * kind needs and, for a pending automatic revision, that revision's provenance. The review's routing claim, the
+     * dispatcher's queued claim (which clears the provenance) and this write all fence each other on those rows, so
+     * whichever wins excludes the others. Protected-path approval flags are not touched; running work is never cancelled
+     * (a dispatched job has the wrong status and the write loses).
+     */
+    async applyOverride(input: OverrideInput): Promise<AppliedOverride> {
+        const review = await this.reviews.findOneBy({ id: input.reviewId });
+        if (!review) return { applied: false };
+        const from = OVERRIDE_FROM[input.kind];
+        const to = nextStatus(from, 'review_override')!;
+        const now = new Date();
+        const routing = input.kind === 'review_pending'
+            ? `routing_state = 'unclaimed'`
+            : `routing_state = 'done' AND routing_action = '${input.kind === 'auto_parked' ? 'park' : 'revision'}'`;
+        try {
+            return await this.transaction(async (m) => {
+                const marked = await m.createQueryBuilder().update(PrReview)
+                    .set({ suppressed: true, overriddenAt: now, overriddenById: input.actorId, overrideReason: input.reason })
+                    .where(`id = :id AND suppressed = :no AND ${routing}`, { id: review.id, no: false })
+                    .execute();
+                if (!marked.affected) throw new RollbackOverride();
+                const query = m.createQueryBuilder().update(Job)
+                    .set({ status: to, autoRevisionReviewId: null, ...(from === 'pr_open' ? {} : { lastReason: null, waitingReason: null, nextRoundKind: null }) })
+                    .where('id = :id AND head_sha = :head AND pr_number = :pr AND status = :from', {
+                        id: review.jobId, head: review.headSha, pr: review.prNumber, from,
+                    });
+                if (input.kind === 'auto_revision_queued') query.andWhere('auto_revision_review_id = :rid', { rid: review.id });
+                const moved = await query.execute();
+                if (!moved.affected) throw new RollbackOverride();
+                const fresh = await m.getRepository(PrReview).findOneByOrFail({ id: review.id });
+                await m.getRepository(PrReview).save({ id: review.id, overriddenResult: {
+                    status: fresh.status, verdict: fresh.verdict, reasonCode: fresh.reasonCode,
+                    routingState: fresh.routingState, routingAction: fresh.routingAction, jobStatus: from,
+                } });
+                return {
+                    applied: true,
+                    job: await m.getRepository(Job).findOneByOrFail({ id: review.jobId }),
+                    review: await m.getRepository(PrReview).findOneByOrFail({ id: review.id }),
+                } as const;
+            });
+        } catch (e) {
+            if (e instanceof RollbackOverride) return { applied: false };
             throw e;
         }
     }
