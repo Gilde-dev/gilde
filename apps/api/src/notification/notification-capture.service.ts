@@ -16,7 +16,7 @@ import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js'
 import { NotificationService, sanitizeReason } from './notification.service.js';
 
 /** Why a job was parked; part of the occurrence key so different causes are different events. */
-export type ParkCause = 'failure' | 'sent_back' | 'dispatch' | 'blocked';
+export type ParkCause = 'failure' | 'sent_back' | 'dispatch' | 'blocked' | 'auto_review';
 
 /**
  * Builds the envelopes for the factory events and records them best effort. Every method runs after the domain
@@ -37,12 +37,12 @@ export class NotificationCaptureService {
     ) { }
 
     /** The job entered awaiting_review (CI passed on its current head). */
-    jobAwaitingReview(job: Job): Promise<boolean> {
+    jobAwaitingReview(job: Job, note = ''): Promise<boolean> {
         return this.notifications.recordQuietly(async () => ({
             ...(await this.jobEnvelope(job)),
             occurrenceKey: jobKey('job.awaiting_review', job),
             kind: 'job.awaiting_review',
-            reason: `CI passed${job.headSha ? ` on ${job.headSha.slice(0, 7)}` : ''}; waiting for your review`,
+            reason: `CI passed${job.headSha ? ` on ${job.headSha.slice(0, 7)}` : ''}; waiting for your review${note ? `. ${note}` : ''}`,
         }));
     }
 
