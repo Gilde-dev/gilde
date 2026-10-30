@@ -20,6 +20,18 @@ export const UNATTENDED_WRITE_TOOLS = {
     werkmeester: ['proposePlan'],
 } as const satisfies Partial<Record<AgentId, readonly string[]>>;
 
+/**
+ * The reviewer's whole allowlist: read-only tools over the review context of one pull request (bound to its head and base
+ * SHAs). It gets no edit, command, pull-request, policy, spec or merge tool, and no attached project MCP tools; the review
+ * execution must build its tools from exactly these names (agent-tools.spec.ts).
+ */
+export const REVIEWER_TOOLS: readonly AgentToolDto[] = [
+    { name: 'listChangedFiles', description: 'List the files changed by the pull request with their change type and size.', access: 'read', needsApproval: false },
+    { name: 'readFileAtHead', description: 'Read a file as it is at the reviewed head commit; reports whether the content is complete and what it costs in tokens.', access: 'read', needsApproval: false },
+    { name: 'readFileAtBase', description: 'Read a file as it is at the trusted base commit (conventions and unchanged code); reports completeness and token cost.', access: 'read', needsApproval: false },
+    { name: 'searchCodeAtHead', description: 'Search the code at the reviewed head commit; reports completeness and token cost.', access: 'read', needsApproval: false },
+];
+
 interface ToolLike { description?: string; requireApproval?: boolean }
 
 const byName = (tools: Record<string, ToolLike>, write: (name: string, tool: ToolLike) => { write: boolean; approval: boolean }): AgentToolDto[] =>
@@ -48,6 +60,8 @@ export function toolsOf(agent: AgentId): AgentToolDto[] | null {
             return unattended('verfijner', createRefineTools(NEVER as never, NEVER as never) as Record<string, ToolLike>);
         case 'werkmeester':
             return unattended('werkmeester', createPlanTools(NEVER as never, NEVER as never) as Record<string, ToolLike>);
+        case 'reviewer':
+            return [...REVIEWER_TOOLS];
         case 'mcp':
             return createMcpTools(NEVER as never, NEVER as never, () => undefined)
                 .map((t) => ({
@@ -68,6 +82,7 @@ export const TOOLS_NOTE: Record<AgentId, string> = {
     verkenner: 'Unattended and bound to one project. Its only write is a bounded suggestion that lands in triage; it can never queue, approve or merge.',
     verfijner: 'Unattended and bound to one intake item. Its only write saves a draft spec; it never approves anything.',
     werkmeester: 'Unattended and bound to one approved spec version. Its only write proposes a plan, which creates a draft feature with jobs in triage.',
+    reviewer: 'Unattended and read-only, bound to one pull request at one head commit. It reads the review context; it has no tool that edits, runs commands, comments, approves, merges or changes settings, and no project MCP tools.',
     mcp: 'Tools for operators over MCP. Triage and drafts only: nothing is queued, dispatched, cancelled, merged or approved. Writes happen on the operator\'s own authenticated call, without a confirmation step.',
     coding: 'Coding agents run in each user\'s own Claude Code routine and use the tools of that routine. Gilde does not control or list them; what they must and must not do is in the prompt.',
 };

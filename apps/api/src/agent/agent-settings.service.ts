@@ -22,7 +22,7 @@ const BOT_ENV: Record<'verkenner' | 'verfijner' | 'werkmeester', { enabled: stri
 };
 
 /** Agents whose invalid numeric environment value turned them off before (fail closed); the others took the default. */
-const FAIL_CLOSED: ReadonlySet<AgentId> = new Set(['verkenner', 'verfijner', 'werkmeester', 'mcp']);
+const FAIL_CLOSED: ReadonlySet<AgentId> = new Set(['verkenner', 'verfijner', 'werkmeester', 'reviewer', 'mcp']);
 
 /**
  * Stores the runtime settings of the agents. On startup an agent without a record gets one from the current environment
@@ -86,6 +86,10 @@ export class AgentSettingsService {
                 if (!botUserId) this.logger.warn(`${names.email} does not match an existing user; ${id} is seeded without a bot user.`);
             }
             return { id, enabled: env[names.enabled]?.trim() === 'true' && !closed, botUserId, model: env[names.model]?.trim() || null, settings };
+        }
+        if (id === 'reviewer') {
+            // Off unless REVIEWER_ENABLED is literally true; never turns on any project's review policy.
+            return { id, enabled: env.REVIEWER_ENABLED?.trim() === 'true' && !closed, botUserId: null, model: env.REVIEWER_MODEL?.trim() || null, settings };
         }
         // The MCP server's on/off switch is MCP_ENABLED, which stays environment-only and is a ceiling; the coding agents have none.
         return { id, enabled: !closed, botUserId: null, model: null, settings };

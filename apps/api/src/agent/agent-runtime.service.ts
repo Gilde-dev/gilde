@@ -7,6 +7,7 @@ import { copilotConfig, type CopilotConfig } from '../copilot/copilot.config.js'
 import type { ScoutSetup, RefineSetup, PlanSetup } from '../copilot/copilot.mastra.js';
 import { scoutConfig, type ScoutConfig } from '../copilot/verkenner.config.js';
 import { refineConfig, type RefineConfig } from '../copilot/verfijner.config.js';
+import { reviewerConfig, type ReviewerConfig } from '../copilot/reviewer.config.js';
 import { planConfig, type PlanConfig } from '../copilot/werkmeester.config.js';
 import { UserService } from '../user/user.service.js';
 
@@ -20,7 +21,7 @@ export const AGENT_ENV = Symbol('AGENT_ENV');
 /** Resolves once the missing settings records are seeded and the first state is resolved. */
 export const AGENTS_READY = Symbol('AGENTS_READY');
 
-type AnyConfig = CopilotConfig | ScoutConfig | RefineConfig | PlanConfig;
+type AnyConfig = CopilotConfig | ScoutConfig | RefineConfig | PlanConfig | ReviewerConfig;
 
 /** What an agent is right now: its stored settings and the status derived from them, the environment and the users table. */
 export interface EffectiveAgent {
@@ -138,6 +139,21 @@ export class AgentRuntimeService {
         return agent.status === 'on' && agent.botUser ? { config: agent.config as Extract<PlanConfig, { enabled: true }>, user: agent.botUser } : null;
     }
 
+    /**
+     * The reviewer's configuration as it is now, read per review (never cached across reviews), or the reason it is not
+     * available: `off` (switched off in the settings), `misconfigured` (no model or key, invalid limits) or `disabled_by_env`
+     * (AGENTS_DISABLED, including `all`). Never throws.
+     */
+    async reviewerSetup(): Promise<{ config: Extract<ReviewerConfig, { enabled: true }> } | { config: null; status: Exclude<AgentStatus, 'on'>; reason: string }> {
+        try {
+            const agent = await this.effective('reviewer');
+            if (agent.status === 'on' && agent.config?.enabled) return { config: agent.config as Extract<ReviewerConfig, { enabled: true }> };
+            return { config: null, status: agent.status === 'on' ? 'misconfigured' : agent.status, reason: agent.reason ?? 'The reviewer is not available' };
+        } catch (error) {
+            return { config: null, status: 'misconfigured', reason: `The reviewer settings could not be read: ${error instanceof Error ? error.message : 'unknown error'}` };
+        }
+    }
+
     /** The settings of an agent whatever its status (limits of the MCP server and the coding agents). */
     async settingsOf(id: AgentId): Promise<AgentSettingsValues> {
         return (await this.effective(id)).settings;
@@ -155,7 +171,7 @@ export class AgentRuntimeService {
             settings,
             updatedAt: record?.updatedAt ?? null,
         };
-        const fallbackModel = id !== 'gilde' && isBotAgent(id) ? (gilde?.model ?? null) : null;
+        const fallbackModel = id !== 'gilde' && (isBotAgent(id) || id === 'reviewer') ? (gilde?.model ?? null) : null;
         const effectiveModel = hasModel(id) ? (base.model ?? fallbackModel) : null;
         const done = (status: AgentStatus, reason: string | null, botUser: AgentBotUserDto | null = null, config: EffectiveAgent['config'] = null): EffectiveAgent => {
             const agent: EffectiveAgent = { ...base, effectiveModel, status, reason, botUser, config };
@@ -165,7 +181,7 @@ export class AgentRuntimeService {
 
         if (this.disabledByEnv.has(id)) return done('disabled_by_env', 'AGENTS_DISABLED names this agent');
         if (id === 'mcp' && this.env.MCP_ENABLED !== 'true') return done('disabled_by_env', 'MCP_ENABLED is not "true"');
-        if (!record || !record.enabled) return done('off', null);
+        if (!record || !record.enabled) return done('off', id === 'reviewer' ? 'The reviewer is switched off in the agent settings' : null);
         if (checked.issues.length > 0) return done('misconfigured', `Invalid settings: ${checked.issues.map((i) => `${i.path.replace('settings.', '')} ${i.message.toLowerCase()}`).join('; ')}`);
 
         if (id === 'mcp' || id === 'coding') return done('on', null);
@@ -197,6 +213,8 @@ export class AgentRuntimeService {
                 return scoutConfig({ ...common, ...values, SCOUT_ENABLED: 'true', SCOUT_USER_EMAIL: botUser?.email ?? '', SCOUT_MODEL: record.model ?? '' });
             case 'verfijner':
                 return refineConfig({ ...common, ...values, REFINE_ENABLED: 'true', REFINE_USER_EMAIL: botUser?.email ?? '', REFINE_MODEL: record.model ?? '' });
+            case 'reviewer':
+                return reviewerConfig({ ...common, ...values, REVIEWER_ENABLED: 'true', REVIEWER_MODEL: record.model ?? '' });
             default:
                 return planConfig({ ...common, ...values, PLAN_ENABLED: 'true', PLAN_USER_EMAIL: botUser?.email ?? '', PLAN_MODEL: record.model ?? '' });
         }
@@ -205,7 +223,7 @@ export class AgentRuntimeService {
     /** The parser speaks of environment variables; the page speaks of settings. Never contains a secret value. */
     private friendly(id: AgentId, reason: string): string {
         const names = new Map<string, string>([
-            ['COPILOT_MODEL', 'The co-pilot model'], ['SCOUT_MODEL', 'The model'], ['REFINE_MODEL', 'The model'], ['PLAN_MODEL', 'The model'],
+            ['COPILOT_MODEL', 'The co-pilot model'], ['SCOUT_MODEL', 'The model'], ['REFINE_MODEL', 'The model'], ['PLAN_MODEL', 'The model'], ['REVIEWER_MODEL', 'The model'],
             ...SETTING_FIELDS[id].map((f) => [f.env, f.label] as [string, string]),
         ]);
         return reason

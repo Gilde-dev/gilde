@@ -15,6 +15,8 @@ export function triggerText(id: AgentRowId, agent?: Pick<Agent, 'settings'>): st
       return 'Labelled GitHub issues (intake items)';
     case 'werkmeester':
       return 'Approved spec versions of projects with auto-plan';
+    case 'reviewer':
+      return 'Green CI on pull requests of projects that opted in to automatic review';
     case 'mcp':
       return 'MCP tool calls by operators';
     case 'coding':

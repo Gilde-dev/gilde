@@ -230,6 +230,16 @@ function ConfigurationTab({ agent, refresh }: { agent: Agent; refresh: () => Pro
           Disabled by the environment{agent.reason ? `: ${agent.reason}` : ''}. The settings below are read-only here; change the server environment to switch it back on.
         </p>
       )}
+      {agent.status === 'off' && agent.reason && (
+        <p role="note" className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+          Off: {agent.reason}.
+        </p>
+      )}
+      {agent.id === 'reviewer' && (
+        <p className="text-sm text-muted-foreground">
+          Runtime and limits of the automatic PR reviewer. Switching it on does not turn on automatic review for any project; each project opts in on its own.
+        </p>
+      )}
       {agent.status === 'misconfigured' && agent.reason && (
         <p role="alert" className="rounded-lg border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
           Misconfigured: {agent.reason}. It does not run until this is fixed.
