@@ -145,6 +145,22 @@ export class Job {
     })
     autoFixHeadSha: string | null;
 
+    /** Automatic review revisions queued for this job so far, over all its heads; durable, so a restart never resets the limit. */
+    @Column({
+        name: 'auto_review_revisions',
+        type: 'integer',
+        default: 0
+    })
+    autoReviewRevisions: number;
+
+    /** The review whose findings the pending automatic revision carries; set when it is queued, cleared once it is dispatched or cancelled. */
+    @Column({
+        name: 'auto_revision_review_id',
+        type: 'uuid',
+        nullable: true
+    })
+    autoRevisionReviewId: string | null;
+
     /** Set on a job made by "Recreate job": the merged-without-work job it replaces. Unique, so a job has one replacement. */
     @Column({
         name: 'recreated_from_id',
