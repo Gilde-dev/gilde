@@ -264,7 +264,7 @@ export class ScoutLifecycle implements OnModuleDestroy {
         ScoutWakeReader,
         ScoutLifecycle,
     ],
-    exports: [CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
+    exports: [RepoContextService, CopilotThreadsService, WerkmeesterService, COPILOT_CONFIG, COPILOT_MASTRA, PLAN_SETUP, PLAN_WORKER, REFINE_SETUP, REFINE_WORKER, SCOUT_SETUP, SCOUT_THREADS, SCOUT_SIGNALS, ScoutWakeReader, ScoutSuggestionService, ScoutActivityService],
 })
 export class CopilotCoreModule { }
 

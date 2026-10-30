@@ -202,7 +202,7 @@ describe('ScoutSuggestionService', () => {
         const open = await seed(repo1, 'parked', 'Oldest parked');
         for (let i = 0; i < 205; i++) await seed(repo1, 'merged', `Later ${i}`);
         expect(await service.suggest(binding(), input({ title: 'OLDEST PARKED' }))).toMatchObject({ refusal: { reason: 'duplicate_title', ids: [open.id] } });
-    });
+    }, 30_000);
 
     it('enforces the daily quota (default three) per project and resets at UTC midnight', async () => {
         const create = (i: number) => service.suggest(binding(), input({ basedOn: [fresh(i), job1.id].slice(i === 0 ? 1 : 0) }));

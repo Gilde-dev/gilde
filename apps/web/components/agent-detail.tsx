@@ -10,6 +10,8 @@ import { errorText, humanOnlyErrorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
+import { ActivityTab } from './agent-activity-tab';
+import { PromptTab } from './agent-prompt-tab';
 import { AgentStatusBadge } from './agent-status-badge';
 import { Badge } from './ui/badge';
 import { Button } from './ui/button';
@@ -378,9 +380,13 @@ function SlackDetail({ project }: { project: string | null }) {
             <TabsList aria-label="Agent sections">
               <TabsTrigger value="configuration">Configuration</TabsTrigger>
               <TabsTrigger value="tools">Tools</TabsTrigger>
+              <TabsTrigger value="prompt">Prompt</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
             <TabsContent value="configuration"><SlackConfiguration slack={data} /></TabsContent>
             <TabsContent value="tools"><SlackTools slack={data} /></TabsContent>
+            <TabsContent value="prompt"><PromptTab agent="slack" /></TabsContent>
+            <TabsContent value="activity"><ActivityTab agent="slack" project={project} /></TabsContent>
           </Tabs>
         </>
       )}
@@ -411,9 +417,13 @@ function AgentDetail({ agentId, project }: { agentId: string; project: string | 
             <TabsList aria-label="Agent sections">
               <TabsTrigger value="configuration">Configuration</TabsTrigger>
               <TabsTrigger value="tools">Tools</TabsTrigger>
+              <TabsTrigger value="prompt">Prompt</TabsTrigger>
+              <TabsTrigger value="activity">Activity</TabsTrigger>
             </TabsList>
             <TabsContent value="configuration"><ConfigurationTab agent={agent} refresh={refresh} /></TabsContent>
             <TabsContent value="tools"><ToolsTab agent={agent.id} /></TabsContent>
+            <TabsContent value="prompt"><PromptTab agent={agent.id} /></TabsContent>
+            <TabsContent value="activity"><ActivityTab agent={agent.id} project={project} /></TabsContent>
           </Tabs>
         </>
       )}

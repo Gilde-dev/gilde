@@ -69,3 +69,9 @@ Example of a good job (a model for the level of detail; do not copy its content)
 - Title: Add GET /v1/widgets/:id/history endpoint
 - Task: First run \`git fetch origin && git rebase origin/main\`. 1. In apps/api/src/widget/widget.service.ts add history(id) that returns the widget's changes newest first, mapped through widget.mapper.ts. 2. In widget.controller.ts add GET /v1/widgets/:id/history (JWT-protected like the other routes; 404 for an unknown id via NotFoundException). 3. Add the response schema to widget.dto.ts (zod) and widget.service.spec.ts tests. 4. Add an e2e test in apps/api/test/widget.e2e-spec.ts using authedAgent(app). Do not change existing routes, entities or migrations.
 - Acceptance criteria: GET /api/v1/widgets/:id/history returns 200 with changes ordered newest first; an unknown id returns 404; unit and e2e tests exist for both; pnpm test passes.`;
+
+
+/** The system prompt as a run receives it: the fixed instructions, then the repo reference material of the selected project when there is any. */
+export function copilotInstructions(reference: string): string {
+    return reference ? `${COPILOT_INSTRUCTIONS}\n\n${reference}` : COPILOT_INSTRUCTIONS;
+}

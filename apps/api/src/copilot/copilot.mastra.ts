@@ -21,7 +21,7 @@ import { withEmbeddingUsage } from '../usage/usage-context.js';
 
 import { DEFAULT_COPILOT_MAX_STEPS, type CopilotConfig, type RunSettings } from './copilot.config.js';
 import { COPILOT_PROJECT_KEY, COPILOT_USER_KEY, UNAUTHENTICATED_RESOURCE, copilotResourceId, copilotUser, extractProjectId, type CopilotUser } from './copilot.context.js';
-import { COPILOT_INSTRUCTIONS } from './copilot.instructions.js';
+import { copilotInstructions } from './copilot.instructions.js';
 import { createCopilotTools, type CopilotServices } from './copilot.tools.js';
 import type { RepoContextService } from './repo-context.service.js';
 import { SCOUT_AGENT_ID, type ScoutConfig } from './verkenner.config.js';
@@ -356,9 +356,8 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
         description: 'Gilde co-pilot: answers questions about projects, jobs, features, proposals, dispatching, metrics and lessons.',
         // The repos' AGENTS.md, stacks and test commands are appended per request (selected project, else the only one).
         instructions: async ({ requestContext }) => {
-            if (!repoContext) return COPILOT_INSTRUCTIONS;
-            const reference = await repoContext.build(requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined);
-            return reference ? `${COPILOT_INSTRUCTIONS}\n\n${reference}` : COPILOT_INSTRUCTIONS;
+            const reference = repoContext ? await repoContext.build(requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined) : '';
+            return copilotInstructions(reference);
         },
         // OpenAI through the Mastra model router; the provider is only chosen by the model setting.
         // Plus the allowed tools of the selected project's MCP servers; the write ones always ask for approval.

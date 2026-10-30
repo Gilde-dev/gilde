@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 
+import { Executor } from '../executor/executor.entity.js';
+import { JobRun } from '../run/run.entity.js';
 import { AgentUsage } from '../otel/agent-usage.entity.js';
 import type { AuthUser } from '../auth/auth.dto.js';
 
@@ -18,6 +20,8 @@ export class AgentRunService {
         @InjectRepository(AgentRun) private readonly runs: Repository<AgentRun>,
         @InjectRepository(AgentToolCall) private readonly toolCalls: Repository<AgentToolCall>,
         @InjectRepository(AgentUsage) private readonly usage: Repository<AgentUsage>,
+        @InjectRepository(JobRun) private readonly jobRuns: Repository<JobRun>,
+        @InjectRepository(Executor) private readonly executors: Repository<Executor>,
     ) { }
 
     /** Runs of one agent, newest first. Another user's co-pilot runs come back as metadata only. */
@@ -28,6 +32,11 @@ export class AgentRunService {
         if (q.trigger) query.andWhere('r.triggerKind = :trigger', { trigger: q.trigger });
         if (q.outcome) query.andWhere('r.outcome = :outcome', { outcome: q.outcome });
         if (q.projectId) query.andWhere('r.projectId = :projectId', { projectId: q.projectId });
+        if (q.executorId) {
+            // linked_id is a string and job_runs.id a uuid: compare as text so it works on SQLite and Postgres.
+            const sub = query.subQuery().select('CAST(jr.id AS varchar)').from(JobRun, 'jr').where('jr.executorId = :executorId').getQuery();
+            query.andWhere(`r.agentId = 'coding' AND r.linkedId IN ${sub}`, { executorId: q.executorId });
+        }
         if (q.from) query.andWhere('r.startedAt >= :from', { from: q.from });
         if (q.to) query.andWhere('r.startedAt < :to', { to: q.to });
         const [rows, total] = await query.orderBy('r.startedAt', 'DESC').addOrderBy('r.id', 'DESC').skip((page - 1) * pageSize).take(pageSize).getManyAndCount();
@@ -42,6 +51,22 @@ export class AgentRunService {
         if (dto.metadataOnly) return { ...dto, toolCalls: [] };
         const calls = await this.toolCalls.find({ where: { runId: id }, order: { createdAt: 'ASC', id: 'ASC' } });
         return { ...dto, toolCalls: calls.map(toToolCallDto) };
+    }
+
+    /** Executor (id and name) per job run id, for the coding agents' runs. */
+    private async executorsOf(rows: AgentRun[]): Promise<Map<string, { id: string; name: string }>> {
+        const jobRunIds = rows.filter((r) => r.agentId === 'coding' && r.linkedId).map((r) => r.linkedId!);
+        const result = new Map<string, { id: string; name: string }>();
+        if (jobRunIds.length === 0) return result;
+        const jobRuns = await this.jobRuns.find({ where: { id: In(jobRunIds) }, select: { id: true, executorId: true } });
+        const executorIds = [...new Set(jobRuns.map((j) => j.executorId).filter((v): v is string => v !== null))];
+        if (executorIds.length === 0) return result;
+        const names = new Map((await this.executors.find({ where: { id: In(executorIds) }, select: { id: true, name: true } })).map((e) => [e.id, e.name]));
+        for (const j of jobRuns) {
+            const name = j.executorId ? names.get(j.executorId) : undefined;
+            if (j.executorId && name !== undefined) result.set(j.id, { id: j.executorId, name });
+        }
+        return result;
     }
 
     private async toDtos(rows: AgentRun[], viewer: AuthUser | null): Promise<AgentRunDto[]> {
@@ -64,6 +89,7 @@ export class AgentRunService {
                 .getRawMany<{ runId: string; input: unknown; output: unknown; cost: unknown }>();
             for (const u of usage) coding.set(u.runId, { input: Number(u.input ?? 0), output: Number(u.output ?? 0), cost: u.cost === null || u.cost === undefined ? null : Number(u.cost) });
         }
+        const executors = await this.executorsOf(rows);
         return rows.map((r) => {
             const metadataOnly = r.agentId === PRIVATE_AGENT && (!viewer?.id || r.actorUserId !== viewer.id);
             const used = r.linkedId ? coding.get(r.linkedId) : undefined;
@@ -86,6 +112,7 @@ export class AgentRunService {
                 linkedTable: r.linkedTable,
                 linkedId: r.linkedId,
                 toolCallCount: counts.get(r.id) ?? 0,
+                executor: (r.agentId === 'coding' && r.linkedId ? executors.get(r.linkedId) : undefined) ?? null,
                 metadataOnly,
             };
         });

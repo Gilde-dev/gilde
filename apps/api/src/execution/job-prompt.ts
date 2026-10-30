@@ -1,7 +1,9 @@
 import { taskContentSize } from '../job/task-size.js';
+import { DOWNSTREAM_LIMIT, DOWNSTREAM_TASK_LIMIT } from './downstream.js';
+import { FEATURE_SPEC_LIMIT } from './job-payload.js';
 import { ExecutionError } from './execution.error.js';
 import type { AgentInstructions } from './agent-instructions.service.js';
-import type { JobPayload, PreparedPrompt, PromptContext, PromptTrimmed } from './execution.port.js';
+import { JobPayloadSchema, type JobPayload, type PreparedPrompt, type PromptContext, type PromptTrimmed } from './execution.port.js';
 
 /** Longest text sent to a routine, in characters. */
 export const PROMPT_LIMIT = 60_000;
@@ -139,4 +141,32 @@ export function promptTooLargeError(prompt: PreparedPrompt, jobId: string): Exec
         `Prompt for job ${jobId} is ${spaced(prompt.length)} characters after trimming, over the ${spaced(prompt.limit)} limit; ${own}${instructions}: shorten the task or its acceptance criteria`,
         'prompt_too_large',
     );
+}
+
+/** The assembly of a coding agent's prompt, for display: derived from the constants and rules of this file, not written out again. */
+export function describePromptAssembly(): { limit: number; layout: string[]; payloadKeys: string[]; limits: string[]; trimmingOrder: string[] } {
+    return {
+        limit: PROMPT_LIMIT,
+        layout: [
+            'The agent instructions file (AGENT_INSTRUCTIONS_PATH), trailing whitespace removed',
+            'A line with ---',
+            'The line "Gilde job <jobId> (attempt <n>). Execute it as described in your routine instructions."',
+            'The job payload as one line of JSON',
+        ],
+        payloadKeys: Object.keys(JobPayloadSchema.shape),
+        limits: [
+            `The whole text is at most ${PROMPT_LIMIT} characters`,
+            `The feature spec is cut to ${FEATURE_SPEC_LIMIT} characters when the payload is built`,
+            `At most ${DOWNSTREAM_LIMIT} downstream jobs are listed, with tasks of at most ${DOWNSTREAM_TASK_LIMIT} characters`,
+        ],
+        trimmingOrder: [
+            'Knowledge snippets from the project MCP servers, lowest ranked first',
+            'Lessons, least relevant first',
+            ...TASK_CAPS.map((cap) => `Tasks of downstream jobs cut to ${cap} characters`),
+            'Tasks of downstream jobs left out (titles stay)',
+            'Downstream jobs removed: unrelated feature siblings first, then dependents, each oldest first',
+            ...SPEC_CAPS.map((cap) => `The feature spec cut to ${cap} characters`),
+            'Never shortened: the instructions, and the job\'s own task and acceptance criteria. A prompt that still does not fit is not fired.',
+        ],
+    };
 }

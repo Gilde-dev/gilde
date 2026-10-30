@@ -16,7 +16,7 @@ describe('AgentRunService', () => {
     let service: AgentRunService;
     beforeEach(async () => {
         db = await runLogDb();
-        service = new AgentRunService(db.runs, db.toolCalls, db.usage);
+        service = new AgentRunService(db.runs, db.toolCalls, db.usage, db.jobRuns, db.executors);
     });
     afterEach(() => db.ds.destroy());
 
@@ -118,5 +118,28 @@ describe('AgentRunService', () => {
 
     it('returns 404 for an unknown run', async () => {
         await expect(service.get(randomUUID(), ANN)).rejects.toBeInstanceOf(NotFoundException);
+    });
+
+    describe('coding agents', () => {
+        const jobRun = (executorId: string | null) => db.jobRuns.save(db.jobRuns.create({ jobId: randomUUID(), projectId: randomUUID(), repoId: randomUUID(), attempt: 1, executorId } as never));
+        const owner = () => db.users.save(db.users.create({ email: `${randomUUID()}@example.com`, name: 'Owner', password: 'x' } as never));
+
+        it('shows the executor of a job run and filters by it', async () => {
+            const user = await owner();
+            const e1 = await db.executors.save(db.executors.create({ ownerId: user.id, name: 'Alpha', fireUrl: 'https://example.com/fire', repoIds: [] } as never));
+            const e2 = await db.executors.save(db.executors.create({ ownerId: user.id, name: 'Beta', fireUrl: 'https://example.com/fire', repoIds: [] } as never));
+            const r1 = await jobRun(e1.id); const r2 = await jobRun(e2.id); const r3 = await jobRun(null);
+            const a = await run({ agentId: 'coding', triggerKind: 'dispatch', linkedTable: 'job_runs', linkedId: r1.id, startedAt: at(0) });
+            await run({ agentId: 'coding', triggerKind: 'dispatch', linkedTable: 'job_runs', linkedId: r2.id, startedAt: at(1) });
+            await run({ agentId: 'coding', triggerKind: 'dispatch', linkedTable: 'job_runs', linkedId: r3.id, startedAt: at(2) });
+            await run({ agentId: 'verkenner', startedAt: at(3) });
+
+            const all = await service.list('coding', {}, ANN);
+            expect(all.items.map((i) => i.executor?.name ?? null)).toEqual([null, 'Beta', 'Alpha']);
+            const filtered = await service.list('coding', { executorId: e1.id }, ANN);
+            expect(filtered.total).toBe(1);
+            expect(filtered.items[0]).toMatchObject({ id: a.id, executor: { id: e1.id, name: 'Alpha' } });
+            expect((await service.list('verkenner', {}, ANN)).items[0].executor).toBeNull();
+        });
     });
 });

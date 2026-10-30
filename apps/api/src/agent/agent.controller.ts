@@ -1,9 +1,12 @@
-import { Body, Controller, Get, NotFoundException, Param, Put, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, NotFoundException, Param, Put, Query, UseGuards } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtHumanGuard } from '../auth/jwt-human.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
+
+import { DeliveriesQuerySchema, type DeliveriesQuery, type DeliveryPageDto } from '../notification/notification.dto.js';
+import { NotificationService } from '../notification/notification.service.js';
 
 import { isAgentId, type AgentId } from './agent-ids.js';
 import { AgentToolsService } from './agent-tools.service.js';
@@ -22,7 +25,7 @@ function agentId(raw: string): AgentId {
  */
 @Controller('/v1/agents')
 export class AgentController {
-    constructor(private readonly settings: AgentSettingsService, private readonly mapper: AgentMapper, private readonly tools: AgentToolsService) { }
+    constructor(private readonly settings: AgentSettingsService, private readonly mapper: AgentMapper, private readonly tools: AgentToolsService, private readonly notifications: NotificationService) { }
 
     @Get()
     async list(): Promise<AgentDto[]> {
@@ -39,6 +42,12 @@ export class AgentController {
     @Get('slack')
     slack(): Promise<SlackBotDto> {
         return this.tools.slackBot();
+    }
+
+    /** The Slack bot's activity: the notifications of the outbox it delivered or failed to deliver. */
+    @Get('slack/notifications')
+    slackNotifications(@Query(new ZodValidationPipe(DeliveriesQuerySchema)) q: DeliveriesQuery): Promise<DeliveryPageDto> {
+        return this.notifications.deliveries(q);
     }
 
     @Get(':id')

@@ -1075,11 +1075,33 @@ export interface SlackBot {
   notificationKinds: string[];
 }
 
+export type AgentRunTrigger = 'chat' | 'signal' | 'schedule' | 'intake_item' | 'spec_version' | 'dispatch' | 'mcp_call';
+export type AgentRunOutcome = 'ok' | 'error' | 'refused' | 'skipped';
+export const AGENT_RUN_TRIGGERS: readonly AgentRunTrigger[] = ['chat', 'signal', 'schedule', 'intake_item', 'spec_version', 'dispatch', 'mcp_call'];
+export const AGENT_RUN_OUTCOMES: readonly AgentRunOutcome[] = ['ok', 'error', 'refused', 'skipped'];
+
+/** Mirrors AgentRunSchema. Another user's co-pilot run has `metadataOnly` and no trigger reference or reason. */
 export interface AgentRunSummary {
   id: string;
-  triggerKind: string;
-  outcome: 'ok' | 'error' | 'refused' | 'skipped' | null;
+  agentId: string;
+  triggerKind: AgentRunTrigger;
+  triggerRefType: string | null;
+  triggerRefId: string | null;
+  actorUserId: string | null;
+  projectId: string | null;
   startedAt: string;
+  endedAt: string | null;
+  outcome: AgentRunOutcome | null;
+  reason: string | null;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  linkedTable: string | null;
+  linkedId: string | null;
+  toolCallCount: number;
+  executor: { id: string; name: string } | null;
+  metadataOnly: boolean;
 }
 
 export interface AgentRunPage {
@@ -1089,13 +1111,84 @@ export interface AgentRunPage {
   total: number;
 }
 
-export function agentRunsQuery(params: { from?: string; page?: number; pageSize?: number } = {}): string {
+/** Recorded content: show it as text only. */
+export interface AgentToolCall {
+  id: string;
+  toolName: string;
+  input: string | null;
+  output: string | null;
+  durationMs: number | null;
+  error: string | null;
+  createdAt: string;
+}
+
+export interface AgentRunDetail extends AgentRunSummary {
+  toolCalls: AgentToolCall[];
+}
+
+export interface AgentRunsParams {
+  trigger?: AgentRunTrigger;
+  outcome?: AgentRunOutcome;
+  projectId?: string;
+  executorId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export function agentRunsQuery(params: AgentRunsParams = {}): string {
   const q = new URLSearchParams();
-  if (params.from) q.set('from', params.from);
-  if (params.page) q.set('page', String(params.page));
-  if (params.pageSize) q.set('pageSize', String(params.pageSize));
+  for (const [key, value] of Object.entries(params)) if (value !== undefined && value !== '') q.set(key, String(value));
   const text = q.toString();
   return text ? `?${text}` : '';
+}
+
+export interface PromptText {
+  label: string;
+  text: string;
+  version: string;
+  length: number;
+}
+
+export interface AgentPrompt {
+  agent: string;
+  kind: 'instructions' | 'none';
+  exampleBinding: string | null;
+  instructions: PromptText | null;
+  runPrompt: PromptText | null;
+  file: { path: string; url: string | null; ref: string; refKind: 'commit' | 'branch'; refSource: string } | null;
+  settings: Record<string, number>;
+  coding: {
+    instructionsPath: string | null;
+    loadError: string | null;
+    limit: number;
+    layout: string[];
+    payloadKeys: string[];
+    limits: string[];
+    trimmingOrder: string[];
+  } | null;
+  note: string | null;
+}
+
+export interface SlackDelivery {
+  id: string;
+  kind: string;
+  title: string;
+  projectId: string | null;
+  jobId: string | null;
+  status: 'pending' | 'delivered' | 'failed';
+  attempts: number;
+  lastError: string | null;
+  occurredAt: string;
+  deliveredAt: string | null;
+}
+
+export interface SlackDeliveryPage {
+  items: SlackDelivery[];
+  page: number;
+  pageSize: number;
+  total: number;
 }
 
 export class ApiError extends Error {
@@ -1430,8 +1523,12 @@ export const api = {
   getAgentTools: (agentId: string) => request<AgentTools>(`/v1/agents/${id(agentId)}/tools`),
   getSlackBot: () => request<SlackBot>('/v1/agents/slack'),
   /** The run log; callers treat a failure as "no runs" so the overview works without it. */
-  listAgentRuns: (agentId: string, params?: { from?: string; page?: number; pageSize?: number }) =>
+  listAgentRuns: (agentId: string, params?: AgentRunsParams) =>
     request<AgentRunPage>(`/v1/agents/${id(agentId)}/runs${agentRunsQuery(params)}`),
+  getAgentRun: (runId: string) => request<AgentRunDetail>(`/v1/agent-runs/${id(runId)}`),
+  getAgentPrompt: (agentId: string) => request<AgentPrompt>(`/v1/agents/${id(agentId)}/prompt`),
+  listSlackDeliveries: (params: { page?: number; pageSize?: number } = {}) =>
+    request<SlackDeliveryPage>(`/v1/agents/slack/notifications${agentRunsQuery(params)}`),
   listExecutors: () => request<Executor[]>('/v1/executors'),
   createExecutor: (input: CreateExecutorInput) => request<Executor>('/v1/executors', 'POST', input),
   replaceExecutor: (executorId: string, input: ReplaceExecutorInput) =>

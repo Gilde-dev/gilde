@@ -3,6 +3,7 @@ import { PassportModule } from '@nestjs/passport';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
 import { ApiKeyModule } from '../api-key/api-key.module.js';
+import { NotificationModule } from '../notification/notification.module.js';
 import { ProjectModule } from '../project/project.module.js';
 import { ProjectMcpModule } from '../project-mcp/project-mcp.module.js';
 import { UserModule } from '../user/user.module.js';
@@ -21,7 +22,7 @@ import { AgentMapper } from './agent.mapper.js';
  */
 @Global()
 @Module({
-    imports: [PassportModule.register({}), TypeOrmModule.forFeature([AgentSettings, AgentSettingsAudit]), UserModule, ApiKeyModule, ProjectModule, ProjectMcpModule],
+    imports: [PassportModule.register({}), TypeOrmModule.forFeature([AgentSettings, AgentSettingsAudit]), UserModule, ApiKeyModule, ProjectModule, ProjectMcpModule, NotificationModule],
     controllers: [AgentController],
     providers: [
         { provide: AGENT_ENV, useValue: process.env },

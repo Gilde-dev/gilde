@@ -136,3 +136,22 @@ describe('sanitizeReason', () => {
         expect(sanitizeReason('x'.repeat(2000))).toHaveLength(500);
     });
 });
+
+describe('deliveries', () => {
+    it('lists delivered and failed rows newest first, in pages, without pending ones', async () => {
+        for (const key of ['a', 'b', 'c', 'd']) await service.recordQuietly(input(key));
+        const rows = await repo.find({ order: { createdAt: 'ASC', id: 'ASC' } });
+        await service.markDelivered(rows[0].id);
+        await service.markFailed(rows[1].id, { reason: 'Bearer abc123 refused', retryable: false });
+        await service.markDelivered(rows[2].id);
+        // rows[3] stays pending
+        const all = await service.deliveries({});
+        expect(all).toMatchObject({ page: 1, pageSize: 25, total: 3 });
+        expect(all.items.map((i) => i.status).sort()).toEqual(['delivered', 'delivered', 'failed']);
+        expect(all.items.find((i) => i.status === 'failed')?.lastError).toBe('Bearer [redacted] refused');
+        expect(all.items.find((i) => i.id === rows[3].id)).toBeUndefined();
+        const second = await service.deliveries({ page: 2, pageSize: 2 });
+        expect(second.items).toHaveLength(1);
+        expect(second.total).toBe(3);
+    });
+});

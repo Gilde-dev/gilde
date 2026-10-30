@@ -6,6 +6,8 @@ import { isUniqueViolation } from '../common/db-errors.js';
 import {
     DEFAULT_RETRY_DELAY_SECONDS,
     MAX_ERROR_LENGTH,
+    type DeliveriesQuery,
+    type DeliveryPageDto,
     type FailNotificationDto,
     DEFAULT_NOTIFICATION_BATCH,
     type ListNotificationsQuery,
@@ -68,6 +70,23 @@ export class NotificationService {
             this.logger.error(`Failed to record notification${key}: ${sanitizeReason(e instanceof Error ? e.message : String(e))}`);
             return false;
         }
+    }
+
+    /** Delivered and failed rows, newest first: what the Slack bot has done. Pending rows are not activity yet. */
+    async deliveries(q: DeliveriesQuery): Promise<DeliveryPageDto> {
+        const page = q.page ?? 1;
+        const pageSize = q.pageSize ?? 25;
+        const [rows, total] = await this.notifications.createQueryBuilder('n')
+            .where('n.status IN (:...statuses)', { statuses: ['delivered', 'failed'] })
+            .orderBy('n.createdAt', 'DESC').addOrderBy('n.id', 'DESC')
+            .skip((page - 1) * pageSize).take(pageSize).getManyAndCount();
+        return {
+            items: rows.map((n) => ({
+                id: n.id, kind: n.kind, title: n.title, projectId: n.projectId, jobId: n.jobId, status: n.status, attempts: n.attempts,
+                lastError: n.lastError === null ? null : sanitizeReason(n.lastError), occurredAt: n.occurredAt.toISOString(), deliveredAt: n.deliveredAt?.toISOString() ?? null,
+            })),
+            page, pageSize, total,
+        };
     }
 
     /** Pending rows and failed rows whose retry is due, oldest first. */

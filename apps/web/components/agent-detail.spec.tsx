@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ApiError, api, type AgentAuditEntry } from '@/lib/api';
-import { agent, agentTools, slackBot } from './agent.fixture';
+import { agent, agentPrompt, agentTools, runSummary, slackBot } from './agent.fixture';
 import { AgentDetailView } from './agent-detail';
 
 const nav = vi.hoisted(() => ({ params: { id: 'verfijner' } as Record<string, string> }));
@@ -209,5 +209,35 @@ describe('AgentDetailView: Slack bot', () => {
     fireEvent.click(screen.getByRole('tab', { name: 'Tools' }));
     expect(await screen.findByText(/no tools of its own/)).toBeInTheDocument();
     expect(screen.getByRole('region', { name: 'Notification kinds' })).toBeInTheDocument();
+  });
+});
+
+describe('AgentDetailView: Prompt and Activity tabs', () => {
+  it('has Prompt and Activity tabs next to Configuration and Tools, loaded when opened', async () => {
+    nav.params = { id: 'verfijner' };
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    const prompt = vi.spyOn(api, 'getAgentPrompt').mockResolvedValue(agentPrompt());
+    vi.spyOn(api, 'listProjects').mockResolvedValue([]);
+    vi.spyOn(api, 'listAgentRuns').mockResolvedValue({ items: [runSummary()], page: 1, pageSize: 25, total: 1 });
+    render(<AgentDetailView />);
+    const tabs = within(await screen.findByRole('tablist', { name: 'Agent sections' }));
+    expect(tabs.getAllByRole('tab').map((t) => t.textContent)).toEqual(['Configuration', 'Tools', 'Prompt', 'Activity']);
+    expect(prompt).not.toHaveBeenCalled();
+    fireEvent.click(tabs.getByRole('tab', { name: 'Prompt' }));
+    expect(await screen.findByRole('region', { name: 'Instructions' })).toBeInTheDocument();
+    fireEvent.click(tabs.getByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+  });
+
+  it('gives the Slack bot its own variants', async () => {
+    nav.params = { id: 'slack' };
+    vi.spyOn(api, 'getSlackBot').mockResolvedValue(slackBot());
+    vi.spyOn(api, 'getAgentPrompt').mockResolvedValue(agentPrompt({ agent: 'slack', kind: 'none', instructions: null, runPrompt: null, file: null, exampleBinding: null, note: 'No prompt.' }));
+    vi.spyOn(api, 'listSlackDeliveries').mockResolvedValue({ items: [], page: 1, pageSize: 25, total: 0 });
+    render(<AgentDetailView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Prompt' }));
+    expect(await screen.findByText('No prompt.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab', { name: 'Activity' }));
+    expect(await screen.findByText('Nothing was delivered yet.')).toBeInTheDocument();
   });
 });
