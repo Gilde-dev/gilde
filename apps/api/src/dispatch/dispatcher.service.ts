@@ -309,6 +309,9 @@ export class DispatcherService {
             : null;
         const ownerId = jobOwnerId(job, creator?.isBot ?? false);
         if (!ownerId) return { executor: null, reason: NO_EXECUTOR };
+        // A deactivated owner's executors stop; their jobs wait (history stays) until the account is reactivated.
+        const owner = await this.jobRepository.manager.getRepository(User).findOne({ where: { id: ownerId }, select: { id: true, deactivatedAt: true } });
+        if (owner?.deactivatedAt) return { executor: null, reason: OWNER_DEACTIVATED };
 
         const serving = (await this.executors.listForDispatch(ownerId))
             .filter((e) => e.enabled && e.tokenLast4 !== null && e.repoIds.includes(repo.id));
@@ -531,6 +534,7 @@ export class DispatcherService {
 }
 
 const NO_EXECUTOR = 'no executor';
+const OWNER_DEACTIVATED = 'owner deactivated';
 const EXECUTOR_BUSY = 'executor busy';
 const EXECUTOR_LIMIT = 'executor limit reached';
 const EXECUTOR_EXHAUSTED = 'executor exhausted';

@@ -124,4 +124,19 @@ describe('Dispatch on personal executors (e2e)', () => {
     expect(await dispatch()).toMatchObject({ fired: 1 });
     expect(await detail(job.id)).toMatchObject({ status: 'dispatched', waitingReason: null });
   });
+
+  it("skips the executors of a deactivated owner: their jobs wait with 'owner deactivated' until reactivation", async () => {
+    await addExecutor(bob, 'bob-exec');
+    const job = await triageJob(bob, 'bob job');
+    await http().post(`/api/v1/jobs/${job.id}/enqueue`).set(as(bob)).expect(200);
+    await app.get(DataSource).query('UPDATE users SET deactivated_at = CURRENT_TIMESTAMP WHERE id = ?', [bob.id]);
+    const result = await dispatch();
+    expect(result.fired).toBe(0);
+    expect(fired).toEqual([]);
+    expect(await detail(job.id)).toMatchObject({ status: 'queued', waitingReason: 'owner deactivated' });
+
+    await app.get(DataSource).query('UPDATE users SET deactivated_at = NULL WHERE id = ?', [bob.id]);
+    expect((await dispatch()).fired).toBe(1);
+    expect(fired).toHaveLength(1);
+  });
 });

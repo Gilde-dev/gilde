@@ -2,6 +2,7 @@
 // database (seeded from the environment once), so this file sets small ones through the settings service and restores them.
 process.env.MCP_ENABLED = 'true';
 
+import { UserService } from './../src/user/user.service.js';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import { getRepositoryToken } from '@nestjs/typeorm';
@@ -64,6 +65,7 @@ describe('MCP creation, specs and daily limits (e2e)', () => {
     await app.listen(0);
     quota = app.get(McpQuotaService);
     ann = await createTestUser(app, { name: 'Ann' });
+    await app.get(UserService).makeAdmin(ann.email);
     const agents = app.get(AgentSettingsService);
     original = (await agents.get('mcp')).settings;
     await agents.replace({ id: ann.id, name: ann.name, email: ann.email, credential: 'jwt' }, 'mcp', { enabled: true, botUserId: null, model: null, settings: { ...original, dailyJobLimit: 5, dailyFeatureLimit: 2 } });

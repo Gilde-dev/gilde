@@ -18,6 +18,12 @@ export function parseMarkBotArgs(argv: string[]): { email: string } {
     return { email: values.email };
 }
 
+export function parseMakeAdminArgs(argv: string[]): { email: string } {
+    const { values } = parseArgs({ args: argv, options: { email: { type: 'string' } }, strict: true });
+    if (!values.email) throw new Error('Usage: pnpm --filter @gilde/api user:make-admin --email <email>');
+    return { email: values.email };
+}
+
 export function parseApiKeyCreateArgs(argv: string[]): { email: string; name: string } {
     const { values } = parseArgs({
         args: argv,

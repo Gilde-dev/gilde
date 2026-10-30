@@ -2,7 +2,7 @@ import { ForbiddenException } from '@nestjs/common';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 
-import { requireVerifiedHuman } from './verified-human.js';
+import { requireAdmin, requireVerifiedHuman } from './verified-human.js';
 
 const id = '11111111-1111-4111-8111-111111111111';
 const jwt: AuthUser = { id, name: 'Ada', email: 'ada@example.com', credential: 'jwt' };
@@ -37,5 +37,28 @@ describe('requireVerifiedHuman', () => {
   it('rejects the scout account case-insensitively, even when unmarked', () => {
     expect(() => requireVerifiedHuman(jwt, human, ' ADA@example.com ')).toThrow(ForbiddenException);
     expect(requireVerifiedHuman(jwt, human, 'other@example.com')).toEqual(human);
+  });
+});
+
+describe('requireAdmin', () => {
+  const admin = { ...human, isAdmin: true };
+
+  it('accepts a persisted admin with a JWT', () => {
+    expect(requireAdmin(jwt, admin, undefined)).toEqual(admin);
+  });
+
+  it('refuses a human who is not an admin', () => {
+    expect(() => requireAdmin(jwt, { ...human, isAdmin: false }, undefined)).toThrow(ForbiddenException);
+    expect(() => requireAdmin(jwt, human, undefined)).toThrow(ForbiddenException);
+  });
+
+  it('refuses API keys and bots, even when flagged admin', () => {
+    expect(() => requireAdmin({ ...jwt, credential: 'api_key' }, admin, undefined)).toThrow(ForbiddenException);
+    expect(() => requireAdmin(jwt, { ...admin, isBot: true }, undefined)).toThrow(ForbiddenException);
+  });
+
+  it('refuses a deactivated admin and missing users', () => {
+    expect(() => requireAdmin(jwt, { ...admin, deactivated: true }, undefined)).toThrow(ForbiddenException);
+    expect(() => requireAdmin(undefined, null, undefined)).toThrow(ForbiddenException);
   });
 });

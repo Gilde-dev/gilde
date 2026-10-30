@@ -36,6 +36,7 @@ describe('Agent settings (e2e)', () => {
     app.setGlobalPrefix('/api');
     await app.init();
     human = await createTestUser(app, { name: 'Operator' });
+    await app.get(UserService).makeAdmin(human.email);
     token = tokenFor(app, human);
   });
 
@@ -43,6 +44,16 @@ describe('Agent settings (e2e)', () => {
     await app.close();
     if (previous.key === undefined) delete process.env.OPENAI_API_KEY; else process.env.OPENAI_API_KEY = previous.key;
     if (previous.disabled === undefined) delete process.env.AGENTS_DISABLED; else process.env.AGENTS_DISABLED = previous.disabled;
+  });
+
+  it('lets only admins change settings; everyone can read', async () => {
+    const plain = await createTestUser(app, { name: 'Plain' });
+    const plainToken = tokenFor(app, plain);
+    const current = await get('verfijner');
+    const body = { enabled: current.enabled, botUserId: current.botUserId, model: current.model, settings: current.settings };
+    await put('verfijner', body, plainToken).expect(403);
+    await http().get('/api/v1/agents/verfijner').set(bearer(plainToken)).expect(200);
+    await put('verfijner', body).expect(200);
   });
 
   it('requires authentication on every route', async () => {

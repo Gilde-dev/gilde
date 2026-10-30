@@ -21,7 +21,7 @@ function agentId(raw: string): AgentId {
 
 /**
  * The agents and bots of Gilde with their runtime settings and effective status. Reading is for any authenticated user;
- * changing settings is for verified humans only (interactive JWT: no API keys, bots or the scout).
+ * changing settings is for admins only (interactive JWT of an admin: no API keys, bots or the scout).
  */
 @Controller('/v1/agents')
 export class AgentController {

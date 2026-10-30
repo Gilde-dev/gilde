@@ -268,6 +268,28 @@ An agent reports `blocked` in its `gilde-result` block when it could not do the 
 - **Verkenner.** The board state reports `mergedWithoutWork` (exact count, at most 20 ids) next to the factual status counts.
 - **Recreate job.** `POST /api/v1/jobs/:id/recreate` (also on the board, the job modal and the job page, with a confirmation) is the recovery for a merged-without-work job. It creates a new job in triage for the acting user with the same repo, title, task, acceptance criteria, feature and its own prerequisites, and points every dependency edge that targeted the original at the new job, whatever the dependents' status; the dependents are not reset or started. The original and its PR stay untouched, nothing is queued, and repeated or concurrent requests return the same replacement (`replacedById` on the original). Only merged-without-work jobs qualify (409 otherwise). Queue the new job when you are ready.
 
+## User management
+
+Users have an admin flag (`users.is_admin`); only admins manage users and change agent runtime settings (ADR 0018). The migration makes the oldest human user an
+admin when there is none. If nobody can administer (for instance on a local SQLite database, which has no migration), or everybody was locked out, recover with the CLI on the server:
+
+```sh
+pnpm --filter @gilde/api user:make-admin --email you@example.com   # idempotent
+```
+
+Admin API (`/api/v1/users`, interactive JWT of an admin; API keys, bots and non-admins get a `403`; the list never contains password data):
+
+| Route | |
+|---|---|
+| `GET /api/v1/users` | name, email, `isBot`, `isAdmin`, `deactivatedAt`, `createdAt` |
+| `POST /api/v1/users` `{ name, email }` | creates a human without a usable password; returns `{ user, setupLink, expiresAt }`. The link (`<WEB_ORIGIN>/setup?token=…`) is valid 24 hours, works once and is shown only in this response (only its sha256 is stored) |
+| `POST /api/v1/users/:id/reset-link` | a new link for an existing user; their earlier unused links stop working |
+| `POST /api/v1/users/:id/deactivate`, `/reactivate` | a deactivated user cannot log in, their JWTs and API keys stop working (within a minute) and their executors are skipped (their jobs wait with `owner deactivated`); nothing is deleted. `409` for yourself and the last admin |
+| `PUT /api/v1/users/:id/admin` `{ isAdmin }` | grant or remove admin; `409` for the last admin |
+
+`POST /api/v1/auth/setup` `{ token, password }` (public, throttled 5 per minute per IP like login) sets the password of a valid, unused, unexpired link and returns a login response; every invalid link gets the same `400`.
+`GET /api/v1/auth/me` includes `isAdmin`. Every action is recorded in `user_audit_log` (actor, target, action, time).
+
 ## Bot accounts
 
 `users.is_bot` (default `false`) marks machine accounts: the channels bot and the Verkenner scout. Bots authenticate with API keys and can
@@ -328,14 +350,14 @@ API (all under `/api/v1/agents`):
 |---|---|---|
 | `GET /api/v1/agents`, `GET /api/v1/agents/:id` | any authenticated user | settings (no secrets), `status`, `reason`, `effectiveModel`, the bot user's name and email, the field definitions |
 | `GET /api/v1/agents/bot-users` | any authenticated user | users marked as bots, for the picker |
-| `PUT /api/v1/agents/:id/settings` | verified human | full replacement of `{ enabled, botUserId, model, settings }`; a `400` with `issues[{ path, message }]` for field errors; audited |
+| `PUT /api/v1/agents/:id/settings` | admin | full replacement of `{ enabled, botUserId, model, settings }`; a `400` with `issues[{ path, message }]` for field errors; audited |
 | `GET /api/v1/agents/:id/audit` | any authenticated user | who changed which field from which value to which, newest first |
 | `GET /api/v1/agents/:id/prompt` (`:id` may also be `slack`) | any authenticated user | the agent's instructions exactly as it receives them, rendered by the same functions the agents use, with an example binding for the dynamic parts, a version (first 12 hex characters of the SHA-256 of the text), the current settings and a link to the source file on GitHub; for `coding` the loaded `docs/agent-instructions.md` and how the job payload is assembled (sections, limit, trimming order). Read-only: no route changes a prompt. `?projectId=` picks the project whose repo reference the co-pilot example shows |
 | `GET /api/v1/agents/slack/notifications` | any authenticated user | the Slack bot's activity: notifications of the outbox that were delivered or failed, newest first, `page` and `pageSize` |
 
 The link of a prompt file points at the commit of the running build, taken from the first of `GILDE_COMMIT_SHA`, `SOURCE_COMMIT`, `GIT_COMMIT_SHA` and `GITHUB_SHA` that holds a hex commit id (the API image takes it from the `GILDE_COMMIT_SHA` build argument: `docker build --build-arg GILDE_COMMIT_SHA=$(git rev-parse HEAD) ...`). Without one the link points at `main` and says so. `GILDE_SOURCE_REPO` (default `Gilde-dev/gilde`) names the repository.
 
-Writes need an interactive JWT of a human: API keys, bot accounts and the scout account get a `403`. The Verkenner, Verfijner and Werkmeester accept only a user that is marked as a bot;
+Writes need an interactive JWT of an admin (see "User management"): API keys, bot accounts, the scout account and non-admins get a `403`. The Verkenner, Verfijner and Werkmeester accept only a user that is marked as a bot;
 create one with `pnpm --filter @gilde/api user:create --email <email> --name <name> --bot` (or `user:mark-bot`).
 
 ## Verkenner (scout agent)

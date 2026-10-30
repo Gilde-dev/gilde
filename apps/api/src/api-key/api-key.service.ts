@@ -92,7 +92,7 @@ export class ApiKeyService {
         if (key.expiresAt && key.expiresAt.getTime() <= Date.now()) return null;
 
         const user = await this.users.findOneBy({ id: key.userId });
-        if (!user) return null;
+        if (!user || user.deactivatedAt) return null;
 
         await this.touch(key.id);
         return { id: user.id, name: user.name, email: user.email, credential: 'api_key' };

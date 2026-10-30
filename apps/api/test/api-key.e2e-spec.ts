@@ -42,7 +42,7 @@ describe('API keys (e2e)', () => {
     });
     expect(created.key.startsWith(`gk_${created.prefix}_`)).toBe(true);
     const me = await http().get('/api/v1/auth/me').set(bearer(created.key)).expect(200);
-    expect(me.body).toEqual({ id: user.id, name: 'Bot', email: user.email });
+    expect(me.body).toEqual({ id: user.id, name: 'Bot', email: user.email, isAdmin: false });
     await http().get('/api/v1/projects').set(bearer(created.key)).expect(200);
   });
 

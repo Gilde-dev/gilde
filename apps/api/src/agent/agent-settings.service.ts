@@ -103,9 +103,9 @@ export class AgentSettingsService {
         return (await this.users.listBots()).map(({ id, name, email }) => ({ id, name, email }));
     }
 
-    /** Full replacement; verified humans only. Field errors are a 400 with `issues`; every changed field is audited. */
+    /** Full replacement; admins only. Field errors are a 400 with `issues`; every changed field is audited. */
     async replace(user: AuthUser | undefined, id: AgentId, dto: ReplaceAgentSettingsDto): Promise<EffectiveAgent> {
-        const human = await this.users.requireVerifiedHuman(user);
+        const human = await this.users.requireAdmin(user);
         const record = await this.records.findOneBy({ id });
         if (!record) throw new NotFoundException(`Agent ${id} has no settings yet`);
 

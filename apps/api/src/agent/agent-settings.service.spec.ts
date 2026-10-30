@@ -9,6 +9,7 @@ import { defaultSettings } from './agent-settings.js';
 import { AGENT_IDS } from './agent-ids.js';
 
 const BOT = { id: '11111111-1111-4111-8111-111111111111', name: 'Bot', email: 'scout@example.com', isBot: true };
+const PLAIN = { id: '33333333-3333-4333-8333-333333333333', name: 'Plain', email: 'plain@example.com', isBot: false };
 const HUMAN = { id: '22222222-2222-4222-8222-222222222222', name: 'Human', email: 'human@example.com', isBot: false };
 
 function harness(env: NodeJS.ProcessEnv = {}, existing: Partial<AgentSettings>[] = []) {
@@ -22,13 +23,15 @@ function harness(env: NodeJS.ProcessEnv = {}, existing: Partial<AgentSettings>[]
     };
     const auditRepo = { find: vi.fn(async () => audit.map((a, i) => ({ id: String(i), createdAt: new Date(), ...a })).reverse()) };
     const dataSource = { transaction: async (fn: (m: unknown) => Promise<void>) => fn({ getRepository: (entity: { name: string }) => (entity.name === 'AgentSettings' ? records : { insert: async (rows: Array<Partial<AgentSettingsAudit>>) => { audit.push(...rows); } }) }) };
-    const people: Record<string, typeof BOT> = { [BOT.id]: BOT, [HUMAN.id]: HUMAN };
+    const people: Record<string, typeof BOT> = { [BOT.id]: BOT, [HUMAN.id]: HUMAN, [PLAIN.id]: PLAIN };
+    const admins = new Set<string>([HUMAN.id]);
     const users = {
         findByEmail: vi.fn(async (email: string) => Object.values(people).find((u) => u.email === email.toLowerCase()) ?? null),
         findProfile: vi.fn(async (id: string) => people[id] ?? null),
         listBots: vi.fn(async () => Object.values(people).filter((u) => u.isBot)),
-        requireVerifiedHuman: vi.fn(async (user?: { id: string; credential?: string }) => {
+        requireAdmin: vi.fn(async (user?: { id: string; credential?: string }) => {
             if (user?.credential !== 'jwt' || people[user.id]?.isBot !== false) throw new ForbiddenException('A verified human is required');
+            if (!admins.has(user.id)) throw new ForbiddenException('Only admins can do this');
             return people[user.id]!;
         }),
     };
@@ -122,11 +125,17 @@ describe('replacing settings', () => {
         expect(store.get('verkenner')!.settings).toEqual(before);
     });
 
-    it('refuses everyone but a verified human: API keys, bots and unauthenticated calls', async () => {
+    it('refuses everyone but an admin: API keys, bots and unauthenticated calls', async () => {
         const { service, audit } = await start();
         await expect(service.replace({ ...jwt, credential: 'api_key' }, 'verkenner', body())).rejects.toBeInstanceOf(ForbiddenException);
         await expect(service.replace({ ...jwt, id: BOT.id }, 'verkenner', body())).rejects.toBeInstanceOf(ForbiddenException);
         await expect(service.replace(undefined, 'verkenner', body())).rejects.toBeInstanceOf(ForbiddenException);
+        expect(audit).toEqual([]);
+    });
+
+    it('refuses a verified human who is not an admin', async () => {
+        const { service, audit } = await start();
+        await expect(service.replace({ ...jwt, id: PLAIN.id }, 'verkenner', body())).rejects.toBeInstanceOf(ForbiddenException);
         expect(audit).toEqual([]);
     });
 
