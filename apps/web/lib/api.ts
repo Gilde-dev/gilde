@@ -717,6 +717,96 @@ export interface Feedback {
   createdAt: string;
 }
 
+export const PR_REVIEW_STATUSES = ['pending', 'running', 'complete', 'incomplete', 'error', 'skipped'] as const;
+export type PrReviewStatus = (typeof PR_REVIEW_STATUSES)[number];
+
+export interface ReviewCriterionCoverage {
+  criterionId: string;
+  relevance: 'relevant' | 'assigned_elsewhere';
+  status: 'met' | 'unmet' | 'unverifiable' | 'not_applicable';
+  explanation: string;
+}
+
+export interface ReviewBlockingFinding {
+  title: string;
+  evidence: string;
+  path?: string;
+  line?: number;
+  impact: string;
+  requestedFix: string;
+  criterionId?: string;
+}
+
+export interface ReviewSuggestion {
+  title: string;
+  detail: string;
+  path?: string;
+  line?: number;
+}
+
+/** Mirrors ReviewResultSchema: only `complete` has a verdict; the others never count as a pass. */
+export type PrReviewResult =
+  | {
+      kind: 'complete';
+      verdict: 'pass' | 'blocking';
+      summary: string;
+      inspection: { diffComplete: true; contextComplete: true };
+      coverage: ReviewCriterionCoverage[];
+      blockingFindings: ReviewBlockingFinding[];
+      suggestions: ReviewSuggestion[];
+    }
+  | { kind: 'incomplete' | 'error'; reasonCode: string; reason: string; partialFindings: ReviewBlockingFinding[]; suggestions: ReviewSuggestion[] }
+  | { kind: 'skipped'; reasonCode: string; reason: string };
+
+export interface PrReviewLimits {
+  timeoutMs: number;
+  maxSteps: number;
+  maxInputTokens: number;
+  maxOutputTokens: number;
+  maxRevisions: number;
+}
+
+/** Mirrors PrReviewSchema: one automatic review of one PR head. */
+export interface PrReview {
+  id: string;
+  jobId: string;
+  prNumber: number;
+  headSha: string;
+  baseSha: string | null;
+  baseRef: string | null;
+  status: PrReviewStatus;
+  verdict: string | null;
+  reasonCode: string | null;
+  reason: string | null;
+  result: PrReviewResult | null;
+  limits: PrReviewLimits | null;
+  model: string | null;
+  inputTokens: number | null;
+  outputTokens: number | null;
+  costUsd: number | null;
+  createdAt: string;
+  startedAt: string | null;
+  completedAt: string | null;
+  routing: { state: 'unclaimed' | 'claimed' | 'done'; action: 'human' | 'revision' | 'park' | null; routedAt: string | null };
+  override: { suppressed: boolean; at: string | null; byUserId: string | null; reason: string | null; overriddenResult: Record<string, unknown> | null };
+  links: { review: string | null; publicationId: string | null; pullRequest: string | null };
+}
+
+export interface PrReviewPage {
+  items: PrReview[];
+  page: number;
+  pageSize: number;
+  total: number;
+  /** Automatic revisions queued for the job so far, over all heads. */
+  revisionCount: number;
+}
+
+export interface PrReviewOverrideInput {
+  reviewId: string;
+  headSha: string;
+  reason: string;
+}
+
 export const REVISION_STATUSES = ['proposed', 'accepted', 'rejected'] as const;
 export type RevisionStatus = (typeof REVISION_STATUSES)[number];
 
@@ -1662,6 +1752,10 @@ export const api = {
     return request<Revision[]>(`/v1/revisions?${q}`);
   },
   listJobRevisions: (jobId: string) => request<Revision[]>(`/v1/jobs/${id(jobId)}/revisions`),
+  listJobReviews: (jobId: string, page = 1, pageSize = 20) =>
+    request<PrReviewPage>(`/v1/jobs/${id(jobId)}/reviews?page=${page}&pageSize=${pageSize}`),
+  overrideJobReview: (jobId: string, input: PrReviewOverrideInput) =>
+    request<PrReview>(`/v1/jobs/${id(jobId)}/review-override`, 'POST', input),
   acceptRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/accept`, 'POST'),
   rejectRevision: (revisionId: string) => request<Revision>(`/v1/revisions/${id(revisionId)}/reject`, 'POST'),
   getJob: (jobId: string) => request<JobDetail>(`/v1/jobs/${id(jobId)}`),
