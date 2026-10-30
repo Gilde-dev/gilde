@@ -64,7 +64,7 @@ describe('loadConfig notifications', () => {
   it('enables all ten kinds for one channel with bounded defaults and needs no LLM variables', () => {
     const { notifications } = loadConfig(enabled);
     expect(notifications).toMatchObject({
-      kinds: ['job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close', 'budget.soft', 'budget.hard', 'executor.exhausted', 'spec.planned', 'spec.plan_failed'],
+      kinds: ['job.awaiting_review', 'job.parked', 'job.approval_needed', 'revision.waiting', 'feature.ready_to_close', 'budget.soft', 'budget.hard', 'executor.exhausted', 'spec.planned', 'spec.plan_failed', 'operator.actions'],
       slack: { botToken: 'xoxb-secret-1', channelId: 'C0123ABCDEF' },
       publicUrl: 'https://gilde.example.com',
       pollIntervalMs: 15_000,

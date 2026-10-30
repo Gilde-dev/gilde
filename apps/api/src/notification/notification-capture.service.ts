@@ -9,7 +9,7 @@ import { Feature } from '../feature/feature.entity.js';
 import { Job } from '../job/job.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
-import type { GildeProposal } from '../webhook/pr-body.js';
+import { isRequiredAction, type GildeProposal } from '../webhook/pr-body.js';
 import type { RecordNotificationInput } from './notification.dto.js';
 import type { NotificationPr } from './notification.entity.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
@@ -135,6 +135,28 @@ export class NotificationCaptureService {
                 repos: unique([targetRepo]),
                 reason: sanitizeReason(proposal.reason),
                 prLinks: prLinks([[prRepo, prJob]]),
+            };
+        });
+    }
+
+    /**
+     * The job's PR was merged and its latest run listed operator actions: one notification per run, grouped by when. The
+     * actions were validated against known secret formats on parsing, and the text is sanitized again here.
+     */
+    operatorActions(job: Job): Promise<boolean> {
+        return this.notifications.recordQuietly(async () => {
+            const run = await this.runs?.findOne({ where: { jobId: job.id }, order: { attempt: 'DESC', createdAt: 'DESC' } });
+            const actions = run?.operatorActions ?? [];
+            if (!run || !actions.length) return null;
+            const group = (when: 'before_deploy' | 'after_deploy', label: string) => {
+                const items = actions.filter((a) => a.when === when).map((a) => `${a.name ?? a.kind}${isRequiredAction(a) ? '' : ' (optional)'}: ${a.instruction}`);
+                return items.length ? `${label}: ${items.join('; ')}` : null;
+            };
+            return {
+                ...(await this.jobEnvelope(job)),
+                occurrenceKey: `operator.actions:${run.id}`,
+                kind: 'operator.actions',
+                reason: sanitizeReason([group('before_deploy', 'Before deploy'), group('after_deploy', 'After deploy')].filter(Boolean).join('. ')),
             };
         });
     }

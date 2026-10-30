@@ -35,7 +35,7 @@ beforeEach(async () => {
     other = await mk(p2, 'c');
     const repoService = { getById: (id: string) => repos.findOneByOrFail({ id }) };
     service = new JobService(
-        new JobMapper(), repoService as never, {} as never, {} as never, jobs, ds.getRepository(JobDependency), ds.getRepository(Feature),
+        new JobMapper(), repoService as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobs, ds.getRepository(JobDependency), ds.getRepository(Feature),
     );
 });
 

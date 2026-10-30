@@ -56,6 +56,8 @@ export const compactJob = (j: JobResponseDto) => ({
     /** Read-only: the open PR conflicts with its base branch. */
     mergeConflict: j.mergeConflict,
     failedDependency: j.failedDependency,
+    /** The merged or open PR lists manual steps (env, permission, CLI, infra) that are not all done; read the job for the list. */
+    needsOperatorAction: j.needsOperatorAction,
 });
 
 /** A feature without its spec and criteria, for list results. */

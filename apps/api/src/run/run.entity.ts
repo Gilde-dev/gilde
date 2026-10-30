@@ -1,6 +1,7 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn, UpdateDateColumn } from 'typeorm';
 
 import type { RunContext } from './run-context.js';
+import type { StoredOperatorAction } from './operator-actions.js';
 import type { RunKnowledge } from './run-knowledge.js';
 import type { GildeResult } from '../webhook/pr-body.js';
 import { RUN_STATUSES, type RunKind, type RunStatus } from './run-status.js';
@@ -88,6 +89,14 @@ export class JobRun {
 
     @Column({ type: 'simple-json', nullable: true })
     result: GildeResult | null;
+
+    /** Manual steps the PR needs, from the agent's result, with who marked each done; null when none. */
+    @Column({
+        name: 'operator_actions',
+        type: 'simple-json',
+        nullable: true
+    })
+    operatorActions: StoredOperatorAction[] | null;
 
     @Column({
         name: 'result_error',

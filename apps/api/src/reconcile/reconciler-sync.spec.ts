@@ -56,7 +56,7 @@ beforeEach(async () => {
         listOpenIssuesWithLabel: async () => ({ issues: [], complete: true }),
     };
     const events = new JobEventsService(
-        jobs, runs, projects, { onJobEnded } as never, undefined, undefined, { featureReadiness, jobAwaitingReview: vi.fn(async () => undefined), jobParked: vi.fn(async () => undefined) } as never,
+        jobs, runs, projects, { onJobEnded } as never, undefined, undefined, { featureReadiness, operatorActions: vi.fn(async () => undefined), jobAwaitingReview: vi.fn(async () => undefined), jobParked: vi.fn(async () => undefined) } as never,
     );
     service = new ReconcilerService(github, events, jobs, ds.getRepository(Repo), projects, runs);
 });

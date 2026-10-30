@@ -13,6 +13,7 @@ export const NOTIFICATION_KINDS = [
   'executor.exhausted',
   'spec.planned',
   'spec.plan_failed',
+  'operator.actions',
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

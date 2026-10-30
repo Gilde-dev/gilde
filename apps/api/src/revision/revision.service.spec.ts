@@ -64,7 +64,7 @@ beforeEach(async () => {
         projectId: project.id, fullName: 'o/r', testCommands: ['x'], routineFireUrl: 'https://fire', routineTokenEnv: 'TOKEN',
     }));
     const repoService = { findByFullName: () => repos.findOneBy({ id: repo.id }), getById: () => repos.findOneByOrFail({ id: repo.id }) };
-    const jobService = new JobService(new JobMapper(), repoService as never, {} as never, {} as never, jobs, deps, ds.getRepository(Feature));
+    const jobService = new JobService(new JobMapper(), repoService as never, { latestOperatorActions: async () => new Map() } as never, {} as never, jobs, deps, ds.getRepository(Feature));
     revisionService = new RevisionService(jobService, revisions, jobs, runs, deps);
     notifications = ds.getRepository(Notification);
     const capture = new NotificationCaptureService(new NotificationService(notifications, new NotificationMapper()), repos, jobs, ds.getRepository(Feature));
