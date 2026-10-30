@@ -759,6 +759,26 @@ export interface CurrentUser {
   id: string;
   name: string;
   email: string;
+  /** Admins manage users and change agent runtime settings. */
+  isAdmin?: boolean;
+}
+
+/** Mirrors AdminUserSchema: one row of the admin user list. */
+export interface AdminUser {
+  id: string;
+  name: string;
+  email: string;
+  isBot: boolean;
+  isAdmin: boolean;
+  deactivatedAt: string | null;
+  createdAt: string;
+}
+
+/** A created or reset setup link; the link is only ever returned in this response. */
+export interface SetupLink {
+  user: AdminUser;
+  setupLink: string;
+  expiresAt: string;
 }
 
 export interface JobSyncState {
@@ -1517,6 +1537,12 @@ export const api = {
   listAgents: () => request<Agent[]>('/v1/agents'),
   getAgent: (agentId: string) => request<Agent>(`/v1/agents/${id(agentId)}`),
   createBotUser: (input: { name: string; email: string }) => request<AgentBotUser & { isBot: true }>('/v1/users/bots', 'POST', input),
+  listUsers: () => request<AdminUser[]>('/v1/users'),
+  inviteUser: (input: { name: string; email: string }) => request<SetupLink>('/v1/users', 'POST', input),
+  createUserResetLink: (userId: string) => request<SetupLink>(`/v1/users/${id(userId)}/reset-link`, 'POST'),
+  deactivateUser: (userId: string) => request<AdminUser>(`/v1/users/${id(userId)}/deactivate`, 'POST'),
+  reactivateUser: (userId: string) => request<AdminUser>(`/v1/users/${id(userId)}/reactivate`, 'POST'),
+  setUserAdmin: (userId: string, isAdmin: boolean) => request<AdminUser>(`/v1/users/${id(userId)}/admin`, 'PUT', { isAdmin }),
   listAgentBotUsers: () => request<AgentBotUser[]>('/v1/agents/bot-users'),
   replaceAgentSettings: (agentId: string, input: ReplaceAgentSettingsInput) =>
     request<Agent>(`/v1/agents/${id(agentId)}/settings`, 'PUT', input),

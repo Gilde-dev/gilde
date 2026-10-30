@@ -7,7 +7,8 @@ export function middleware(req: NextRequest) {
   if (pathname === '/login') {
     return loggedIn ? NextResponse.redirect(new URL('/', req.url)) : NextResponse.next();
   }
-  if (loggedIn) return NextResponse.next();
+  // A setup link works with or without a session; it signs the user in itself.
+  if (pathname === '/setup' || loggedIn) return NextResponse.next();
   if (pathname.startsWith('/api/')) return NextResponse.json({ message: 'Unauthorized' }, { status: 401 });
   const url = new URL('/login', req.url);
   url.searchParams.set('next', `${pathname}${search}`);

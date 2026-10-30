@@ -2,6 +2,7 @@ import { NextRequest } from 'next/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { POST as login } from './login/route';
 import { POST as logout } from './logout/route';
+import { POST as setup } from './setup/route';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -50,5 +51,25 @@ describe('logout route', () => {
   it('clears the cookie', async () => {
     const res = await logout(post('/auth/logout'));
     expect(res.headers.get('set-cookie')).toMatch(/Max-Age=0/i);
+  });
+});
+
+describe('setup route', () => {
+  it('stores the session like login and does not expose the token', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ accessToken: 'jwt', expiresIn: 43200, user: { name: 'A' } }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+    const res = await setup(post('/auth/setup', { token: 't', password: 'a-long-password' }));
+    expect(fetchMock.mock.calls[0][0]).toBe('http://localhost:4100/api/v1/auth/setup');
+    const set = res.headers.get('set-cookie') ?? '';
+    expect(set).toContain('gilde_session=jwt');
+    expect(set).toMatch(/HttpOnly/i);
+    expect(JSON.stringify(await res.json())).not.toContain('jwt');
+  });
+
+  it('passes a rejected link through without a cookie', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('{"message":"Invalid or expired link"}', { status: 400 })));
+    const res = await setup(post('/auth/setup', { token: 'x', password: 'a-long-password' }));
+    expect(res.status).toBe(400);
+    expect(res.headers.get('set-cookie')).toBeNull();
   });
 });

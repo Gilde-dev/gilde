@@ -31,10 +31,21 @@ beforeEach(() => {
     { id: 'b2', name: 'Planner', email: 'planner@bots.test' },
   ]);
   vi.spyOn(api, 'listAgentAudit').mockResolvedValue([]);
+  vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Pascal', email: 'pascal@gilde.test', isAdmin: true });
 });
 afterEach(() => vi.restoreAllMocks());
 
 describe('AgentDetailView: Configuration', () => {
+  it('shows the settings read-only with a note for non-admins', async () => {
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u2', name: 'Kim', email: 'kim@gilde.test', isAdmin: false });
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    render(<AgentDetailView />);
+    expect(await screen.findByText('Only admins can change agent settings.')).toBeInTheDocument();
+    const form = within(await screen.findByRole('form', { name: 'Settings' }));
+    expect(form.queryByRole('button', { name: 'Save settings' })).not.toBeInTheDocument();
+    expect(form.getByLabelText('Runs per project per day')).toBeDisabled();
+  });
+
   it('shows the stored settings and saves a full replacement built from the loaded agent', async () => {
     vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
     const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());
@@ -57,7 +68,6 @@ describe('AgentDetailView: Configuration', () => {
 
   it('creates a bot user from the dialog, prefilled, and selects it without saving', async () => {
     vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ id: 'werkmeester', label: 'Werkmeester' }));
-    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Pascal', email: 'pascal@gilde.test' });
     const create = vi.spyOn(api, 'createBotUser').mockResolvedValue({ id: 'b9', name: 'Werkmeester', email: 'werkmeester@gilde.test', isBot: true });
     const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());
     render(<AgentDetailView />);
@@ -75,7 +85,6 @@ describe('AgentDetailView: Configuration', () => {
 
   it('shows field errors and the 409 hint in the create bot dialog', async () => {
     vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
-    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Pascal', email: 'pascal@gilde.test' });
     const create = vi.spyOn(api, 'createBotUser')
       .mockRejectedValueOnce(new ApiError('x', 400, 'Validation failed', [{ path: 'email', message: 'Invalid email address' }]))
       .mockRejectedValueOnce(new ApiError('x', 409, 'A user with email a@x.test already exists and is not a bot. Mark it as a bot with the CLI: pnpm --filter @gilde/api user:mark-bot --email a@x.test'));

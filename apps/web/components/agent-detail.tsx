@@ -96,8 +96,8 @@ function AuditTrail({ agentId, version }: { agentId: string; version: string }) 
  * The settings form. It is keyed by `updatedAt` so a reload with newer settings resets it, and the PUT is built from the
  * latest loaded agent (full replacement) with only the edited values on top.
  */
-function SettingsForm({ agent, bots, onSaved }: { agent: Agent; bots: AgentBotUser[] | undefined; onSaved: () => void | Promise<void> }) {
-  const readOnly = agent.status === 'disabled_by_env';
+function SettingsForm({ agent, bots, canEdit, onSaved }: { agent: Agent; bots: AgentBotUser[] | undefined; canEdit: boolean; onSaved: () => void | Promise<void> }) {
+  const readOnly = agent.status === 'disabled_by_env' || !canEdit;
   const [enabled, setEnabled] = useState(agent.enabled);
   const [botUserId, setBotUserId] = useState(agent.botUserId ?? '');
   const [created, setCreated] = useState<AgentBotUser[]>([]);
@@ -215,8 +215,16 @@ function SettingsForm({ agent, bots, onSaved }: { agent: Agent; bots: AgentBotUs
 function ConfigurationTab({ agent, refresh }: { agent: Agent; refresh: () => Promise<void> }) {
   const loadBots = useCallback(() => (agent.hasBotUser ? api.listAgentBotUsers() : Promise.resolve([] as AgentBotUser[])), [agent.hasBotUser]);
   const bots = usePolling(loadBots, POLL_MS);
+  // Agent runtime settings are admin-only; until the lookup answers the form stays read-only.
+  const me = usePolling(api.me, 300_000);
+  const canEdit = me.data?.isAdmin === true;
   return (
     <div className="space-y-6">
+      {me.data && !canEdit && (
+        <p role="note" className="rounded-lg border border-border bg-muted p-3 text-sm text-muted-foreground">
+          Only admins can change agent settings.
+        </p>
+      )}
       {agent.status === 'disabled_by_env' && (
         <p role="note" className="rounded-lg border border-warning/40 bg-warning-soft p-3 text-sm text-warning">
           Disabled by the environment{agent.reason ? `: ${agent.reason}` : ''}. The settings below are read-only here; change the server environment to switch it back on.
@@ -232,7 +240,7 @@ function ConfigurationTab({ agent, refresh }: { agent: Agent; refresh: () => Pro
       )}
       {bots.error && !bots.data && agent.hasBotUser && <LoadError error={bots.error} onRetry={() => void bots.refresh()} />}
       {agent.hasBotUser && !bots.data && !bots.error && <Loading label="Loading bot users" />}
-      {(!agent.hasBotUser || bots.data) && <SettingsForm key={agent.updatedAt} agent={agent} bots={bots.data} onSaved={refresh} />}
+      {(!agent.hasBotUser || bots.data) && <SettingsForm key={agent.updatedAt} agent={agent} bots={bots.data} canEdit={canEdit} onSaved={refresh} />}
       <AuditTrail agentId={agent.id} version={agent.updatedAt} />
     </div>
   );
