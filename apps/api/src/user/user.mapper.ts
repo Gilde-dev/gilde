@@ -18,7 +18,7 @@ export class UserMapper {
     }
 
     toIdentityDTO(entity: User): UserIdentityDto {
-        return { id: entity.id, email: entity.email, isBot: entity.isBot, isAdmin: entity.isAdmin, deactivated: entity.deactivatedAt !== null };
+        return { id: entity.id, email: entity.email, isBot: entity.isBot, isAdmin: entity.isAdmin, deactivated: !!entity.deactivatedAt };
     }
 
     toMeDTO(entity: User): MeResponseDto {

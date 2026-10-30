@@ -1516,6 +1516,7 @@ export const api = {
   revokeApiKey: (keyId: string) => request<void>(`/v1/api-keys/${id(keyId)}`, 'DELETE'),
   listAgents: () => request<Agent[]>('/v1/agents'),
   getAgent: (agentId: string) => request<Agent>(`/v1/agents/${id(agentId)}`),
+  createBotUser: (input: { name: string; email: string }) => request<AgentBotUser & { isBot: true }>('/v1/users/bots', 'POST', input),
   listAgentBotUsers: () => request<AgentBotUser[]>('/v1/agents/bot-users'),
   replaceAgentSettings: (agentId: string, input: ReplaceAgentSettingsInput) =>
     request<Agent>(`/v1/agents/${id(agentId)}/settings`, 'PUT', input),

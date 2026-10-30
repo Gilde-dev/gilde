@@ -1,13 +1,14 @@
 import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as argon2 from 'argon2';
+import { randomBytes } from 'node:crypto';
 import { Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
 import { requireAdmin, requirePersistedHuman, requireVerifiedHuman } from '../common/verified-human.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 
-import type { CreateUserDto, MeResponseDto, UserIdentityDto, UserProfileDto, UserResponseDto } from './user.dto.js';
+import type { CreateBotUserDto, CreateUserDto, MeResponseDto, UserIdentityDto, UserProfileDto, UserResponseDto } from './user.dto.js';
 import { User } from './user.entity.js';
 import { UserMapper } from './user.mapper.js';
 
@@ -17,6 +18,12 @@ export function normalizeEmail(email: string): string {
 
 export function hashPassword(password: string): Promise<string> {
     return argon2.hash(password, { type: argon2.argon2id });
+}
+
+function existingEmailMessage(email: string, isBot: boolean | null): string {
+    if (isBot === true) return `A bot user with email ${email} already exists; choose it from the list`;
+    return `A user with email ${email} already exists${isBot === false ? ' and is not a bot' : ''}. `
+        + `Mark it as a bot with the CLI: pnpm --filter @gilde/api user:mark-bot --email ${email}`;
 }
 
 /** How long a JWT keeps working after its account is deactivated at most (in another process; the same process forgets at once). */
@@ -46,6 +53,27 @@ export class UserService {
             return this.mapper.toDTO(saved);
         } catch (e) {
             if (isUniqueViolation(e)) throw new ConflictException(`A user with email ${email} already exists`);
+            throw e;
+        }
+    }
+
+    /**
+     * Creates a bot account for a verified human. The password is random (32 bytes), hashed and never returned or logged:
+     * bots do not log in. An existing email is a 409 whose message says how to make that account a bot.
+     */
+    async createBot(actor: AuthUser | undefined, dto: CreateBotUserDto): Promise<UserProfileDto> {
+        await this.requireVerifiedHuman(actor);
+        const email = normalizeEmail(dto.email);
+        const existing = await this.users.findOneBy({ email });
+        if (existing) throw new ConflictException(existingEmailMessage(email, existing.isBot));
+        try {
+            const created = await this.create(
+                { name: dto.name, email, password: randomBytes(32).toString('base64url') },
+                { isBot: true },
+            );
+            return { ...created, isBot: true };
+        } catch (e) {
+            if (e instanceof ConflictException) throw new ConflictException(existingEmailMessage(email, null));
             throw e;
         }
     }

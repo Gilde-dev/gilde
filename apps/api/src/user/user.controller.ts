@@ -5,14 +5,27 @@ import { CurrentUser } from '../auth/current-user.decorator.js';
 import { JwtHumanGuard } from '../auth/jwt-human.guard.js';
 import { ZodValidationPipe } from '../common/zod-validation.pipe.js';
 
-import { InviteUserSchema, SetAdminSchema, type AdminUserDto, type InviteUserDto, type SetAdminDto, type SetupLinkDto } from './user.dto.js';
+import { CreateBotUserSchema, InviteUserSchema, SetAdminSchema, type AdminUserDto, type CreateBotUserDto, type InviteUserDto, type SetAdminDto, type SetupLinkDto, type UserProfileDto } from './user.dto.js';
 import { UserAdminService } from './user-admin.service.js';
+import { UserService } from './user.service.js';
 
-/** User management. Admins only (interactive JWT of an admin: no API keys, bots or non-admins). */
+/** User management. Interactive JWT only (no API keys, bots or the scout); everything except bot creation needs an admin. */
 @Controller('/v1/users')
 @UseGuards(JwtHumanGuard)
 export class UserController {
-    constructor(private readonly admin: UserAdminService) { }
+    constructor(
+        private readonly users: UserService,
+        private readonly admin: UserAdminService,
+    ) { }
+
+    /** Creates a bot user (any verified human). The password is never returned. */
+    @Post('bots')
+    createBot(
+        @CurrentUser() user: AuthUser | null,
+        @Body(new ZodValidationPipe(CreateBotUserSchema)) dto: CreateBotUserDto,
+    ): Promise<UserProfileDto> {
+        return this.users.createBot(user ?? undefined, dto);
+    }
 
     @Get()
     list(@CurrentUser() user: AuthUser | null): Promise<AdminUserDto[]> {

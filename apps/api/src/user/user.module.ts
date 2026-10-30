@@ -15,9 +15,7 @@ import { UserService } from './user.service.js';
         PassportModule.register({}),
         TypeOrmModule.forFeature([User, UserSetupToken, UserAudit])
     ],
-    controllers: [
-        UserController
-    ],
+    controllers: [UserController],
     providers: [
         UserService,
         UserAdminService,
