@@ -7,7 +7,7 @@ import { Job } from '../job/job.entity.js';
 import { User } from '../user/user.entity.js';
 
 import { PrReview } from './pr-review.entity.js';
-import { PrReviewService } from './pr-review.service.js';
+import { PrReviewService, type OverrideKind } from './pr-review.service.js';
 import type { ReviewLimits, ReviewResult } from './review-result.js';
 
 const LIMITS: ReviewLimits = { timeoutMs: 60_000, maxSteps: 8, maxInputTokens: 100_000, maxOutputTokens: 4_000, maxRevisions: 2 };
@@ -296,6 +296,145 @@ describe('PrReviewService', () => {
 
         it('404s for an unknown job', async () => {
             await expect(service.listForJob(randomUUID(), {})).rejects.toBeInstanceOf(NotFoundException);
+        });
+    });
+
+    describe('human override', () => {
+        const who = () => randomUUID();
+        const override = (kind: OverrideKind, reviewId: string, reason = 'Looked at the diff myself') =>
+            service.applyOverride({ kind, reviewId, actorId: who(), reason });
+        const queuedRevision = async (job: Job) => {
+            const r = await finished(job, blocking);
+            expect((await service.applyRouting(r.id, { action: 'revision', reason: 'fix it', maxAttempts: 5 })).applied).toBe(true);
+            return r;
+        };
+        const dispatcherClaim = (jobId: string) => jobs().update(
+            { id: jobId, status: 'queued' }, { status: 'dispatched', waitingReason: null, autoRevisionReviewId: null },
+        );
+
+        it('moves a job with a pending review to awaiting_review, audits it and keeps protected-path approval', async () => {
+            const job = await newJob({ needsApproval: true, approvalReason: 'protected paths' });
+            const r = await claimed(job);
+            const actor = who();
+            const res = await service.applyOverride({ kind: 'review_pending', reviewId: r.id, actorId: actor, reason: 'Checked by hand' });
+            expect(res.applied).toBe(true);
+            expect(await jobs().findOneByOrFail({ id: job.id })).toMatchObject({ status: 'awaiting_review', needsApproval: true, approvalReason: 'protected paths' });
+            expect(await make().findById(r.id)).toMatchObject({
+                suppressed: true, overriddenById: actor, overrideReason: 'Checked by hand', overriddenAt: expect.any(Date),
+                overriddenResult: { status: 'pending', routingState: 'unclaimed', jobStatus: 'pr_open' },
+            });
+            // the pending review never starts a model call and a late result cannot route
+            expect(await service.markRunning(r.id)).toBe(false);
+        });
+
+        it('lets an in-flight result stay as history without routing', async () => {
+            const job = await newJob();
+            const r = await claimed(job);
+            await service.markRunning(r.id);
+            await override('review_pending', r.id);
+            expect(await service.complete(r.id, blocking)).not.toBeNull();
+            expect((await service.claimRouting(r.id, 'revision')).claimed).toBe(false);
+            expect(await service.applyRouting(r.id, { action: 'human' })).toMatchObject({ applied: false });
+            expect(await jobs().findOneByOrFail({ id: job.id })).toMatchObject({ status: 'awaiting_review', autoReviewRevisions: 0 });
+        });
+
+        it('overrides an automatic park and a queued, not yet dispatched automatic revision', async () => {
+            const parkedJob = await newJob();
+            const p = await finished(parkedJob, blocking);
+            expect((await service.applyRouting(p.id, { action: 'park', reason: 'limit' })).applied).toBe(true);
+            expect((await override('auto_parked', p.id)).applied).toBe(true);
+            expect((await jobs().findOneByOrFail({ id: parkedJob.id })).status).toBe('awaiting_review');
+
+            const queuedJob = await newJob();
+            const q = await queuedRevision(queuedJob);
+            expect((await override('auto_revision_queued', q.id)).applied).toBe(true);
+            expect(await jobs().findOneByOrFail({ id: queuedJob.id })).toMatchObject({
+                status: 'awaiting_review', autoRevisionReviewId: null, autoReviewRevisions: 1, lastReason: null,
+            });
+            expect(await make().findById(q.id)).toMatchObject({ suppressed: true, overriddenResult: { routingAction: 'revision', jobStatus: 'queued' } });
+        });
+
+        it('refuses the wrong kind for the job state, a second override and manual provenance', async () => {
+            const job = await newJob();
+            const r = await finished(job, pass);
+            expect((await override('auto_parked', r.id)).applied).toBe(false);
+            expect((await override('auto_revision_queued', r.id)).applied).toBe(false);
+
+            const manual = await newJob({ status: 'queued' });
+            const m = await finished(await newJob(), blocking); // a review of another job cannot move this one
+            expect((await override('auto_revision_queued', m.id)).applied).toBe(false);
+            expect((await jobs().findOneByOrFail({ id: manual.id })).status).toBe('queued');
+
+            expect((await override('review_pending', r.id)).applied).toBe(true);
+            expect((await override('review_pending', r.id)).applied).toBe(false);
+        });
+
+        it('has a single winner against the routing of the same result', async () => {
+            for (let i = 0; i < 10; i++) {
+                const job = await newJob();
+                const r = await finished(job, pass);
+                const [o, routed] = await Promise.all([override('review_pending', r.id), service.applyRouting(r.id, { action: 'human' })]);
+                expect(Number(o.applied) + Number(routed.applied)).toBe(1);
+                const review = await make().findById(r.id);
+                expect((await jobs().findOneByOrFail({ id: job.id })).status).toBe('awaiting_review');
+                expect(review).toMatchObject(o.applied ? { suppressed: true, routingState: 'unclaimed' } : { suppressed: false, routingState: 'done' });
+            }
+        });
+
+        it('has a single winner against the dispatcher claim of a queued revision', async () => {
+            for (let i = 0; i < 10; i++) {
+                const job = await newJob();
+                const r = await queuedRevision(job);
+                const [o, claim] = await Promise.all([override('auto_revision_queued', r.id), dispatcherClaim(job.id)]);
+                expect(Number(o.applied) + Number(!!claim.affected)).toBe(1);
+                const after = await jobs().findOneByOrFail({ id: job.id });
+                expect(after.status).toBe(o.applied ? 'awaiting_review' : 'dispatched');
+                expect((await make().findById(r.id))!.suppressed).toBe(o.applied);
+            }
+        });
+
+        it('does not touch a dispatched (running) round or a job that was re-queued without the provenance', async () => {
+            const job = await newJob();
+            const r = await queuedRevision(job);
+            await dispatcherClaim(job.id);
+            expect((await override('auto_revision_queued', r.id)).applied).toBe(false);
+            await jobs().update(job.id, { status: 'queued' });
+            expect((await override('auto_revision_queued', r.id)).applied).toBe(false);
+            expect((await jobs().findOneByOrFail({ id: job.id })).status).toBe('queued');
+            expect((await make().findById(r.id))!.suppressed).toBe(false);
+        });
+
+        it('loses against a head update, also when the status is the same again (ABA), and writes nothing', async () => {
+            const job = await newJob();
+            const r = await finished(job, pass);
+            await jobs().update(job.id, { headSha: 'sha2' });
+            await jobs().update(job.id, { status: 'pr_open' });
+            expect((await override('review_pending', r.id)).applied).toBe(false);
+            expect(await make().findById(r.id)).toMatchObject({ suppressed: false, overriddenAt: null, overrideReason: null });
+            expect((await jobs().findOneByOrFail({ id: job.id })).status).toBe('pr_open');
+        });
+
+        it('does not survive a new head: the new head gets its own unsuppressed review and routes normally', async () => {
+            const job = await newJob();
+            const r = await finished(job, blocking);
+            await override('review_pending', r.id);
+            await jobs().update(job.id, { status: 'pr_open', headSha: 'sha2' });
+            const next = await make().claimExecution(target(job, 'sha2'));
+            if (!next.claimed) throw new Error('not claimed');
+            expect(next.review.suppressed).toBe(false);
+            await service.markRunning(next.review.id);
+            await service.complete(next.review.id, pass);
+            expect((await service.applyRouting(next.review.id, { action: 'human' })).applied).toBe(true);
+            expect((await make().findById(r.id))!.suppressed).toBe(true);
+        });
+
+        it('persists the audit across service recreation and in the history', async () => {
+            const job = await newJob();
+            const r = await finished(job, pass);
+            const actor = who();
+            await service.applyOverride({ kind: 'review_pending', reviewId: r.id, actorId: actor, reason: 'Because' });
+            const page = await make().listForJob(job.id, {});
+            expect(page.items[0].override).toMatchObject({ suppressed: true, byUserId: actor, reason: 'Because', at: expect.any(String), overriddenResult: { status: 'complete', verdict: 'pass' } });
         });
     });
 });

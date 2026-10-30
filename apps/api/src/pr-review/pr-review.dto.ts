@@ -64,3 +64,12 @@ export const PrReviewPageSchema = z.object({
     revisionCount: z.number().int(),
 });
 export type PrReviewPageDto = z.infer<typeof PrReviewPageSchema>;
+
+export const PrReviewOverrideSchema = z.object({
+    /** The automatic decision (review row) being overridden. */
+    reviewId: z.string().uuid(),
+    /** The head the human looked at; it must still be the job's current head. */
+    headSha: z.string().trim().min(1).max(64),
+    reason: z.string().trim().min(1, 'A reason is required').max(2000),
+});
+export type PrReviewOverrideDto = z.infer<typeof PrReviewOverrideSchema>;

@@ -3,7 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 
-import { GITHUB_PORT, type GitHubPort, type GitHubPull, type GitHubWorkflowRun } from '../github/github.port.js';
+import { GITHUB_PORT, type GitHubPort, type GitHubPull } from '../github/github.port.js';
 import { Job } from '../job/job.entity.js';
 import { LessonService } from '../lesson/lesson.service.js';
 import { NotificationCaptureService } from '../notification/notification-capture.service.js';
@@ -11,6 +11,7 @@ import { Project } from '../project/project.entity.js';
 import { Repo } from '../repo/repo.entity.js';
 import { JobRun } from '../run/run.entity.js';
 
+import { checkHeadFresh, type CiPolicy } from './head-freshness.js';
 import { PrReview } from './pr-review.entity.js';
 import { PrReviewService, REVIEW_FENCE_STATUSES, type RoutingPlan } from './pr-review.service.js';
 import { parkReason, renderReviewBody, revisionReason } from './review-publication.js';
@@ -18,14 +19,10 @@ import { recoverPublishedReview, reviewMarker } from './review-marker.js';
 import { ReviewExecutionService } from './review-execution.service.js';
 import { isActionableBlocking, type ReviewResult, type SkippedReview } from './review-result.js';
 
-const CI_OK = new Set(['success', 'neutral', 'skipped']);
 /** A claimed or unrouted review younger than this is probably still being handled by this process; the recovery leaves it alone. */
 const RECOVERY_MIN_AGE_MS = 30_000;
 
-export interface CiPolicy {
-    /** A tracked workflow that gates readiness (CI, not the protected-path gates). */
-    isCi(name: string): boolean;
-}
+export type { CiPolicy };
 
 export type GateOutcome =
     /** The job moved to a human (awaiting_review) now. */
@@ -119,24 +116,8 @@ export class AutoReviewGateService {
         return routed ?? { routed: 'none', why: 'the job moved on' };
     }
 
-    /**
-     * Fresh GitHub facts for the head: the PR is open, not a draft and still at the head; every tracked CI workflow of the
-     * head has a completed, passing newest run. One stale success never outweighs a failing or running newer run.
-     */
-    private async freshness(fullName: string, job: Job, ci: CiPolicy): Promise<{ ok: true; pull: GitHubPull } | { ok: false; why: string }> {
-        const pull = await this.github.getPull(fullName, job.prNumber!);
-        if (pull.state !== 'open') return { ok: false, why: `PR #${pull.number} is not open` };
-        if (pull.draft === true) return { ok: false, why: `PR #${pull.number} is a draft` };
-        if (pull.headSha !== job.headSha) return { ok: false, why: `PR #${pull.number} moved to ${pull.headSha.slice(0, 7)}` };
-        const runs = await this.github.listWorkflowRuns(fullName, pull.headSha);
-        const newest = new Map<string, GitHubWorkflowRun>();
-        for (const run of runs) if (ci.isCi(run.name) && !newest.has(run.name)) newest.set(run.name, run);
-        if (newest.size === 0) return { ok: false, why: 'no CI run is visible for the head' };
-        for (const run of newest.values()) {
-            if (run.status !== 'completed') return { ok: false, why: `CI workflow ${run.name} is still running` };
-            if (!CI_OK.has(run.conclusion ?? '')) return { ok: false, why: `CI workflow ${run.name} is ${run.conclusion ?? 'unknown'}` };
-        }
-        return { ok: true, pull };
+    private freshness(fullName: string, job: Job, ci: CiPolicy) {
+        return checkHeadFresh(this.github, fullName, job.prNumber!, job.headSha!, ci);
     }
 
     /** The coding run's CI conclusion is recorded while the review is pending; the human is not told yet. */
