@@ -41,6 +41,8 @@ export interface Project {
   autoFixConflicts: boolean;
   /** Queue a Werkmeester planning run when a spec version is approved. */
   autoPlan: boolean;
+  /** Review agent PRs automatically after green CI. Off by default. */
+  autoReview: boolean;
   paused: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
@@ -65,6 +67,7 @@ export interface ReplaceProjectInput {
   retryOnChangesRequested: boolean;
   autoFixConflicts: boolean;
   autoPlan: boolean;
+  autoReview: boolean;
   skillsLibrary: SkillsLibraryKind;
   skillsLibraryRepoId: string | null;
   /** Finite >= 0; null clears the limit (no limit), 0 stops dispatch immediately. */
@@ -101,6 +104,7 @@ export function projectReplacement(p: Project, edits: Partial<ReplaceProjectInpu
       retryOnChangesRequested: p.retryOnChangesRequested,
       autoFixConflicts: p.autoFixConflicts,
       autoPlan: p.autoPlan,
+      autoReview: p.autoReview,
       skillsLibrary: p.skillsLibrary,
       skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd,

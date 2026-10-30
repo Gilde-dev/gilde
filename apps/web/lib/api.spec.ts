@@ -62,7 +62,7 @@ describe('update clients send complete PUT bodies', () => {
 
   const project = {
     id: 'p1', slug: 'shop', name: 'Shop', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60,
-    retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
+    retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true, autoReview: true, paused: true, skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null,
     budgetSoftPct: 80, createdAt: 'c', updatedAt: 'u',
   } as Project;
   const repo = {
@@ -77,7 +77,7 @@ describe('update clients send complete PUT bodies', () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { name: 'Renamed', weeklyBudgetUsd: undefined })));
     expect(r).toMatchObject({ url: '/api/gilde/v1/projects/p1', method: 'PUT' });
     expect(r.body).toEqual({
-      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true,
+      name: 'Renamed', description: null, dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: true, autoReview: true,
       skillsLibrary: 'repo', skillsLibraryRepoId: 'r1', dailyBudgetUsd: 0, weeklyBudgetUsd: null, budgetSoftPct: 80,
     });
   });
@@ -123,7 +123,7 @@ describe('update clients send complete PUT bodies', () => {
 
   it('never contains undefined keys', async () => {
     const r = await sent(() => api.replaceProject('p1', projectReplacement(project, { description: undefined, budgetSoftPct: undefined })));
-    expect(Object.keys(r.body)).toHaveLength(13);
+    expect(Object.keys(r.body)).toHaveLength(14);
     expect(r.raw).not.toContain('undefined');
   });
 });

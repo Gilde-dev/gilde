@@ -99,7 +99,7 @@ describe('Budget (e2e)', () => {
     const url = `/api/v1/projects/${project.id}`;
     const full = {
       name: project.name, description: project.description, dailyRunLimit: project.dailyRunLimit, maxAttempts: project.maxAttempts,
-      runTimeoutMinutes: project.runTimeoutMinutes, retryOnChangesRequested: project.retryOnChangesRequested, autoFixConflicts: project.autoFixConflicts, autoPlan: project.autoPlan,
+      runTimeoutMinutes: project.runTimeoutMinutes, retryOnChangesRequested: project.retryOnChangesRequested, autoFixConflicts: project.autoFixConflicts, autoPlan: project.autoPlan, autoReview: project.autoReview,
       skillsLibrary: project.skillsLibrary, skillsLibraryRepoId: project.skillsLibraryRepoId,
       dailyBudgetUsd: project.dailyBudgetUsd, weeklyBudgetUsd: project.weeklyBudgetUsd, budgetSoftPct: project.budgetSoftPct,
     };
