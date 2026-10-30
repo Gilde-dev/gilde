@@ -15,6 +15,7 @@ export class ProjectMapper {
             retryOnChangesRequested: entity.retryOnChangesRequested,
             autoFixConflicts: entity.autoFixConflicts ?? false,
             autoPlan: entity.autoPlan ?? false,
+            autoReview: entity.autoReview ?? false,
             runTimeoutMinutes: entity.runTimeoutMinutes,
             paused: entity.paused,
             maxAttempts: entity.maxAttempts,

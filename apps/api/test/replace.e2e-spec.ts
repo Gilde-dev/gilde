@@ -162,7 +162,7 @@ describe('Full-replacement PUT updates (e2e)', () => {
   describe('projects', () => {
     const fullOf = (p: Body): Body => ({
       name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
-      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts, autoPlan: p.autoPlan,
+      runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts, autoPlan: p.autoPlan, autoReview: p.autoReview,
       skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
       dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct,
     });
@@ -178,13 +178,23 @@ describe('Full-replacement PUT updates (e2e)', () => {
       await expectEachKeyRequired(url, full);
     });
 
+    it('persists autoReview per project, off by default, without touching the other project', async () => {
+      const a = await makeProject();
+      const b = await makeProject();
+      expect(a).toMatchObject({ autoReview: false });
+      const res = (await http.put(`/api/v1/projects/${a.id}`).send({ ...fullOf(a), autoReview: true }).expect(200)).body;
+      expect(res).toMatchObject({ autoReview: true, autoPlan: a.autoPlan });
+      expect((await http.get(`/api/v1/projects/${a.id}`).expect(200)).body).toMatchObject({ autoReview: true });
+      expect((await http.get(`/api/v1/projects/${b.id}`).expect(200)).body).toMatchObject({ autoReview: false });
+    });
+
     it('keeps the original validation, the immutable slug and paused, and the library rules', async () => {
       const project = await makeProject();
       const repo = await makeRepo(project.id);
       const foreign = await makeRepo((await makeProject()).id);
       const url = `/api/v1/projects/${project.id}`;
       const full = fullOf(project);
-      for (const bad of [{ name: '' }, { description: 'x'.repeat(2001) }, { dailyRunLimit: 0 }, { maxAttempts: 11 }, { runTimeoutMinutes: 4 }, { retryOnChangesRequested: 'yes' }, { autoFixConflicts: 'yes' }, { skillsLibrary: 'bogus' }, { dailyBudgetUsd: -1 }, { weeklyBudgetUsd: 'x' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.5 }, { budgetSoftPct: null }]) {
+      for (const bad of [{ name: '' }, { description: 'x'.repeat(2001) }, { dailyRunLimit: 0 }, { maxAttempts: 11 }, { runTimeoutMinutes: 4 }, { retryOnChangesRequested: 'yes' }, { autoFixConflicts: 'yes' }, { autoReview: 'yes' }, { skillsLibrary: 'bogus' }, { dailyBudgetUsd: -1 }, { weeklyBudgetUsd: 'x' }, { budgetSoftPct: 0 }, { budgetSoftPct: 100.5 }, { budgetSoftPct: null }]) {
         await http.put(url).send({ ...full, ...bad }).expect(400);
       }
       await http.post(`${url}/pause`).expect(200);

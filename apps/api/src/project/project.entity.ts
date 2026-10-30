@@ -67,6 +67,13 @@ export class Project {
     })
     autoPlan: boolean;
 
+    /** Review agent PRs automatically once CI is green. Off by default; runtime setup alone never enables it. */
+    @Column({
+        name: 'auto_review',
+        default: false
+    })
+    autoReview: boolean;
+
     /** Estimated-USD limit per UTC day for this project's agent runs; null = no limit, 0 = stop immediately. */
     @Column({
         name: 'daily_budget_usd',
