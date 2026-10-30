@@ -19,6 +19,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   Sparkles,
+  Users,
   X,
   type LucideIcon,
 } from 'lucide-react';
@@ -59,6 +60,7 @@ const SETTINGS: NavItem[] = [
   { href: '/settings/api-keys', label: 'API keys', icon: KeyRound },
   { href: '/settings/executors', label: 'Executors', icon: Server },
 ];
+const ADMIN_SETTINGS: NavItem[] = [{ href: '/settings/users', label: 'Users', icon: Users }];
 
 /** localStorage key of the desktop icon-rail preference ('1' = rail). */
 export const SIDEBAR_STORAGE_KEY = 'gilde_sidebar_collapsed';
@@ -216,6 +218,15 @@ function SidebarContent({
       variant: 'running' as const,
     },
   };
+  // The Users page is for admins; a failed lookup just hides the entry (the API still enforces it).
+  const [isAdmin, setIsAdmin] = useState(false);
+  useEffect(() => {
+    let live = true;
+    api.me().then((me) => live && setIsAdmin(me.isAdmin === true), () => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
   return (
     <div className="flex h-full flex-col gap-5">
       <Link
@@ -251,7 +262,7 @@ function SidebarContent({
       )}
       <div>
         {!compact && <h2 className="mb-1 px-2 text-label uppercase tracking-wide text-muted-foreground">Settings</h2>}
-        <NavLinks label="Settings" links={SETTINGS} pathname={pathname} projectId={projectId} badges={{}} compact={compact} onNavigate={onNavigate} />
+        <NavLinks label="Settings" links={isAdmin ? [...SETTINGS, ...ADMIN_SETTINGS] : SETTINGS} pathname={pathname} projectId={projectId} badges={{}} compact={compact} onNavigate={onNavigate} />
       </div>
       <div className="mt-auto">
         <UserMenu compact={compact} />
@@ -261,7 +272,7 @@ function SidebarContent({
 }
 
 function Breadcrumb({ project, pathname, projectId }: { project: Project | undefined; pathname: string; projectId: string | null }) {
-  const section = [...NAV, ...SETTINGS].find((l) => isActive(pathname, l.href));
+  const section = [...NAV, ...SETTINGS, ...ADMIN_SETTINGS].find((l) => isActive(pathname, l.href));
   const items: { label: string; href?: string }[] = [];
   if (project) items.push({ label: project.name, href: withProject('/', projectId) });
   if (section) items.push({ label: section.label });

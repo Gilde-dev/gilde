@@ -18,6 +18,11 @@ describe('middleware', () => {
     expect(middleware(req('/login')).headers.get('location')).toBeNull();
   });
 
+  it('lets /setup through without a cookie, and with one', () => {
+    expect(middleware(req('/setup?token=abc')).headers.get('location')).toBeNull();
+    expect(middleware(req('/setup?token=abc', 't')).headers.get('location')).toBeNull();
+  });
+
   it('sends a logged-in user from /login to /', () => {
     const res = middleware(req('/login', 't'));
     expect(new URL(res.headers.get('location')!).pathname).toBe('/');
