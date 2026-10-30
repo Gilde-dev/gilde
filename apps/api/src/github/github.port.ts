@@ -10,6 +10,13 @@ export interface GitHubPull {
     body: string | null;
     /** GitHub's `mergeable_state` (clean, dirty, unknown, ...); only the single-PR read has it, null or missing means not known. */
     mergeableState?: string | null;
+    /** Draft state of the PR; missing when GitHub did not report it. */
+    draft?: boolean;
+    /** The base branch name and the commit it pointed at when this was read. */
+    baseRef?: string;
+    baseSha?: string;
+    /** GitHub's count of changed files; only the single-PR read has it. */
+    changedFiles?: number;
 }
 
 export interface GitHubWorkflowRun {
@@ -58,6 +65,41 @@ export interface GitHubIssueCommentRef {
     htmlUrl: string;
 }
 
+/** One changed file of a pull request. `patch` is null when GitHub gave none (binary, too large, or nothing to show). */
+export interface GitHubDiffFile {
+    path: string;
+    previousPath: string | null;
+    status: string;
+    additions: number;
+    deletions: number;
+    changes: number;
+    patch: string | null;
+}
+
+export const DIFF_INCOMPLETE_REASONS = ['pagination_cap', 'file_count_mismatch', 'missing_patch', 'head_changed', 'base_changed'] as const;
+export type DiffIncompleteReason = (typeof DIFF_INCOMPLETE_REASONS)[number];
+
+/** The diff of a PR at one head/base. `complete` is true only when every changed file arrived with its patch. */
+export interface GitHubPullDiff {
+    headSha: string;
+    baseSha: string;
+    files: GitHubDiffFile[];
+    complete: boolean;
+    incompleteReasons: DiffIncompleteReason[];
+    /** Paths whose patch is missing although the file has changes. */
+    filesWithoutPatch: string[];
+}
+
+/** GitHub lists at most 3000 files of a pull request, 100 per page. */
+export const DIFF_PAGE_SIZE = 100;
+export const DIFF_MAX_PAGES = 30;
+
+export interface GitHubReviewRef {
+    id: string;
+    htmlUrl: string;
+    commitId: string;
+}
+
 /** A GitHub request that failed; carries the status, never headers or tokens. */
 export class GitHubRequestError extends Error {
     constructor(message: string, readonly status: number) {
@@ -87,4 +129,19 @@ export interface GitHubPort {
      * Throws GitHubRequestError when GitHub refuses.
      */
     upsertIssueComment(fullName: string, issueNumber: number, input: { marker: string; body: string; commentId: string | null }): Promise<GitHubIssueCommentRef>;
+    /**
+     * The files of a pull request with their patches, bound to `expected` head and base: a head or base that moved while
+     * reading, or any cap, missing patch or count mismatch, is reported in `incompleteReasons` and never as complete.
+     */
+    getPullDiff(fullName: string, number: number, expected: { headSha: string; baseSha: string }): Promise<GitHubPullDiff>;
+    /**
+     * Publishes one review with event COMMENT (never APPROVE or REQUEST_CHANGES) bound to `commitId`. The body is made to
+     * start with `marker`, so the review can be found again. Needs Pull requests: write. Throws GitHubRequestError.
+     */
+    publishCommentReview(fullName: string, number: number, input: { commitId: string; marker: string; body: string }): Promise<GitHubReviewRef>;
+    /**
+     * The review of our own identity on this PR whose body starts with `marker` and is bound to `commitId`, or null when the
+     * complete listing has none. Throws when the listing could not be completed, so absence is never guessed.
+     */
+    findReviewByMarker(fullName: string, number: number, marker: string, commitId: string): Promise<GitHubReviewRef | null>;
 }
