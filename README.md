@@ -306,6 +306,8 @@ reasons: [ADR 0017](docs/adr/0017-agent-settings-in-the-database-env-as-seed-and
 | `mcp` | `dailyJobLimit: 20`, `dailyFeatureLimit: 5`, `toolTimeoutMs: 5000`, `toolResultMaxChars: 8000` | `MCP_DAILY_JOB_LIMIT`, `MCP_DAILY_FEATURE_LIMIT`, `MCP_TOOL_TIMEOUT_MS`, `MCP_TOOL_RESULT_MAX_CHARS` |
 | `coding` | `lessonsTopK: 5`, `lessonsMinScore: 0.5`, `lessonsTimeoutMs: 3000` | `DISPATCH_LESSONS_TOP_K`, `DISPATCH_LESSONS_MIN_SCORE`, `DISPATCH_LESSONS_TIMEOUT_MS` |
 
+**Creating bot users.** On the Configuration tab of the Verkenner, Verfijner and Werkmeester, **Create bot user** opens a dialog (name and email, prefilled with the agent's name and the domain of your own email) that creates the account with `POST /api/v1/users/bots` and selects it in the form; the settings are saved with the normal **Save settings**, which is audited. Only a signed-in person can do this (API keys, bots and the scout are refused). Gilde sets a random password that is never returned or logged, since bots never sign in. An email that already exists gives a 409; if that account is not a bot, the message shows the `user:mark-bot` command. The CLI keeps working: `pnpm --filter @gilde/api user:create --email <email> --name <name> --bot`.
+
 - **The environment is the seed.** On startup an agent without a record gets one from the variables in the last column (`*_USER_EMAIL` becomes the user id of that
   account). An existing record is **never** overwritten from the environment: changing `SCOUT_MODEL` afterwards does nothing, change the setting instead. An invalid
   number seeds the default, and for the Verkenner, Verfijner, Werkmeester and MCP seeds the agent switched off.

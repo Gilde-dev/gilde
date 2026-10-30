@@ -10,6 +10,7 @@ import { errorText, humanOnlyErrorText } from '@/lib/job-actions';
 import { relativeTime } from '@/lib/time';
 import { usePolling } from '@/lib/use-polling';
 import { withProject } from '@/lib/use-project';
+import { CreateBotUserAction } from './create-bot-user-dialog';
 import { ActivityTab } from './agent-activity-tab';
 import { PromptTab } from './agent-prompt-tab';
 import { AgentStatusBadge } from './agent-status-badge';
@@ -99,6 +100,7 @@ function SettingsForm({ agent, bots, onSaved }: { agent: Agent; bots: AgentBotUs
   const readOnly = agent.status === 'disabled_by_env';
   const [enabled, setEnabled] = useState(agent.enabled);
   const [botUserId, setBotUserId] = useState(agent.botUserId ?? '');
+  const [created, setCreated] = useState<AgentBotUser[]>([]);
   const [model, setModel] = useState(agent.model ?? '');
   const [values, setValues] = useState<Record<string, string>>(() => Object.fromEntries(agent.fields.map((f) => [f.key, String(agent.settings[f.key] ?? f.default)])));
   const [busy, setBusy] = useState(false);
@@ -131,6 +133,7 @@ function SettingsForm({ agent, bots, onSaved }: { agent: Agent; bots: AgentBotUs
 
   // A bot user the list no longer offers (e.g. no longer marked as a bot) stays selectable so the form shows the stored value.
   const options = [...(bots ?? [])];
+  for (const b of created) if (!options.some((o) => o.id === b.id)) options.push(b);
   if (agent.botUser && !options.some((b) => b.id === agent.botUser?.id)) options.push(agent.botUser);
   const generic = error instanceof Error && !(error as { issues?: unknown[] }).issues?.length;
 
@@ -145,16 +148,28 @@ function SettingsForm({ agent, bots, onSaved }: { agent: Agent; bots: AgentBotUs
         )}
         {agent.id === 'coding' && <p className="text-sm text-muted-foreground">Coding agents are switched off per executor, not here.</p>}
         {agent.hasBotUser && (
-          <Field label="Bot user" path="botUserId" error={error} hint="Only users marked as a bot can be chosen.">
-            <Select value={botUserId} onChange={(e) => setBotUserId(e.target.value)}>
-              <option value="">None</option>
-              {options.map((b) => (
-                <option key={b.id} value={b.id}>
-                  {b.name} ({b.email})
-                </option>
-              ))}
-            </Select>
-          </Field>
+          <>
+            <Field label="Bot user" path="botUserId" error={error} hint="Only users marked as a bot can be chosen.">
+              <Select value={botUserId} onChange={(e) => setBotUserId(e.target.value)}>
+                <option value="">None</option>
+                {options.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.name} ({b.email})
+                  </option>
+                ))}
+              </Select>
+            </Field>
+            <div>
+              <CreateBotUserAction
+                suggestedName={agent.label}
+                disabled={readOnly}
+                onCreated={(bot) => {
+                  setCreated((c) => [...c, bot]);
+                  setBotUserId(bot.id);
+                }}
+              />
+            </div>
+          </>
         )}
         {agent.hasModel && (
           <Field
