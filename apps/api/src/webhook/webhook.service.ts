@@ -189,6 +189,11 @@ export class WebhookService {
         if (payload.action !== 'submitted' || !pr || !review) return `ignored: pull_request_review ${payload.action ?? '(no action)'}`;
         const job = await this.findJobByPr(repoId, pr.number);
         if (!job) return `ignored: PR #${pr.number} is not a known job PR`;
+        // The gate's own COMMENT review (identified by its marker, published by a bot) is neither feedback nor a send-back, whether
+        // or not the publication bookkeeping has finished by the time this arrives.
+        if (payload.sender?.type === 'Bot' && /^\s*<!-- gilde:pr-review:/.test(review.body ?? '')) {
+            return `ignored: automatic review published by Gilde on PR #${pr.number}`;
+        }
         const state = review.state?.toLowerCase() ?? null;
         if (review.id !== undefined) {
             await this.feedback.record({

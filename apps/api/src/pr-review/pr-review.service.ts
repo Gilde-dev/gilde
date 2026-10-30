@@ -8,11 +8,11 @@ import type { QueryDeepPartialEntity } from 'typeorm/query-builder/QueryPartialE
 
 import { Job } from '../job/job.entity.js';
 import { KeyedMutex } from '../spec/keyed-mutex.js';
-import type { JobStatus } from '../job/job-state.js';
+import { nextStatus, type JobStatus } from '../job/job-state.js';
 
 import { DEFAULT_PR_REVIEW_PAGE_SIZE, type PrReviewHistoryQuery, type PrReviewPageDto } from './pr-review.dto.js';
 import { toPrReviewDto } from './pr-review.mapper.js';
-import { PrReview, type PrReviewRoutingAction } from './pr-review.entity.js';
+import { PrReview, FINAL_PR_REVIEW_STATUSES, type PrReviewRoutingAction } from './pr-review.entity.js';
 import {
     DEFAULT_MAX_REVISIONS, ReviewLimitsSchema, ReviewResultSchema,
     type ReviewLimits, type ReviewResult, type SkippedReview,
@@ -54,9 +54,23 @@ export type RoutingClaim =
     | { claimed: true }
     | { claimed: false; reason: 'stale' | 'already_claimed' | 'not_actionable' | 'revisions_exhausted' };
 
+/** What `applyRouting` does to the job together with the review's one routing claim. */
+export type RoutingPlan =
+    | { action: 'human' }
+    | { action: 'revision'; reason: string; maxAttempts: number }
+    | { action: 'park'; reason: string };
+
+export type AppliedRouting =
+    | { applied: true; job: Job }
+    | { applied: false; reason: 'stale' | 'already_routed' | 'not_actionable' | 'revisions_exhausted' | 'attempts_exhausted' };
+
 /** Thrown inside a transaction to roll it back when a later conditional write loses. */
 class RollbackSignal extends Error {
     constructor(readonly outcome: RoutingClaim) { super('rollback'); }
+}
+
+class RollbackApply extends Error {
+    constructor(readonly outcome: AppliedRouting) { super('rollback'); }
 }
 
 /**
@@ -227,6 +241,93 @@ export class PrReviewService implements OnApplicationBootstrap {
         return 'stale';
     }
 
+    /**
+     * The routing action and the job's state change in one transaction, fenced by the review's head, PR and the job's state:
+     * the job moves out of pr_open and the review's routing becomes `done` together, or neither happens. A revision also
+     * takes one of the job's revisions and needs an attempt left (`maxAttempts`); a limit that is reached applies nothing
+     * (`revisions_exhausted` / `attempts_exhausted`) so the caller can apply `park` instead.
+     */
+    async applyRouting(reviewId: string, plan: RoutingPlan): Promise<AppliedRouting> {
+        const review = await this.reviews.findOneBy({ id: reviewId });
+        if (!review) return { applied: false, reason: 'stale' };
+        const maxRevisions = ReviewLimitsSchema.safeParse(review.limits).data?.maxRevisions ?? DEFAULT_MAX_REVISIONS;
+        const event = plan.action === 'human' ? 'ci_passed' : plan.action === 'revision' ? 'retry' : 'park';
+        const to = nextStatus('pr_open', event)!;
+        const now = new Date();
+        const changes: QueryDeepPartialEntity<Job> = { status: to };
+        if (plan.action === 'revision') {
+            Object.assign(changes, {
+                lastReason: plan.reason, queuedAt: now, nextRoundKind: null,
+                autoReviewRevisions: () => 'auto_review_revisions + 1', autoRevisionReviewId: review.id,
+            });
+        }
+        if (plan.action === 'park') Object.assign(changes, { lastReason: plan.reason });
+        try {
+            return await this.transaction(async (m) => {
+                // The review's claim goes first: its fence reads the job as it still is.
+                const actionable = plan.action === 'revision' ? `AND status = 'complete' AND verdict = 'blocking'` : '';
+                const claimed = await m.createQueryBuilder().update(PrReview)
+                    .set({ routingState: 'done', routingAction: plan.action, routingClaimedAt: now, routedAt: now })
+                    .where(`id = :id AND routing_state = 'unclaimed' AND suppressed = :no AND status IN (:...fin) ${actionable} AND ${FENCE}`, {
+                        id: reviewId, no: false, fin: FINAL_PR_REVIEW_STATUSES, st: REVIEW_FENCE_STATUSES,
+                    }).execute();
+                if (!claimed.affected) {
+                    const r = await m.getRepository(PrReview).findOneBy({ id: reviewId });
+                    const reason = !r ? 'stale' : r.routingState !== 'unclaimed' ? 'already_routed'
+                        : plan.action === 'revision' && !(r.status === 'complete' && r.verdict === 'blocking') ? 'not_actionable' : 'stale';
+                    throw new RollbackApply({ applied: false, reason });
+                }
+                const query = m.createQueryBuilder().update(Job).set(changes)
+                    .where('id = :id AND head_sha = :head AND pr_number = :pr AND status IN (:...st)', {
+                        id: review.jobId, head: review.headSha, pr: review.prNumber, st: REVIEW_FENCE_STATUSES,
+                    });
+                if (plan.action === 'revision') {
+                    query.andWhere('auto_review_revisions < :maxRev AND attempts < :maxAttempts', { maxRev: maxRevisions, maxAttempts: plan.maxAttempts });
+                }
+                const moved = await query.execute();
+                if (!moved.affected) {
+                    const job = await m.getRepository(Job).findOneBy({ id: review.jobId });
+                    const current = !!job && job.headSha === review.headSha && job.prNumber === review.prNumber && REVIEW_FENCE_STATUSES.includes(job.status);
+                    if (current && plan.action === 'revision') {
+                        throw new RollbackApply({ applied: false, reason: job.autoReviewRevisions >= maxRevisions ? 'revisions_exhausted' : 'attempts_exhausted' });
+                    }
+                    throw new RollbackApply({ applied: false, reason: 'stale' });
+                }
+                return { applied: true, job: await m.getRepository(Job).findOneByOrFail({ id: review.jobId }) } as const;
+            });
+        } catch (e) {
+            if (e instanceof RollbackApply) return e.outcome;
+            throw e;
+        }
+    }
+
+    /**
+     * A publication that failed turns the final result into a visible error that keeps the findings (they are never sent back
+     * automatically). Only before routing and before a publication was recorded.
+     */
+    async markPublicationFailed(reviewId: string, detail: string): Promise<PrReview | null> {
+        const review = await this.reviews.findOneBy({ id: reviewId });
+        const r = review?.result;
+        if (!review || !r || (r.kind !== 'complete' && r.kind !== 'incomplete')) return null;
+        const reason = `The review could not be published to GitHub: ${detail.slice(0, 300)}`;
+        const failed = ReviewResultSchema.parse({
+            kind: 'error', reasonCode: 'publication_failed', reason,
+            partialFindings: r.kind === 'complete' ? r.blockingFindings : r.partialFindings, suggestions: r.suggestions,
+        });
+        const res = await this.reviews.createQueryBuilder().update(PrReview)
+            .set({ status: 'error', verdict: null, reasonCode: 'publication_failed', reason, result: failed })
+            .where(`id = :id AND status IN ('complete', 'incomplete') AND routing_state = 'unclaimed' AND publication_id IS NULL`, { id: reviewId })
+            .execute();
+        return res.affected ? this.reviews.findOneByOrFail({ id: reviewId }) : null;
+    }
+
+    /** Final reviews that no one routed yet, completed before `before`: the recovery path of a crash between result and routing. */
+    listUnrouted(before: Date, limit = 50): Promise<PrReview[]> {
+        return this.reviews.createQueryBuilder('r')
+            .where(`r.status IN (:...fin) AND r.routing_state = 'unclaimed' AND r.suppressed = :no AND r.completed_at < :before`, { fin: FINAL_PR_REVIEW_STATUSES, no: false, before })
+            .orderBy('r.completed_at', 'ASC').limit(limit).getMany();
+    }
+
     /** claimed → done, after the routing action was applied to the job. */
     async completeRouting(reviewId: string): Promise<boolean> {
         const res = await this.reviews.createQueryBuilder().update(PrReview)
@@ -250,8 +351,10 @@ export class PrReviewService implements OnApplicationBootstrap {
     }
 
     /** Reviews that were claimed but whose model call never started; safe to start. */
-    listPending(limit = 50): Promise<PrReview[]> {
-        return this.reviews.find({ where: { status: 'pending' }, order: { createdAt: 'ASC' }, take: limit });
+    listPending(limit = 50, before?: Date): Promise<PrReview[]> {
+        const q = this.reviews.createQueryBuilder('r').where(`r.status = 'pending'`);
+        if (before) q.andWhere('r.created_at < :before', { before });
+        return q.orderBy('r.created_at', 'ASC').limit(limit).getMany();
     }
 
     /**

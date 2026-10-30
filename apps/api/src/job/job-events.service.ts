@@ -12,6 +12,7 @@ import { Project } from '../project/project.entity.js';
 import { JobRun } from '../run/run.entity.js';
 import type { RunKind } from '../run/run-status.js';
 import { NotificationCaptureService, type ParkCause } from '../notification/notification-capture.service.js';
+import { AutoReviewGateService } from '../pr-review/auto-review-gate.service.js';
 import { ProposalService } from '../revision/proposal.service.js';
 import { ScoutSignalPublisher } from '../scout-signal/scout-signal.publisher.js';
 import { parsePrBody, type ParsedPrBody } from '../webhook/pr-body.js';
@@ -50,6 +51,7 @@ export class JobEventsService {
         @Optional() private readonly capture?: NotificationCaptureService,
         @Optional() private readonly scout?: ScoutSignalPublisher,
         @Optional() private readonly agentRuns?: AgentRunRecorder,
+        @Optional() private readonly reviewGate?: AutoReviewGateService,
     ) { }
 
     isGateWorkflow(name: string): boolean {
@@ -219,6 +221,8 @@ export class JobEventsService {
         const passed = CI_OK.has(conclusion);
         if (this.gateWorkflows.has(run.name)) return this.gateCompleted(job, prNumber, passed);
 
+        if (passed && this.reviewGate && job.status === 'pr_open') return this.ciPassedThroughGate(job, prNumber, run.headSha);
+
         const to = passed
             ? await this.transition(job, 'ci_passed', {})
             : await this.retryOrParkJob(
@@ -231,6 +235,17 @@ export class JobEventsService {
         const jobRun = await this.findRun(job.id, null);
         if (jobRun) await this.runs.update({ id: jobRun.id }, { status: passed ? 'ci_passed' : 'ci_failed', ciConclusion: conclusion });
         return `job ${to} with PR #${prNumber}`;
+    }
+
+    /**
+     * Green CI no longer makes the job ready by itself: the automatic-review gate decides, from fresh PR and CI facts, whether a
+     * review runs first (opted-in projects) or the job goes straight to a human (opted out, runtime off).
+     */
+    private async ciPassedThroughGate(job: Job, prNumber: number, headSha: string): Promise<string> {
+        const outcome = await this.reviewGate!.onCiPassed(job.id, headSha, { isCi: (n) => this.ciWorkflows.has(n) && !this.gateWorkflows.has(n) });
+        if (outcome.routed === 'human') return `job awaiting_review with PR #${prNumber}`;
+        if (outcome.routed === 'pending') return `job pr_open with PR #${prNumber}: automatic review pending`;
+        return `ignored: ${outcome.why}`;
     }
 
     /** Gates never retry or move the job; they only flag it for a human. */

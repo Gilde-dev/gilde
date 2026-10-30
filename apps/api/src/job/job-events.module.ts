@@ -11,6 +11,7 @@ import { UserModule } from '../user/user.module.js';
 import { RepoModule } from '../repo/repo.module.js';
 import { Project } from '../project/project.entity.js';
 import { RevisionModule } from '../revision/revision.module.js';
+import { PrReviewModule } from '../pr-review/pr-review.module.js';
 import { JobRun } from '../run/run.entity.js';
 
 import { Job } from './job.entity.js';
@@ -19,7 +20,7 @@ import { MergeConflictService } from './merge-conflict.service.js';
 import { JobEventsService } from './job-events.service.js';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([Job, JobRun, Project, Repo]), GitHubModule, UserModule, PassportModule.register({}), JobModule, LessonModule, RepoModule, RevisionModule, NotificationModule],
+    imports: [TypeOrmModule.forFeature([Job, JobRun, Project, Repo]), GitHubModule, UserModule, PassportModule.register({}), JobModule, LessonModule, RepoModule, RevisionModule, NotificationModule, PrReviewModule],
     controllers: [JobSendBackController],
     providers: [JobEventsService, MergeConflictService],
     exports: [JobEventsService, MergeConflictService],

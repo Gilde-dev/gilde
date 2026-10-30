@@ -375,6 +375,16 @@ describe('WebhookService', () => {
             });
         });
 
+        it("ignores the gate's own bot review, even a changes-requested one, before any publication bookkeeping exists", async () => {
+            const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
+            const own = { ...review('OWNER', { body: `<!-- gilde:pr-review:r1:${SHA1} -->\n## Gilde automatic review` }), sender: { type: 'Bot' } };
+            expect(await service.handle('pull_request_review', own)).toContain('ignored: automatic review published by Gilde');
+            expect((await reload(job.id)).status).toBe('awaiting_review');
+            // A person who merely quotes the marker is still a reviewer.
+            const human = review('OWNER', { body: `<!-- gilde:pr-review:r1:${SHA1} -->\nPlease rename it.` });
+            expect(await service.handle('pull_request_review', human)).toBe('job queued with PR #12');
+        });
+
         it('ignores outside contributors and other review states', async () => {
             const job = await seedJob('awaiting_review', { prNumber: 12, headSha: SHA1 });
             expect(await service.handle('pull_request_review', review('CONTRIBUTOR'))).toContain('ignored');
