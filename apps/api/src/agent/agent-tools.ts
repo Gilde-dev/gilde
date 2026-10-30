@@ -29,7 +29,7 @@ export const REVIEWER_TOOLS: readonly AgentToolDto[] = [
     { name: 'listChangedFiles', description: 'List the files changed by the pull request with their change type and size.', access: 'read', needsApproval: false },
     { name: 'readFileAtHead', description: 'Read a file as it is at the reviewed head commit; reports whether the content is complete and what it costs in tokens.', access: 'read', needsApproval: false },
     { name: 'readFileAtBase', description: 'Read a file as it is at the trusted base commit (conventions and unchanged code); reports completeness and token cost.', access: 'read', needsApproval: false },
-    { name: 'searchCodeAtHead', description: 'Search the code at the reviewed head commit; reports completeness and token cost.', access: 'read', needsApproval: false },
+    { name: 'searchCodeAtHead', description: 'Find files at the reviewed head commit whose path contains a text, under a directory; reports completeness and token cost.', access: 'read', needsApproval: false },
 ];
 
 interface ToolLike { description?: string; requireApproval?: boolean }
