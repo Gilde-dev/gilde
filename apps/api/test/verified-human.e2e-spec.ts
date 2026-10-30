@@ -56,7 +56,7 @@ describe('Verified human (e2e)', () => {
   it('accepts a persisted JWT human', async () => {
     const user = await createTestUser(app);
     const res = await http().get('/api/v1/test-human').set(bearer(tokenFor(app, user))).expect(200);
-    expect(res.body).toEqual({ id: user.id, email: user.email, isBot: false });
+    expect(res.body).toEqual({ id: user.id, email: user.email, isBot: false, isAdmin: false, deactivated: false });
   });
 
   it('rejects an API key, even of a human account', async () => {
@@ -140,7 +140,7 @@ describe('Bot accounts (e2e)', () => {
     const user = await createTestUser(app);
     const headers = { Authorization: `Bearer ${tokenFor(app, user)}` };
     const me = await request(app.getHttpServer()).get('/api/v1/auth/me').set(headers).expect(200);
-    expect(me.body).toEqual({ id: user.id, name: user.name, email: user.email });
+    expect(me.body).toEqual({ id: user.id, name: user.name, email: user.email, isAdmin: false });
     await request(app.getHttpServer()).get('/api/v1/projects').set(headers).expect(200);
   });
 });

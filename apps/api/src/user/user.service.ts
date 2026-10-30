@@ -4,10 +4,10 @@ import * as argon2 from 'argon2';
 import { Repository } from 'typeorm';
 
 import type { AuthUser } from '../auth/auth.dto.js';
-import { requirePersistedHuman, requireVerifiedHuman } from '../common/verified-human.js';
+import { requireAdmin, requirePersistedHuman, requireVerifiedHuman } from '../common/verified-human.js';
 import { isUniqueViolation } from '../common/db-errors.js';
 
-import type { CreateUserDto, UserIdentityDto, UserProfileDto, UserResponseDto } from './user.dto.js';
+import type { CreateUserDto, MeResponseDto, UserIdentityDto, UserProfileDto, UserResponseDto } from './user.dto.js';
 import { User } from './user.entity.js';
 import { UserMapper } from './user.mapper.js';
 
@@ -19,8 +19,13 @@ export function hashPassword(password: string): Promise<string> {
     return argon2.hash(password, { type: argon2.argon2id });
 }
 
+/** How long a JWT keeps working after its account is deactivated at most (in another process; the same process forgets at once). */
+export const ACTIVE_CACHE_MS = 30_000;
+
 @Injectable()
 export class UserService {
+    private readonly activeCache = new Map<string, { active: boolean; at: number }>();
+
     constructor(
         @InjectRepository(User) private readonly users: Repository<User>,
         private readonly mapper: UserMapper,
@@ -48,6 +53,38 @@ export class UserService {
     async getById(id: string): Promise<UserResponseDto> {
         const user = await this.users.findOneBy({ id });
         if (!user) throw new NotFoundException(`User ${id} not found`);
+        return this.mapper.toDTO(user);
+    }
+
+    /** The signed-in user as /auth/me returns it, with the admin flag. */
+    async getMe(id: string): Promise<MeResponseDto> {
+        const user = await this.users.findOneBy({ id });
+        if (!user) throw new NotFoundException(`User ${id} not found`);
+        return this.mapper.toMeDTO(user);
+    }
+
+    /** False only for a deactivated account; cached for ACTIVE_CACHE_MS so the JWT guard does not read the user on every request. */
+    async isActive(id: string): Promise<boolean> {
+        const hit = this.activeCache.get(id);
+        if (hit && Date.now() - hit.at < ACTIVE_CACHE_MS) return hit.active;
+        const user = await this.users.findOne({ where: { id }, select: { id: true, deactivatedAt: true } });
+        const active = !user?.deactivatedAt;
+        this.activeCache.set(id, { active, at: Date.now() });
+        return active;
+    }
+
+    /** Drops the cached state of an account, after it was deactivated or reactivated. */
+    forgetActive(id: string): void {
+        this.activeCache.delete(id);
+    }
+
+    /** Makes the account an admin. Idempotent; for recovery from the CLI. */
+    async makeAdmin(email: string): Promise<UserResponseDto> {
+        const normalized = normalizeEmail(email);
+        const user = await this.users.findOneBy({ email: normalized });
+        if (!user) throw new NotFoundException(`No user with email ${normalized}`);
+        if (user.isBot) throw new ConflictException('A bot account cannot be an admin');
+        if (!user.isAdmin) await this.users.update({ id: user.id }, { isAdmin: true });
         return this.mapper.toDTO(user);
     }
 
@@ -90,6 +127,12 @@ export class UserService {
     async requireVerifiedHuman(user: AuthUser | undefined): Promise<UserIdentityDto> {
         const persisted = user?.credential === 'jwt' ? await this.findIdentity(user.id) : null;
         return requireVerifiedHuman(user, persisted);
+    }
+
+    /** requireVerifiedHuman plus the admin flag, read fresh: what user management and agent settings need. */
+    async requireAdmin(user: AuthUser | undefined): Promise<UserIdentityDto> {
+        const persisted = user?.credential === 'jwt' ? await this.findIdentity(user.id) : null;
+        return requireAdmin(user, persisted);
     }
 
     /**

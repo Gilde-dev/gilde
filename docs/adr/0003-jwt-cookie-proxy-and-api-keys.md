@@ -1,6 +1,6 @@
 # 0003. Authenticate with a JWT in an httpOnly cookie via a web proxy, and hashed API keys for machines
 
-- **Status:** Accepted; the env-only routine token property is superseded by [0011](0011-personal-executors-with-encrypted-routine-tokens.md)
+- **Status:** Accepted; the env-only routine token property is superseded by [0011](0011-personal-executors-with-encrypted-routine-tokens.md); admin role, setup links and deactivation added by [0018](0018-admin-role-setup-links-and-deactivation.md)
 - **Date:** 2026-10-25
 - **Related:** PR #44 (commit 7bd09ec, JWT login and guard), PR #45 (commit 04f0c82, cookie and proxy), PR #47 (commit 57458ce, API keys); recorded retrospectively
 

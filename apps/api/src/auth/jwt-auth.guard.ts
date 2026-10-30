@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 
+import { UserService } from '../user/user.service.js';
 import { ApiKeyService, isApiKeyToken } from '../api-key/api-key.service.js';
 import { IS_PUBLIC_KEY } from '../common/public.decorator.js';
 
@@ -14,11 +15,12 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     constructor(
         private readonly reflector: Reflector,
         private readonly apiKeys: ApiKeyService,
+        private readonly users: UserService,
     ) {
         super();
     }
 
-    canActivate(context: ExecutionContext) {
+    async canActivate(context: ExecutionContext): Promise<boolean> {
         if (context.getType() !== 'http') return true;
         if (!authEnabled()) return true;
         const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -29,7 +31,11 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
         const req = context.switchToHttp().getRequest<Request & { user?: unknown }>();
         const token = /^Bearer (.+)$/i.exec(req.headers.authorization ?? '')?.[1];
         if (token && isApiKeyToken(token)) return this.authenticateApiKey(req, token);
-        return super.canActivate(context);
+        const ok = await super.canActivate(context);
+        const user = (req as { user?: { id?: string } }).user;
+        // The token itself is valid; the account may have been deactivated since it was issued.
+        if (ok && user?.id && !(await this.users.isActive(user.id))) throw new UnauthorizedException();
+        return ok === true;
     }
 
     private async authenticateApiKey(req: { user?: unknown }, token: string): Promise<boolean> {

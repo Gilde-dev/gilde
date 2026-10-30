@@ -17,6 +17,7 @@
     "start:debug": "nest start --debug --watch --env-file .env",
     "start:prod": "node dist/main",
     "user:create": "nest build && node --env-file-if-exists=.env dist/cli/user-create.js",
+    "user:make-admin": "nest build && node --env-file-if-exists=.env dist/cli/user-make-admin.js",
     "user:mark-bot": "nest build && node --env-file-if-exists=.env dist/cli/user-mark-bot.js",
     "lesson:reject-retro-candidates": "nest build && node --env-file-if-exists=.env dist/cli/lesson-reject-retro-candidates.js",
     "apikey:create": "nest build && node --env-file-if-exists=.env dist/cli/apikey-create.js",

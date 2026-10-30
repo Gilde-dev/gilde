@@ -31,7 +31,19 @@ export function requirePersistedHuman(
     if (!user?.id) throw new ForbiddenException('A verified human is required');
     if (!persisted || persisted.id !== user.id) throw new ForbiddenException('Account not found');
     if (persisted.isBot) throw new ForbiddenException('Bot accounts cannot do this');
+    if (persisted.deactivated) throw new ForbiddenException('Account is deactivated');
     const scout = scoutEmail?.trim().toLowerCase();
     if (scout && persisted.email.trim().toLowerCase() === scout) throw new ForbiddenException('The scout account cannot do this');
     return persisted;
+}
+
+/** A verified human (see requireVerifiedHuman) who is also an admin: what user management and agent settings need. */
+export function requireAdmin(
+    user: AuthUser | undefined,
+    persisted: UserIdentityDto | null,
+    scoutEmail: string | undefined = process.env.SCOUT_USER_EMAIL,
+): UserIdentityDto {
+    const human = requireVerifiedHuman(user, persisted, scoutEmail);
+    if (!human.isAdmin) throw new ForbiddenException('Only admins can do this');
+    return human;
 }

@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { UserResponseDto } from '../user/user.dto.js';
 import { UserMapper } from '../user/user.mapper.js';
+import { UserAdminService } from '../user/user-admin.service.js';
 import { UserService, hashPassword } from '../user/user.service.js';
 
 import type { JwtPayload, LoginResponseDto } from './auth.dto.js';
@@ -20,6 +21,7 @@ export class AuthService {
         private readonly users: UserService,
         private readonly mapper: UserMapper,
         private readonly jwt: JwtService,
+        private readonly admin: UserAdminService,
     ) { }
 
     async validateCredentials(email: unknown, password: unknown): Promise<UserResponseDto> {
@@ -30,8 +32,13 @@ export class AuthService {
         this.dummyHash ??= hashPassword(randomUUID());
         const hash = user?.password ?? await this.dummyHash;
         const valid = await argon2.verify(hash, password).catch(() => false);
-        if (!user || !valid) throw new UnauthorizedException(INVALID_CREDENTIALS);
+        if (!user || !valid || user.deactivatedAt) throw new UnauthorizedException(INVALID_CREDENTIALS);
         return this.mapper.toDTO(user);
+    }
+
+    /** Completes a setup or reset link and returns a normal login response. */
+    async setup(token: string, password: string): Promise<LoginResponseDto> {
+        return this.login(await this.admin.completeSetup(token, password));
     }
 
     async login(user: UserResponseDto): Promise<LoginResponseDto> {

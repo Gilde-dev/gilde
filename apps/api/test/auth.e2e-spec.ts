@@ -70,7 +70,7 @@ describe('Auth (e2e)', () => {
   describe('me', () => {
     it('returns the current user without the password', async () => {
       const res = await http().get('/api/v1/auth/me').set('Authorization', `Bearer ${tokenFor(app, user)}`).expect(200);
-      expect(res.body).toEqual({ id: user.id, name: 'Ada', email: user.email });
+      expect(res.body).toEqual({ id: user.id, name: 'Ada', email: user.email, isAdmin: false });
     });
 
     it('is 401 for a token of a deleted user', async () => {
