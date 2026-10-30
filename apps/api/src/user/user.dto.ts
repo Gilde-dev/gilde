@@ -8,6 +8,9 @@ export const CreateUserSchema = z.object({
     password: z.string().min(MIN_PASSWORD_LENGTH, `At least ${MIN_PASSWORD_LENGTH} characters`).max(1024),
 });
 
+/** A bot account is created without a password: the server generates one nobody ever sees. */
+export const CreateBotUserSchema = CreateUserSchema.omit({ password: true });
+
 export const UserResponseSchema = z.object({
     id: z.string().uuid(),
     name: z.string(),
@@ -25,6 +28,7 @@ export const UserIdentitySchema = z.object({
 export const UserProfileSchema = UserResponseSchema.extend({ isBot: z.boolean() });
 
 export type UserProfileDto = z.infer<typeof UserProfileSchema>;
+export type CreateBotUserDto = z.infer<typeof CreateBotUserSchema>;
 export type CreateUserDto = z.infer<typeof CreateUserSchema>;
 export type UserResponseDto = z.infer<typeof UserResponseSchema>;
 export type UserIdentityDto = z.infer<typeof UserIdentitySchema>;

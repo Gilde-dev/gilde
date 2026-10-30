@@ -55,6 +55,41 @@ describe('AgentDetailView: Configuration', () => {
     expect(await screen.findByText(/Saved\. The change is in effect now/)).toBeInTheDocument();
   });
 
+  it('creates a bot user from the dialog, prefilled, and selects it without saving', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ id: 'werkmeester', label: 'Werkmeester' }));
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Pascal', email: 'pascal@gilde.test' });
+    const create = vi.spyOn(api, 'createBotUser').mockResolvedValue({ id: 'b9', name: 'Werkmeester', email: 'werkmeester@gilde.test', isBot: true });
+    const put = vi.spyOn(api, 'replaceAgentSettings').mockResolvedValue(agent());
+    render(<AgentDetailView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create bot user' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    expect(dialog.getByLabelText('Name')).toHaveValue('Werkmeester');
+    await waitFor(() => expect(dialog.getByLabelText('Email')).toHaveValue('werkmeester@gilde.test'));
+    fireEvent.click(dialog.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(create).toHaveBeenCalledWith({ name: 'Werkmeester', email: 'werkmeester@gilde.test' }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Bot user')).toHaveValue('b9');
+    expect(screen.getByRole('option', { name: 'Werkmeester (werkmeester@gilde.test)' })).toBeInTheDocument();
+    expect(put).not.toHaveBeenCalled();
+  });
+
+  it('shows field errors and the 409 hint in the create bot dialog', async () => {
+    vi.spyOn(api, 'getAgent').mockResolvedValue(agent());
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Pascal', email: 'pascal@gilde.test' });
+    const create = vi.spyOn(api, 'createBotUser')
+      .mockRejectedValueOnce(new ApiError('x', 400, 'Validation failed', [{ path: 'email', message: 'Invalid email address' }]))
+      .mockRejectedValueOnce(new ApiError('x', 409, 'A user with email a@x.test already exists and is not a bot. Mark it as a bot with the CLI: pnpm --filter @gilde/api user:mark-bot --email a@x.test'));
+    render(<AgentDetailView />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create bot user' }));
+    const dialog = within(await screen.findByRole('dialog'));
+    fireEvent.click(dialog.getByRole('button', { name: 'Create' }));
+    expect(await dialog.findByText('Invalid email address')).toBeInTheDocument();
+    fireEvent.click(dialog.getByRole('button', { name: 'Create' }));
+    expect(await dialog.findByRole('alert')).toHaveTextContent('user:mark-bot --email a@x.test');
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(screen.getByLabelText('Bot user')).toHaveValue('b1');
+  });
+
   it('offers only bots from the picker, plus the stored one', async () => {
     vi.spyOn(api, 'getAgent').mockResolvedValue(agent({ botUserId: 'old', botUser: { id: 'old', name: 'Old', email: 'old@x.test' } }));
     render(<AgentDetailView />);
