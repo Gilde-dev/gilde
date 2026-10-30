@@ -41,6 +41,13 @@ describe('toolsOf', () => {
         expect(tools.find((t) => t.name === 'getJob')?.description).not.toContain('MCP boundary');
     });
 
+    it('gives the reviewer only read-only review-context tools', () => {
+        const tools = toolsOf('reviewer')!;
+        expect(tools.length).toBeGreaterThan(0);
+        expect(tools.every((t) => t.access === 'read' && !t.needsApproval)).toBe(true);
+        expect(tools.map((t) => t.name).join(' ')).not.toMatch(/create|queue|merge|approve|comment|write|run|exec|edit/i);
+    });
+
     it('has no Gilde-side tools for the coding agents', () => {
         expect(toolsOf('coding')).toBeNull();
     });

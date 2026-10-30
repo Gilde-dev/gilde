@@ -1,10 +1,10 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /** The agents and bots whose runs are logged. Ids of the Mastra agents are their agent ids. */
-export const AGENT_RUN_AGENTS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'mcp', 'coding'] as const;
+export const AGENT_RUN_AGENTS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'reviewer', 'mcp', 'coding'] as const;
 export type AgentRunAgent = (typeof AGENT_RUN_AGENTS)[number];
 
-export const AGENT_RUN_TRIGGERS = ['chat', 'signal', 'schedule', 'intake_item', 'spec_version', 'dispatch', 'mcp_call'] as const;
+export const AGENT_RUN_TRIGGERS = ['chat', 'signal', 'schedule', 'intake_item', 'spec_version', 'dispatch', 'mcp_call', 'pr_review'] as const;
 export type AgentRunTrigger = (typeof AGENT_RUN_TRIGGERS)[number];
 
 export const AGENT_RUN_OUTCOMES = ['ok', 'error', 'refused', 'skipped'] as const;
