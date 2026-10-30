@@ -21,11 +21,11 @@ vi.mock('./copilot-provider', () => ({ CopilotPageContext: () => null }));
 
 const project = {
   id: 'p1', slug: 'shop', name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3,
-  runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
+  runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false, autoReview: false, paused: false, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80, skillsLibrary: 'none', skillsLibraryRepoId: null,
 } as Project;
 /** What a PUT carries for the fixture project: every updatable field, nothing else. */
 const FULL = {
-  name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false,
+  name: 'Shop', description: 'Webshop', dailyRunLimit: 20, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false, autoReview: false,
   skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: 50, budgetSoftPct: 80,
 };
 const repos = [{ id: 'r1', fullName: 'o/api', stacks: [], testCommands: [], paused: false, maxConcurrentJobs: 1, defaultBranch: 'main' }] as unknown as Repo[];
@@ -99,6 +99,32 @@ describe('ProjectSettingsView', () => {
     fireEvent.click(toggle);
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { ...FULL, autoPlan: true }));
+  });
+
+  it('saves the autoReview toggle, off by default, with accurate setup and non-retroactivity help', async () => {
+    const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
+    render(<ProjectSettingsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Policies' }));
+    const toggle = screen.getByLabelText(/Review agent PRs automatically/);
+    expect(toggle).not.toBeChecked();
+    expect(screen.getByText(/runtime alone does not enable review/)).toBeInTheDocument();
+    expect(screen.getByText(/subsequent CI\s+observations/)).toBeInTheDocument();
+    expect(screen.getByText(/not retroactively reviewed/)).toBeInTheDocument();
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    await waitFor(() => expect(update).toHaveBeenCalledWith('p1', { ...FULL, autoReview: true }));
+  });
+
+  it('shows the API error when saving autoReview fails and keeps the toggle', async () => {
+    vi.spyOn(api, 'replaceProject').mockRejectedValue(new ApiError('Server exploded', 500));
+    render(<ProjectSettingsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Policies' }));
+    const toggle = screen.getByLabelText(/Review agent PRs automatically/);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+    expect(await screen.findByText(/Server exploded/)).toBeInTheDocument();
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument();
+    expect(toggle).toBeChecked();
   });
 
   it('saves the automatic conflict fix toggle, off by default', async () => {

@@ -120,6 +120,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
   const [retry, setRetry] = useState(project.retryOnChangesRequested);
   const [autoFix, setAutoFix] = useState(project.autoFixConflicts);
   const [autoPlan, setAutoPlan] = useState(project.autoPlan);
+  const [autoReview, setAutoReview] = useState(project.autoReview);
   return (
     <SettingsForm
       project={project}
@@ -131,6 +132,7 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
         retryOnChangesRequested: retry,
         autoFixConflicts: autoFix,
         autoPlan,
+        autoReview,
       })}
     >
       {(error) => (
@@ -164,6 +166,16 @@ function PoliciesForm({ project, onSaved }: { project: Project; onSaved: () => v
               <span className="block text-muted-foreground">
                 When a spec version is approved, the Werkmeester drafts a plan. Plans land as draft features with their jobs in triage; nothing is queued
                 automatically. Without this you can still use Plan from spec on the spec page.
+              </span>
+            </span>
+          </label>
+          <label className="flex items-start gap-2 text-sm">
+            <input type="checkbox" className="mt-0.5" checked={autoReview} onChange={(e) => setAutoReview(e.target.checked)} />
+            <span>
+              Review agent PRs automatically
+              <span className="block text-muted-foreground">
+                Opt-in, off by default. Setting up the reviewer runtime alone does not enable review; this toggle does. Changes apply to subsequent CI
+                observations. Jobs already awaiting review are not retroactively reviewed.
               </span>
             </span>
           </label>

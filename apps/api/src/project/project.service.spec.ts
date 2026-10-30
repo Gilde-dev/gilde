@@ -33,14 +33,14 @@ async function full(over: Partial<ReplaceProjectDto> = {}): Promise<ReplaceProje
     const p = await service.getById(p1.id);
     return {
         name: p.name, description: p.description, dailyRunLimit: p.dailyRunLimit, maxAttempts: p.maxAttempts,
-        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts, autoPlan: p.autoPlan,
+        runTimeoutMinutes: p.runTimeoutMinutes, retryOnChangesRequested: p.retryOnChangesRequested, autoFixConflicts: p.autoFixConflicts, autoPlan: p.autoPlan, autoReview: p.autoReview,
         skillsLibrary: p.skillsLibrary, skillsLibraryRepoId: p.skillsLibraryRepoId,
         dailyBudgetUsd: p.dailyBudgetUsd, weeklyBudgetUsd: p.weeklyBudgetUsd, budgetSoftPct: p.budgetSoftPct, ...over,
     };
 }
 
 const FULL_BODY = {
-    name: 'N', description: null, dailyRunLimit: 10, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false,
+    name: 'N', description: null, dailyRunLimit: 10, maxAttempts: 3, runTimeoutMinutes: 60, retryOnChangesRequested: true, autoFixConflicts: false, autoPlan: false, autoReview: false,
     skillsLibrary: 'none', skillsLibraryRepoId: null, dailyBudgetUsd: null, weeklyBudgetUsd: null, budgetSoftPct: 80,
 };
 
@@ -118,5 +118,31 @@ describe('Project budget settings', () => {
         }
         expect(CreateProjectSchema.safeParse({ slug: 'ok-1', name: 'n', dailyBudgetUsd: -0.01 }).success).toBe(false);
         expect(ReplaceProjectSchema.safeParse({}).success).toBe(false);
+    });
+});
+
+describe('Project autoReview policy', () => {
+    it('defaults to false for new projects, directly and through create', async () => {
+        expect(await service.getById(p1.id)).toMatchObject({ autoReview: false });
+        expect(await service.create({ slug: 'p3', name: 'P3' })).toMatchObject({ autoReview: false });
+        expect(await service.create({ slug: 'p4', name: 'P4', autoReview: true })).toMatchObject({ autoReview: true });
+    });
+
+    it('is persisted independently per project and independently of the other policies', async () => {
+        const p2 = await projects.save({ slug: 'q2', name: 'Q2' });
+        expect(await service.update(p1.id, await full({ autoReview: true }))).toMatchObject({ autoReview: true, autoPlan: false, autoFixConflicts: false });
+        expect(await service.getById(p1.id)).toMatchObject({ autoReview: true });
+        expect(await service.getById(p2.id)).toMatchObject({ autoReview: false });
+        expect(await service.update(p1.id, await full({ autoPlan: true }))).toMatchObject({ autoReview: true, autoPlan: true });
+        expect(await service.update(p1.id, await full({ autoReview: false }))).toMatchObject({ autoReview: false, autoPlan: true });
+        expect((await service.list()).map((p) => [p.slug, p.autoReview])).toEqual(expect.arrayContaining([['p1', false], ['q2', false]]));
+    });
+
+    it('is required on replace and must be a boolean', () => {
+        const { autoReview: _omit, ...without } = { ...FULL_BODY, autoReview: false };
+        expect(ReplaceProjectSchema.safeParse(without).success).toBe(false);
+        expect(ReplaceProjectSchema.safeParse({ ...FULL_BODY, autoReview: 'yes' }).success).toBe(false);
+        expect(ReplaceProjectSchema.safeParse({ ...FULL_BODY, autoReview: true }).success).toBe(true);
+        expect(CreateProjectSchema.safeParse({ slug: 'ok-1', name: 'n', autoReview: 1 }).success).toBe(false);
     });
 });
