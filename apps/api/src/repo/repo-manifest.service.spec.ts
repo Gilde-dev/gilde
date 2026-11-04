@@ -12,6 +12,7 @@ let ds: DataSource;
 let repos: Repository<Repo>;
 let repo: Repo;
 let file: GitHubFile | null | Error;
+let branch: string | Error = 'sha';
 let service: RepoManifestService;
 
 const manifest = (over: object = {}) => JSON.stringify({ stacks: ['nestjs', 'nextjs'], testCommands: ['pnpm test'], skills: { include: ['x'] }, ...over });
@@ -22,8 +23,10 @@ beforeEach(async () => {
     const project = await ds.getRepository(Project).save({ slug: 'p', name: 'P' });
     repo = await repos.save(repos.create({ projectId: project.id, fullName: 'o/r' }));
     file = null;
+    branch = 'sha';
     const github = {
         isConfigured: () => true,
+        getBranchHeadSha: async () => { if (branch instanceof Error) throw branch; return 'sha'; },
         getFileContent: async () => { if (file instanceof Error) throw file; return file; },
     } as unknown as GitHubPort;
     service = new RepoManifestService(new RepoMapper(), repos, github);
@@ -55,6 +58,21 @@ describe('RepoManifestService.refresh', () => {
         const dto = await service.refresh(repo.id);
         expect(dto.manifestError).toMatch(message);
         expect(dto).toMatchObject({ stacks: ['nestjs', 'nextjs'], testCommands: ['pnpm test'], manifestSha: 'good' });
+    });
+
+    it.each([
+        ['404 on a readable repo', null, 'sha', 'missing'],
+        ['404 because the app has no access', null, new Error('GitHub GET failed: 404'), 'unreachable'],
+        ['app not installed', new Error('no installation'), 'sha', 'unreachable'],
+        ['a network error', new Error('fetch failed'), 'sha', 'unreachable'],
+        ['invalid JSON', { content: '{nope', sha: 'x' }, 'sha', 'invalid'],
+        ['schema errors', { content: manifest({ stacks: [] }), sha: 'x' }, 'sha', 'invalid'],
+        ['a valid manifest', { content: manifest(), sha: 'x' }, 'sha', 'ok'],
+    ])('stores manifestStatus for %s', async (_name, next, head, status) => {
+        file = next as GitHubFile | null | Error;
+        branch = head as string | Error;
+        expect((await service.refresh(repo.id)).manifestStatus).toBe(status);
+        expect((await repos.findOneByOrFail({ id: repo.id })).manifestStatus).toBe(status);
     });
 
     it('clears the error on the next good refresh', async () => {

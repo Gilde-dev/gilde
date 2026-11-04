@@ -148,6 +148,34 @@ describe('DispatcherService', () => {
         expect(result.repos[0]).toMatchObject({ reason: 'no_manifest', detail: '.gilde.json not found on main', queued: 1 });
     });
 
+    it('fires in bootstrap mode for a missing manifest, with a visible reason and an empty payload', async () => {
+        const repo = await seedRepo(await seedProject(), { testCommands: [], stacks: [], manifestStatus: 'missing', manifestError: '.gilde.json not found on main' });
+        await seedJob(repo);
+        const result = await dispatcher.dispatch();
+        expect(result).toMatchObject({ fired: 1, failed: 0 });
+        expect(result.repos[0]).toMatchObject({ reason: 'no_manifest_bootstrap', detail: '.gilde.json not found; jobs run in bootstrap mode' });
+        const payload = fire.mock.calls[0][1] as Record<string, unknown>;
+        expect(payload).toMatchObject({ testCommands: [], stacks: [] });
+        expect(payload.bootstrapNote).toMatch(/no \.gilde\.json yet and no test commands/);
+    });
+
+    it.each(['invalid', 'unreachable', null] as const)('still skips with no_manifest for manifest status %s', async (manifestStatus) => {
+        const repo = await seedRepo(await seedProject(), { testCommands: [], stacks: [], manifestStatus, manifestError: 'broken' });
+        await seedJob(repo);
+        const result = await dispatcher.dispatch();
+        expect(result.fired).toBe(0);
+        expect(fire).not.toHaveBeenCalled();
+        expect(result.repos[0]).toMatchObject({ reason: 'no_manifest', detail: 'broken' });
+    });
+
+    it('keeps the other gates in bootstrap mode', async () => {
+        const repo = await seedRepo(await seedProject({ dailyRunLimit: 0 }), { testCommands: [], manifestStatus: 'missing' });
+        await seedJob(repo);
+        const result = await dispatcher.dispatch();
+        expect(result.fired).toBe(0);
+        expect(result.repos[0].reason).toBe('daily_limit');
+    });
+
     it('never fires triage jobs', async () => {
         const repo = await seedRepo(await seedProject());
         const triage = await seedJob(repo, 'triage', { queuedAt: null });

@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import { BudgetBlockerSchema } from '../budget/budget.dto.js';
 
-export const DispatchReasonSchema = z.enum(['repo_paused', 'project_paused', 'no_manifest', 'no_slots', 'daily_limit', 'budget', 'none']);
+export const DispatchReasonSchema = z.enum(['repo_paused', 'project_paused', 'no_manifest', 'no_manifest_bootstrap', 'no_slots', 'daily_limit', 'budget', 'none']);
 export type DispatchReason = z.infer<typeof DispatchReasonSchema>;
 
 /** Why the estimated-spend guard stopped a repo: every hard period at once, not only the first one found. */

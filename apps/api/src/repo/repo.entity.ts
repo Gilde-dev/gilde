@@ -4,6 +4,9 @@ import { Project } from '../project/project.entity.js';
 export const STACKS = ['spring-boot', 'nestjs', 'nextjs', 'node', 'other'] as const;
 export type Stack = (typeof STACKS)[number];
 
+export const MANIFEST_STATUSES = ['ok', 'missing', 'invalid', 'unreachable'] as const;
+export type ManifestStatus = (typeof MANIFEST_STATUSES)[number];
+
 @Entity({
     name: 'repositories'
 })
@@ -44,6 +47,10 @@ export class Repo {
 
     @Column({ name: 'manifest_synced_at', type: Date, nullable: true })
     manifestSyncedAt: Date | null;
+
+    /** Outcome of the last manifest sync; null until the first one. `missing`: readable repo without .gilde.json (bootstrap mode). */
+    @Column({ name: 'manifest_status', type: 'simple-enum', enum: MANIFEST_STATUSES, nullable: true })
+    manifestStatus: ManifestStatus | null;
 
     @Column({ name: 'manifest_error', type: 'text', nullable: true })
     manifestError: string | null;

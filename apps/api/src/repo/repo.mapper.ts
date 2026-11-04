@@ -20,6 +20,7 @@ export class RepoMapper {
             skills: entity.skills ?? null,
             manifestSha: entity.manifestSha ?? null,
             manifestSyncedAt: entity.manifestSyncedAt?.toISOString() ?? null,
+            manifestStatus: entity.manifestStatus ?? null,
             manifestError: entity.manifestError ?? null,
             githubAppInstalled: app?.installed ?? null,
             githubAppWarning: app?.warning ?? null,

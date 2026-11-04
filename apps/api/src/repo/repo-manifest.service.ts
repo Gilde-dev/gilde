@@ -9,7 +9,7 @@ import { ManifestSchema, type Manifest } from './manifest.schema.js';
 import { RepoWorkspaceService } from '../workspace/repo-workspace.service.js';
 
 import type { RepoResponseDto } from './repo.dto.js';
-import { Repo } from './repo.entity.js';
+import { Repo, type ManifestStatus } from './repo.entity.js';
 import { RepoMapper } from './repo.mapper.js';
 
 export const MANIFEST_PATH = '.gilde.json';
@@ -61,6 +61,7 @@ export class RepoManifestService {
         const result = await this.load(repo);
         if ('error' in result) {
             repo.manifestError = result.error;
+            repo.manifestStatus = result.status;
         } else {
             const { manifest, sha } = result;
             repo.stacks = manifest.stacks;
@@ -69,31 +70,40 @@ export class RepoManifestService {
             repo.manifestSha = sha;
             repo.manifestSyncedAt = new Date();
             repo.manifestError = null;
+            repo.manifestStatus = 'ok';
         }
         const saved = await this.repoRepository.save(repo);
         for (const listener of this.refreshListeners) listener(repoId);
         return this.repoMapper.toDTO(saved);
     }
 
-    private async load(repo: Repo): Promise<{ error: string } | { manifest: Manifest; sha: string }> {
+    private async load(repo: Repo): Promise<{ error: string; status: Exclude<ManifestStatus, 'ok'> } | { manifest: Manifest; sha: string }> {
         let file: GitHubFile | null;
         try {
             file = await this.github.getFileContent(repo.fullName, MANIFEST_PATH, repo.defaultBranch);
         } catch (e) {
-            return { error: `Could not read ${MANIFEST_PATH}: ${e instanceof Error ? e.message : String(e)}` };
+            return { status: 'unreachable', error: `Could not read ${MANIFEST_PATH}: ${e instanceof Error ? e.message : String(e)}` };
         }
-        if (!file) return { error: `${MANIFEST_PATH} not found on ${repo.defaultBranch}` };
+        if (!file) {
+            // GitHub answers 404 for an absent file and for a repo the app cannot see: only a readable branch means "missing".
+            try {
+                await this.github.getBranchHeadSha(repo.fullName, repo.defaultBranch);
+            } catch (e) {
+                return { status: 'unreachable', error: `Could not read ${repo.fullName}: ${e instanceof Error ? e.message : String(e)}` };
+            }
+            return { status: 'missing', error: `${MANIFEST_PATH} not found on ${repo.defaultBranch}` };
+        }
 
         let json: unknown;
         try {
             json = JSON.parse(file.content);
         } catch (e) {
-            return { error: `${MANIFEST_PATH} is not valid JSON: ${e instanceof Error ? e.message : String(e)}` };
+            return { status: 'invalid', error: `${MANIFEST_PATH} is not valid JSON: ${e instanceof Error ? e.message : String(e)}` };
         }
         const parsed = ManifestSchema.safeParse(json);
         if (!parsed.success) {
             const issues = parsed.error.issues.map((i) => `${i.path.join('.') || '(root)'}: ${i.message}`).join('; ');
-            return { error: `${MANIFEST_PATH} is invalid: ${issues}` };
+            return { status: 'invalid', error: `${MANIFEST_PATH} is invalid: ${issues}` };
         }
         return { manifest: parsed.data, sha: file.sha };
     }

@@ -42,6 +42,7 @@ export const RepoResponseSchema = z.object({
     skills: ManifestSkillsSchema.nullable(),
     manifestSha: z.string().nullable(),
     manifestSyncedAt: z.string().datetime().nullable(),
+    manifestStatus: z.enum(['ok', 'missing', 'invalid', 'unreachable']).nullable(),
     manifestError: z.string().nullable(),
     /** Whether the Gilde GitHub App is installed on the repo; null until an installation event was seen. */
     githubAppInstalled: z.boolean().nullable(),

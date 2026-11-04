@@ -643,6 +643,22 @@ their text are also stored in your vector store (Postgres or `mastra.db`). Chang
 edits, deletions, revocation, requeues, stale chunks, filters and failures; `apps/api/test/history.e2e-spec.ts` covers the authenticated routes. Note that LibSQL's
 approximate index can return fewer rows than `topK` after many deletions; revalidation never lets this return wrong data, and a rebuild restores recall.
 
+## Manifest status and bootstrap mode
+
+Each manifest sync (hourly, on demand and after a PR merges) stores a `manifestStatus` on the repo (`manifestStatus` in the repo DTO):
+
+- `ok`: `.gilde.json` was read and is valid; stacks and test commands are cached.
+- `missing`: the default branch is readable but has no `.gilde.json`.
+- `invalid`: the file is not valid JSON or does not match the schema.
+- `unreachable`: Gilde could not read the repo (app not installed or no access, network error).
+
+A repo without cached test commands normally blocks dispatch with the reason `no_manifest`. For `missing` only, jobs run in
+**bootstrap mode**: they fire with `testCommands: []` and `stacks: []`, the payload carries a `bootstrapNote` (no `.gilde.json`
+yet, create it if the task asks for it and state in the PR which commands were run), and the dispatch report shows
+`no_manifest_bootstrap` (".gilde.json not found; jobs run in bootstrap mode"). `invalid` and `unreachable` still block with
+`no_manifest`. All other gates are unchanged. When the first job is merged the manifest is refreshed, so stacks and test
+commands appear without waiting for the hourly sync.
+
 ## Code workspace
 
 The co-pilot searches and reads repo code from local clones (`git grep`), kept under `GILDE_WORKSPACE_DIR`

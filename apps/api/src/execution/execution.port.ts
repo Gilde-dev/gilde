@@ -60,6 +60,8 @@ export const JobPayloadSchema = z.object({
     acceptanceCriteria: z.array(z.string()),
     testCommands: z.array(z.string()),
     stacks: z.array(z.string()),
+    /** Only in bootstrap mode (repo without .gilde.json). */
+    bootstrapNote: z.string().optional(),
     feature: z.object({ title: z.string(), spec: z.string(), acceptanceCriteria: z.array(z.string()) }).optional(),
     downstream: z.array(z.object({
         jobId: z.string(),

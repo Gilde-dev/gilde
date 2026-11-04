@@ -28,6 +28,16 @@ describe('RepoManifest', () => {
     expect(screen.getByText('Manifest not synced yet')).toBeInTheDocument();
   });
 
+  it.each([
+    ['missing', /bootstrap mode until the first job adds `\.gilde\.json`/],
+    ['invalid', /not valid JSON or does not match/],
+    ['unreachable', /could not read the repo/],
+    ['ok', /read and is valid/],
+  ] as const)('explains manifest status %s', (manifestStatus, text) => {
+    render(<RepoManifest repo={{ ...repo, manifestStatus }} onChanged={() => {}} />);
+    expect(screen.getByTestId('manifest-status')).toHaveTextContent(text);
+  });
+
   it('refreshes and reloads', async () => {
     const refresh = vi.spyOn(api, 'refreshRepoManifest').mockResolvedValue(repo);
     const onChanged = vi.fn();

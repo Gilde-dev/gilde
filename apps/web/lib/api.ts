@@ -290,6 +290,7 @@ export interface Repo {
   skills: { include?: string[]; exclude?: string[] } | null;
   manifestSha: string | null;
   manifestSyncedAt: string | null;
+  manifestStatus: 'ok' | 'missing' | 'invalid' | 'unreachable' | null;
   manifestError: string | null;
   /** Whether the Gilde GitHub App is installed on the repo; null until an installation event was seen. */
   githubAppInstalled: boolean | null;
@@ -1608,7 +1609,7 @@ export function lessonReplacement(l: Lesson, edits: Partial<ReplaceLessonInput> 
 }
 
 export type DispatchReason =
-  | 'repo_paused' | 'project_paused' | 'no_manifest' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
+  | 'repo_paused' | 'project_paused' | 'no_manifest' | 'no_manifest_bootstrap' | 'no_slots' | 'daily_limit' | 'budget' | 'none';
 
 /** Why the estimated-spend guard stopped a repo: every hard day/week period of the project and global scope at once. */
 export interface DispatchBudgetEvidence {
