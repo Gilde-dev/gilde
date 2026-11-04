@@ -162,10 +162,16 @@ export class DispatcherService {
                 report.reason = 'project_paused';
                 continue;
             }
-            if (repo.testCommands.length === 0) {
+            const bootstrap = repo.testCommands.length === 0 && repo.manifestStatus === 'missing';
+            if (repo.testCommands.length === 0 && !bootstrap) {
                 report.reason = 'no_manifest';
                 report.detail = repo.manifestError ?? 'not refreshed yet';
                 continue;
+            }
+            // Bootstrap mode: jobs fire without test commands; the reason stays visible unless a later gate overrides it.
+            if (bootstrap) {
+                report.reason = 'no_manifest_bootstrap';
+                report.detail = '.gilde.json not found; jobs run in bootstrap mode';
             }
 
             if (!budgets.has(project.id)) budgets.set(project.id, await this.dailyBudget(project));
@@ -564,6 +570,7 @@ export function describeRepo(r: RepoDispatchReport, previous: DispatchReason | u
         case 'repo_paused': text = `repo paused${r.detail ? `: ${r.detail}` : ''}`; break;
         case 'project_paused': text = 'project paused'; break;
         case 'no_manifest': text = `no cached .gilde.json (${r.detail ?? 'not refreshed yet'})`; break;
+        case 'no_manifest_bootstrap': text = `bootstrap mode (${r.detail ?? '.gilde.json not found'})`; break;
         case 'no_slots': text = `no free slots (${r.detail})`; break;
         case 'daily_limit': text = `daily limit reached (${r.detail}, resets ${r.resetsAt?.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC)`; break;
         case 'budget': text = `stopped by estimated budget (${r.detail ?? 'unknown'})${r.resetsAt ? `, earliest recovery ${r.resetsAt.replace('T', ' ').replace(/\.\d+Z$/, '')} UTC` : ''}`; break;

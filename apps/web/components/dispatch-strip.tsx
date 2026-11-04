@@ -30,6 +30,7 @@ export function explainRepo(r: RepoDispatchReport): string | null {
     repo_paused: () => `Repo paused${r.detail ? `: ${r.detail}` : ''}`,
     project_paused: () => 'Project paused',
     no_manifest: () => `No .gilde.json cached${r.detail ? `: ${r.detail}` : ''}`,
+    no_manifest_bootstrap: () => `Bootstrap mode${r.detail ? `: ${r.detail}` : ''}`,
     no_slots: () => `No free slots (${r.detail ?? ''} running)`,
     daily_limit: () =>
       `Daily limit reached ${r.detail ?? ''}${r.resetsAt ? `, resets at ${new Date(r.resetsAt).toLocaleString()}` : ''}`,

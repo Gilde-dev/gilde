@@ -4,6 +4,9 @@ import type { Repo } from '../repo/repo.entity.js';
 import { DOWNSTREAM_TASK_LIMIT, type DownstreamContext, type DownstreamJob } from './downstream.js';
 import type { JobKnowledge, JobLesson, JobPayload, PromptContext } from './execution.port.js';
 
+/** Handed to the agent when the repo has no .gilde.json yet. */
+export const BOOTSTRAP_NOTE = 'This repo has no .gilde.json yet and no test commands are configured (bootstrap mode). Create .gilde.json if the task asks for it, and state in the PR which commands you ran.';
+
 /** Longest feature spec handed to an agent, in characters. */
 export const FEATURE_SPEC_LIMIT = 8000;
 
@@ -20,6 +23,7 @@ export function buildJobPayload(job: Job, repo: Repo, feature: Feature | null, r
         acceptanceCriteria: job.acceptanceCriteria,
         testCommands: repo.testCommands,
         stacks: repo.stacks,
+        ...(repo.manifestStatus === 'missing' && repo.testCommands.length === 0 ? { bootstrapNote: BOOTSTRAP_NOTE } : {}),
         ...(feature
             ? { feature: { title: feature.title, spec: feature.spec.slice(0, FEATURE_SPEC_LIMIT), acceptanceCriteria: feature.acceptanceCriteria } }
             : {}),

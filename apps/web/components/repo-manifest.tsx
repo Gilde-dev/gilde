@@ -5,6 +5,13 @@ import { api, type Repo } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { Button } from './ui/button';
 
+const MANIFEST_STATUS_TEXT: Record<NonNullable<Repo['manifestStatus']>, string> = {
+  ok: 'The manifest was read and is valid.',
+  missing: 'Jobs run in bootstrap mode until the first job adds `.gilde.json`.',
+  invalid: '`.gilde.json` is not valid JSON or does not match the schema. Jobs are held until it is fixed.',
+  unreachable: 'Gilde could not read the repo (app not installed, no access or a network problem). Jobs are held until it can.',
+};
+
 /** A repo's cached .gilde.json: stacks, test commands, last sync and any sync error, with a Refresh button. */
 export function RepoManifest({ repo, onChanged }: { repo: Repo; onChanged: () => void | Promise<void> }) {
   const [busy, setBusy] = useState(false);
@@ -25,6 +32,11 @@ export function RepoManifest({ repo, onChanged }: { repo: Repo; onChanged: () =>
         </div>
       )}
       <p>{repo.manifestSyncedAt ? `Manifest synced ${new Date(repo.manifestSyncedAt).toLocaleString()}` : 'Manifest not synced yet'}</p>
+      {repo.manifestStatus && (
+        <p data-testid="manifest-status">
+          <span className="font-medium text-foreground">Manifest: {repo.manifestStatus}</span>. {MANIFEST_STATUS_TEXT[repo.manifestStatus]}
+        </p>
+      )}
       {repo.manifestError && (
         <p role="alert" className="text-danger">
           {repo.manifestError}
