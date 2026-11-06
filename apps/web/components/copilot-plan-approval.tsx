@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react';
 import { api, type SpecDetail } from '@/lib/api';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { McpInputLines, McpLabel } from '@/components/copilot-mcp-call';
 import { SafeMarkdown } from '@/components/safe-markdown';
 import { TextDiffView } from '@/components/text-diff-view';
 
@@ -470,24 +471,18 @@ export function mcpCallFromInterrupt(interrupt: ApprovalInterrupt | null | undef
 
 /** A tool of an external MCP server that can change data, with Approve and Cancel. Shows the server, the tool and the arguments. */
 export function McpApprovalCard({ call, onApprove, onCancel }: { call: McpCall; onApprove: () => void; onCancel: () => void }) {
-  const args = JSON.stringify(call.args, null, 2);
   return (
     <section aria-label="External tool for approval" className="my-2 space-y-2 rounded-md border bg-background p-3 text-sm">
       <header>
         <p className="text-xs uppercase tracking-wide text-muted-foreground">Run external tool?</p>
         <h3 className="font-semibold">
-          <span className="font-mono">
-            {call.server}.{call.tool}
-          </span>
+          <McpLabel server={call.server} tool={call.tool} />
         </h3>
         <p className="text-xs text-muted-foreground">MCP server {call.server}. This tool can change data in that system.</p>
       </header>
-      {Object.keys(call.args).length > 0 && (
-        <div>
-          <p className="text-xs text-muted-foreground">Arguments</p>
-          <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded bg-muted p-1 text-xs">{args}</pre>
-        </div>
-      )}
+      <div className="text-xs">
+        <McpInputLines args={call.args} />
+      </div>
       <div className="flex justify-end gap-2">
         <Button variant="outline" size="sm" onClick={onCancel}>
           Cancel
