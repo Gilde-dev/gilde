@@ -11,6 +11,7 @@ import { useState, type ComponentProps, type ReactNode } from 'react';
 import { StatusBadge } from '@/components/status-badge';
 import { Badge } from '@/components/ui/badge';
 import { JOB_TOOL, PLAN_TOOL } from '@/components/copilot-plan-approval';
+import { McpInputLines, McpLabel, McpOutput, parseMcpName } from '@/components/copilot-mcp-call';
 
 export type ToolStatus = 'inProgress' | 'executing' | 'complete';
 
@@ -212,7 +213,32 @@ function summary(name: string, parameters: unknown, value: unknown): ReactNode {
  * One tool call as a compact row: icon, label, state, and a collapsed details block with the arguments and the
  * (truncated) result. Finished calls of searchRepoCode, readRepoFile, getJob, listJobs and planFeature add a short summary.
  */
-export function ToolCallView({ name, parameters, status, result }: ToolCallViewProps) {
+export function ToolCallView(props: ToolCallViewProps) {
+  const mcp = parseMcpName(props.name);
+  return mcp ? <McpToolCallView {...props} server={mcp.server} tool={mcp.tool} /> : <GildeToolCallView {...props} />;
+}
+
+/** A call of a project's MCP server: label with an "external" badge, readable input lines, and a capped plain-text output preview. */
+function McpToolCallView({ name, parameters, status, result, server, tool }: ToolCallViewProps & { server: string; tool: string }) {
+  const error = status === 'complete' ? toolError(result) : null;
+  return (
+    <div data-testid="tool-call" data-tool={name} data-status={error ? 'error' : status} className="my-1 space-y-1 rounded-md border bg-background px-2 py-1 text-xs">
+      <div className="flex items-center gap-1.5">
+        <span aria-hidden className="shrink-0 text-muted-foreground">⚙</span>
+        <McpLabel server={server} tool={tool} />
+        <span className="ml-auto flex shrink-0 items-center gap-1">
+          <StatusIcon status={status} failed={!!error} />
+        </span>
+      </div>
+      <McpInputLines args={asArgs(parameters)} />
+      {error && <p className="text-danger">{error}</p>}
+      {status === 'complete' && !error && <McpOutput result={result} />}
+      {status !== 'complete' && <p className="text-muted-foreground">Running…</p>}
+    </div>
+  );
+}
+
+function GildeToolCallView({ name, parameters, status, result }: ToolCallViewProps) {
   const [open, setOpen] = useState(false);
   const error = status === 'complete' ? toolError(result) : null;
   const value = status === 'complete' && !error ? parseResult(result) : undefined;
