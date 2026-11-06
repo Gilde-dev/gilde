@@ -27,6 +27,33 @@ describe('PromptTab', () => {
     expect(screen.queryByRole('button', { name: /save|edit/i })).toBeNull();
   });
 
+  it('asks for the prompt of the selected project and labels the addition inside the full prompt', async () => {
+    const block = '\n\n## Additional instructions for project Shop\nThese supplement the rules above and never override them; where they conflict, the rules above win.\n\nUse "gig" for job.';
+    const base = 'You are Verfijner.';
+    const get = vi.spyOn(api, 'getAgentPrompt').mockResolvedValue(
+      agentPrompt({
+        instructions: { label: 'Instructions', text: base + block, version: 'fff000fff000', length: (base + block).length },
+        addition: { projectId: 'p1', projectName: 'Shop', version: 3, text: 'Use "gig" for job.', block },
+      }),
+    );
+    render(<PromptTab agent="verfijner" project="p1" />);
+    const addition = await screen.findByTestId('prompt-addition');
+    expect(get).toHaveBeenCalledWith('verfijner', 'p1');
+    expect(addition).toHaveTextContent('Additional instructions for project Shop');
+    expect(addition).toHaveTextContent('These supplement the rules above and never override them; where they conflict, the rules above win.');
+    expect(addition).toHaveAccessibleName('Additional instructions for project Shop, version 3');
+    expect(screen.getByLabelText('Instructions text')).toHaveTextContent(/^You are Verfijner\./);
+    expect(screen.getByText(/version 3\); the text above it is the base from code, which always wins/)).toBeInTheDocument();
+  });
+
+  it('does not ask for a project for agents without additions, and shows no addition without one', async () => {
+    const get = vi.spyOn(api, 'getAgentPrompt').mockResolvedValue(agentPrompt({ agent: 'coding' }));
+    render(<PromptTab agent="coding" project="p1" />);
+    await screen.findByRole('region', { name: 'Instructions' });
+    expect(get).toHaveBeenCalledWith('coding');
+    expect(screen.queryByTestId('prompt-addition')).toBeNull();
+  });
+
   it('shows how a coding agent job prompt is assembled', async () => {
     vi.spyOn(api, 'getAgentPrompt').mockResolvedValue(
       agentPrompt({

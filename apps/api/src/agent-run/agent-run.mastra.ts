@@ -1,3 +1,4 @@
+import { PROMPT_PROVENANCE_KEY } from '../agent-additions/agent-additions.render.js';
 import type { AgentRunHandle, AgentRunInit, AgentRunRecorder } from './agent-run.recorder.js';
 
 /** Request-context key holding the AgentRunHandle of the current run. Set by the worker that owns the run, or lazily on the first step. */
@@ -82,6 +83,8 @@ export function runLogProcessor(model: string) {
             try {
                 const run = runOf(args.requestContext);
                 const usage = args.result?.usage ?? {};
+                const prompt = args.requestContext?.get(PROMPT_PROVENANCE_KEY) as { additionVersion: number | null; promptVersion: string } | undefined;
+                if (prompt) run?.annotate(prompt);
                 run?.end({
                     ...(run.managed ? {} : { outcome: 'ok' as const }),
                     model, inputTokens: usage.inputTokens ?? 0, outputTokens: usage.outputTokens ?? 0, cachedInputTokens: usage.cachedInputTokens ?? 0,

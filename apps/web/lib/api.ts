@@ -1235,6 +1235,10 @@ export interface AgentRunSummary {
   costUsd: number | null;
   linkedTable: string | null;
   linkedId: string | null;
+  /** Version of the project's additional instructions the prompt had; null when none. */
+  instructionsAdditionVersion: number | null;
+  /** Version hash of the full instructions of the run, including any addition. */
+  promptVersion: string | null;
   toolCallCount: number;
   executor: { id: string; name: string } | null;
   metadataOnly: boolean;
@@ -1304,7 +1308,33 @@ export interface AgentPrompt {
     limits: string[];
     trimmingOrder: string[];
   } | null;
+  /** The selected project's addition that is part of `instructions.text` (its last part); null when none. */
+  addition: { projectId: string; projectName: string; version: number; text: string; block: string } | null;
   note: string | null;
+}
+
+export const ADDITION_AGENTS = ['gilde', 'verkenner', 'verfijner', 'werkmeester', 'reviewer'] as const;
+export type AdditionAgent = (typeof ADDITION_AGENTS)[number];
+
+/** Mirrors AgentInstructionsSchema: version 0 and empty text mean no addition. */
+export interface AgentInstruction {
+  agentId: AdditionAgent;
+  text: string;
+  version: number;
+  updatedAt: string | null;
+  updatedBy: { id: string; name: string | null; email: string | null } | null;
+}
+export interface AgentInstructions {
+  projectId: string;
+  maxChars: number;
+  agents: AgentInstruction[];
+}
+export interface AgentInstructionVersion {
+  version: number;
+  text: string;
+  current: boolean;
+  updatedAt: string;
+  updatedBy: { id: string; name: string | null; email: string | null };
 }
 
 export interface SlackDelivery {
@@ -1669,7 +1699,13 @@ export const api = {
   listAgentRuns: (agentId: string, params?: AgentRunsParams) =>
     request<AgentRunPage>(`/v1/agents/${id(agentId)}/runs${agentRunsQuery(params)}`),
   getAgentRun: (runId: string) => request<AgentRunDetail>(`/v1/agent-runs/${id(runId)}`),
-  getAgentPrompt: (agentId: string) => request<AgentPrompt>(`/v1/agents/${id(agentId)}/prompt`),
+  getAgentPrompt: (agentId: string, projectId?: string) =>
+    request<AgentPrompt>(`/v1/agents/${id(agentId)}/prompt${projectId ? `?projectId=${id(projectId)}` : ''}`),
+  getAgentInstructions: (projectId: string) => request<AgentInstructions>(`/v1/projects/${id(projectId)}/agent-instructions`),
+  replaceAgentInstruction: (projectId: string, agentId: AdditionAgent, text: string) =>
+    request<AgentInstruction>(`/v1/projects/${id(projectId)}/agent-instructions/${id(agentId)}`, 'PUT', { text }),
+  getAgentInstructionHistory: (projectId: string, agentId: AdditionAgent) =>
+    request<AgentInstructionVersion[]>(`/v1/projects/${id(projectId)}/agent-instructions/${id(agentId)}/history`),
   listSlackDeliveries: (params: { page?: number; pageSize?: number } = {}) =>
     request<SlackDeliveryPage>(`/v1/agents/slack/notifications${agentRunsQuery(params)}`),
   listExecutors: () => request<Executor[]>('/v1/executors'),

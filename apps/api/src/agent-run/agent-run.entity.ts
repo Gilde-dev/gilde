@@ -69,6 +69,14 @@ export class AgentRun {
     @Column({ name: 'cost_usd', type: 'double precision', nullable: true })
     costUsd: number | null;
 
+    /** Version of the project's additional instructions this run's prompt had; null when it had none. */
+    @Column({ name: 'instructions_addition_version', type: 'integer', nullable: true })
+    instructionsAdditionVersion: number | null;
+
+    /** Version hash (first 12 hex characters of the SHA-256) of the full instructions of this run, including any addition. */
+    @Column({ name: 'prompt_version', type: 'varchar', length: 16, nullable: true })
+    promptVersion: string | null;
+
     /** The per-agent record of this run: `intake_refine_runs`, `spec_planning_runs` or `job_runs`. */
     @Column({ name: 'linked_table', type: 'varchar', length: 32, nullable: true })
     linkedTable: string | null;

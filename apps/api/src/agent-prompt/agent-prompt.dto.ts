@@ -32,6 +32,17 @@ export const CodingPromptSchema = z.object({
     trimmingOrder: z.array(z.string()),
 });
 
+/** The project's additional instructions as they are part of `instructions.text`: the block is its last part. */
+export const PromptAdditionSchema = z.object({
+    projectId: z.string().uuid(),
+    projectName: z.string(),
+    version: z.number().int(),
+    /** The text an admin wrote. */
+    text: z.string(),
+    /** The delimited block (heading, precedence sentence and text) as appended to the base instructions. */
+    block: z.string(),
+});
+
 export const AgentPromptSchema = z.object({
     agent: z.string(),
     /** `instructions`: the agent's instructions; `none`: the agent has no prompt of its own. */
@@ -46,6 +57,8 @@ export const AgentPromptSchema = z.object({
     /** The settings the runs use now, for reference. */
     settings: z.record(z.string(), z.number()),
     coding: CodingPromptSchema.nullable(),
+    /** The addition of the selected project that is part of the instructions; null when there is none or no project was selected. */
+    addition: PromptAdditionSchema.nullable(),
     note: z.string().nullable(),
 });
 export type AgentPromptDto = z.infer<typeof AgentPromptSchema>;

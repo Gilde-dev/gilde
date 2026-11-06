@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback } from 'react';
-import { api, type AgentPrompt, type PromptText } from '@/lib/api';
+import { ADDITION_AGENTS, api, type AdditionAgent, type AgentPrompt, type PromptText } from '@/lib/api';
 import { errorText } from '@/lib/job-actions';
 import { usePolling } from '@/lib/use-polling';
 import { Badge } from './ui/badge';
@@ -11,7 +11,9 @@ import { Skeleton } from './ui/skeleton';
 const POLL_MS = 60_000;
 
 /** Prompt text is shown as plain text in a scrollable block; it is never rendered as markup. */
-function PromptBlock({ prompt, label }: { prompt: PromptText; label: string }) {
+function PromptBlock({ prompt, label, addition }: { prompt: PromptText; label: string; addition?: AgentPrompt['addition'] }) {
+  // The addition is the last part of the text: the base is shown as received, the addition labelled separately.
+  const split = addition && prompt.text.endsWith(addition.block) ? prompt.text.length - addition.block.length : -1;
   return (
     <section aria-label={label} className="space-y-2">
       <div className="flex flex-wrap items-center gap-2">
@@ -26,8 +28,27 @@ function PromptBlock({ prompt, label }: { prompt: PromptText; label: string }) {
         aria-label={`${label} text`}
         className="max-h-[32rem] overflow-auto whitespace-pre-wrap break-words rounded-lg border border-border bg-muted p-3 font-mono text-sm"
       >
-        {prompt.text}
+        {split >= 0 && addition ? (
+          <>
+            {prompt.text.slice(0, split)}
+            <span
+              data-testid="prompt-addition"
+              className="block border-l-2 border-primary bg-accent/40 pl-2"
+              aria-label={`Additional instructions for project ${addition.projectName}, version ${addition.version}`}
+            >
+              {prompt.text.slice(split)}
+            </span>
+          </>
+        ) : (
+          prompt.text
+        )}
       </pre>
+      {addition && (
+        <p role="note" className="text-sm text-muted-foreground">
+          The highlighted part is the additional instructions of project {addition.projectName} (version {addition.version}); the text above it is the
+          base from code, which always wins.
+        </p>
+      )}
     </section>
   );
 }
@@ -87,7 +108,8 @@ function PromptContent({ prompt }: { prompt: AgentPrompt }) {
     <div className="space-y-6">
       <p role="note" className="max-w-prose text-sm text-muted-foreground">
         Read-only. Prompts are code, not settings: they change by changing the source file and deploying. This is the text as the agent receives it,
-        rendered by the same functions the agent uses.
+        rendered by the same functions the agent uses. Admins can add project-specific instructions after the base in the project settings
+        (Agent instructions).
       </p>
       {prompt.note && <p className="max-w-prose text-sm text-muted-foreground">{prompt.note}</p>}
       {prompt.kind === 'none' && <p className="text-sm text-muted-foreground">This agent has no prompt of its own.</p>}
@@ -111,7 +133,7 @@ function PromptContent({ prompt }: { prompt: AgentPrompt }) {
           </span>
         </p>
       )}
-      {prompt.instructions && <PromptBlock prompt={prompt.instructions} label={prompt.coding ? 'Agent instructions' : 'Instructions'} />}
+      {prompt.instructions && <PromptBlock prompt={prompt.instructions} label={prompt.coding ? 'Agent instructions' : 'Instructions'} addition={prompt.addition} />}
       {prompt.runPrompt && <PromptBlock prompt={prompt.runPrompt} label="Run prompt (example)" />}
       {Object.keys(prompt.settings).length > 0 && (
         <section aria-label="Current settings" className="space-y-1">
@@ -131,8 +153,10 @@ function PromptContent({ prompt }: { prompt: AgentPrompt }) {
   );
 }
 
-export function PromptTab({ agent }: { agent: string }) {
-  const load = useCallback(() => api.getAgentPrompt(agent), [agent]);
+/** `project` is the selected project (its id): for the agents that take additions, the prompt is shown as a run in that project receives it. */
+export function PromptTab({ agent, project = null }: { agent: string; project?: string | null }) {
+  const withProject = project !== null && (ADDITION_AGENTS as readonly string[]).includes(agent as AdditionAgent);
+  const load = useCallback(() => (withProject ? api.getAgentPrompt(agent, project) : api.getAgentPrompt(agent)), [agent, project, withProject]);
   const { data, error, loading, refresh } = usePolling(load, POLL_MS);
   if (loading && !data) {
     return (

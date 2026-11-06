@@ -127,6 +127,18 @@ function ToolCalls({ runId }: { runId: string }) {
   if (!data) return null;
   return (
     <div className="space-y-3">
+      {data.agentId !== 'coding' && data.agentId !== 'mcp' && (
+        <p className="text-sm text-muted-foreground">
+          Instructions:{' '}
+          {data.instructionsAdditionVersion === null ? 'base only' : `base plus the project's additional instructions, version ${data.instructionsAdditionVersion}`}
+          {data.promptVersion && (
+            <>
+              {' · prompt version '}
+              <span className="font-mono">{data.promptVersion}</span>
+            </>
+          )}
+        </p>
+      )}
       <Text label="Reason" value={data.reason} />
       {data.toolCalls.length === 0 && <p className="text-sm text-muted-foreground">No tool calls were recorded.</p>}
       <ol aria-label="Tool calls" className="space-y-3">

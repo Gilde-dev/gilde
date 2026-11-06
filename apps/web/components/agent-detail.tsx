@@ -455,7 +455,7 @@ function AgentDetail({ agentId, project }: { agentId: string; project: string | 
             </TabsList>
             <TabsContent value="configuration"><ConfigurationTab agent={agent} refresh={refresh} /></TabsContent>
             <TabsContent value="tools"><ToolsTab agent={agent.id} /></TabsContent>
-            <TabsContent value="prompt"><PromptTab agent={agent.id} /></TabsContent>
+            <TabsContent value="prompt"><PromptTab agent={agent.id} project={project} /></TabsContent>
             <TabsContent value="activity"><ActivityTab agent={agent.id} project={project} /></TabsContent>
           </Tabs>
         </>
