@@ -1,3 +1,4 @@
+import { AgentAdditionsModule } from '../agent-additions/agent-additions.module.js';
 import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 
@@ -27,7 +28,7 @@ import { ReviewExecutionService } from './review-execution.service.js';
 import { ReviewInputService } from './review-input.service.js';
 
 @Module({
-    imports: [TypeOrmModule.forFeature([PrReview, Job, Feature, Repo, Project, JobRun]), GitHubModule, AgentModule, AgentRunModule, BudgetModule, UsageModule, LessonModule, NotificationModule, UserModule, PassportModule.register({})],
+    imports: [AgentAdditionsModule, TypeOrmModule.forFeature([PrReview, Job, Feature, Repo, Project, JobRun]), GitHubModule, AgentModule, AgentRunModule, BudgetModule, UsageModule, LessonModule, NotificationModule, UserModule, PassportModule.register({})],
     controllers: [PrReviewController, ReviewOverrideController],
     providers: [PrReviewService, ReviewOverrideService, ReviewInputService, ReviewExecutionService, AutoReviewGateService],
     exports: [PrReviewService, ReviewOverrideService, ReviewInputService, ReviewExecutionService, AutoReviewGateService],

@@ -43,7 +43,7 @@ export const agentTools = (over: Partial<AgentTools> = {}): AgentTools => ({
 export const runSummary = (over: Partial<AgentRunSummary> = {}): AgentRunSummary => ({
   id: 'r1', agentId: 'verfijner', triggerKind: 'intake_item', triggerRefType: 'intake_item', triggerRefId: 'i1', actorUserId: 'b1', projectId: 'p1',
   startedAt: '2026-10-29T09:00:00.000Z', endedAt: '2026-10-29T09:01:00.000Z', outcome: 'ok', reason: null, model: 'openai/gpt-5-mini',
-  inputTokens: 100, outputTokens: 10, costUsd: 0.01, linkedTable: null, linkedId: null, toolCallCount: 2, executor: null, metadataOnly: false,
+  inputTokens: 100, outputTokens: 10, costUsd: 0.01, linkedTable: null, linkedId: null, instructionsAdditionVersion: null, promptVersion: 'abc123def456', toolCallCount: 2, executor: null, metadataOnly: false,
   ...over,
 });
 
@@ -69,6 +69,7 @@ export const agentPrompt = (over: Partial<AgentPrompt> = {}): AgentPrompt => ({
   },
   settings: { dailyLimit: 10 },
   coding: null,
+  addition: null,
   note: null,
   ...over,
 });

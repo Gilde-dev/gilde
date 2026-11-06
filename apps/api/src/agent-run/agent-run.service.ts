@@ -111,6 +111,8 @@ export class AgentRunService {
                 costUsd: r.costUsd ?? used?.cost ?? null,
                 linkedTable: r.linkedTable,
                 linkedId: r.linkedId,
+                instructionsAdditionVersion: r.instructionsAdditionVersion,
+                promptVersion: r.promptVersion,
                 toolCallCount: counts.get(r.id) ?? 0,
                 executor: (r.agentId === 'coding' && r.linkedId ? executors.get(r.linkedId) : undefined) ?? null,
                 metadataOnly,

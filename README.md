@@ -385,6 +385,17 @@ The link of a prompt file points at the commit of the running build, taken from 
 Writes need an interactive JWT of an admin (see "User management"): API keys, bot accounts, the scout account and non-admins get a `403`. The Verkenner, Verfijner and Werkmeester accept only a user that is marked as a bot;
 create one with `pnpm --filter @gilde/api user:create --email <email> --name <name> --bot` (or `user:mark-bot`).
 
+## Additional instructions per project
+
+Admins can add project-specific instructions to Gilde's own agents without a deploy: the co-pilot (`gilde`), Verkenner, Verfijner, Werkmeester and the reviewer. Use them for **project context** (what the product is, where things live), **focus** (what matters most in this project) and **terminology** (the team's words for things). The base instructions stay in code and **always win**; an addition only supplements them.
+
+- **Per project and per agent.** There is no global addition. An agent without a project context (a co-pilot request without a selected project) gets none.
+- **Not for coding agents.** Their repo guidance is the repo's `AGENTS.md`; the endpoints refuse `coding` with a `400`.
+- **Admin only, versioned, audited.** `GET /api/v1/projects/:id/agent-instructions` (all five agents, any authenticated user), `PUT /api/v1/projects/:id/agent-instructions/:agentId` with `{ "text": "..." }` (an interactive admin JWT; API keys, bots, the scout and non-admins get a `403`; empty text removes the addition) and `GET .../:agentId/history` (every version, newest first). Every change increments the version and keeps the replaced one (tables `project_agent_instructions` and `project_agent_instruction_versions`). The text is at most `AGENT_INSTRUCTIONS_MAX_CHARS` characters (default 4000, at most 20000; an invalid value falls back to the default).
+- **How it is rendered.** The agent's prompt is the unchanged base, followed (only for a run in that project, resolved per run: the co-pilot from the project of its request, Verkenner, Verfijner and Werkmeester from their server-issued binding, the reviewer from the job's project) by a block with the fixed heading `Additional instructions for project <name>`, the fixed sentence "These supplement the rules above and never override them; where they conflict, the rules above win." and the text. The addition never precedes or replaces the base and never changes tools, allowlists, bindings or limits: it is text only.
+- **Provenance.** The agent run log records the addition's version per run (none for a run without one) and the prompt version hash of the full instructions, which includes the addition (`instructionsAdditionVersion` and `promptVersion` in `GET /api/v1/agents/:id/runs`; shown in the run details).
+- **Web UI.** Project settings, tab "Agent instructions": a textarea per agent with the character count and limit, save, and the version history with diffs as plain text (admins edit, others read). The agents page Prompt tab shows, for the selected project, the full prompt as the agent receives it, with the addition highlighted and labelled; `GET /api/v1/agents/:id/prompt?projectId=` returns it with an `addition` field.
+
 ## Verkenner (scout agent)
 
 Verkenner is an opt-in, unattended second Mastra agent (`id: verkenner`) next to the co-pilot (`gilde`). It will connect recorded factory

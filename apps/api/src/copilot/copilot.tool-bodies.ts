@@ -1,3 +1,4 @@
+import type { AgentAdditionsService } from '../agent-additions/agent-additions.service.js';
 import { HttpException } from '@nestjs/common';
 import type { EntityManager } from 'typeorm';
 import { z } from 'zod';
@@ -104,6 +105,8 @@ export interface CopilotServices {
     plans: FeaturePlanService;
     /** The project's MCP tools (co-pilot, Verkenner, Verfijner). Absent in unit tests that do not need them. */
     mcpTools?: Pick<ProjectMcpToolsService, 'buildTools'>;
+    /** Per-project additional instructions appended to the base instructions of a run (text only; no effect on tools). Absent in unit tests that do not need them. */
+    additions?: Pick<AgentAdditionsService, 'apply'>;
 }
 
 export const toolId = (what: string) => z.string().uuid().describe(`Id of the ${what}, taken from another tool result. Never invent one.`);

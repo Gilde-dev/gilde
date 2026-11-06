@@ -52,6 +52,10 @@ export const AgentRunSchema = z.object({
     costUsd: z.number().nullable(),
     linkedTable: z.string().nullable(),
     linkedId: z.string().nullable(),
+    /** Version of the project's additional instructions the prompt had; null when none. */
+    instructionsAdditionVersion: z.number().int().nullable(),
+    /** Version hash of the full instructions of the run (includes any addition); null when not recorded. */
+    promptVersion: z.string().nullable(),
     toolCallCount: z.number().int(),
     /** Coding agents: the executor that ran the job attempt; null otherwise or when it is gone. */
     executor: z.object({ id: z.string().uuid(), name: z.string() }).nullable(),

@@ -39,6 +39,15 @@ beforeEach(() => {
 afterEach(() => vi.restoreAllMocks());
 
 describe('ProjectSettingsView', () => {
+  it('has an Agent instructions tab that shows the agents of the project', async () => {
+    vi.spyOn(api, 'getAgentInstructions').mockResolvedValue({ projectId: 'p1', maxChars: 4000, agents: (['gilde', 'verkenner', 'verfijner', 'werkmeester', 'reviewer'] as const).map((agentId) => ({ agentId, text: '', version: 0, updatedAt: null, updatedBy: null })) });
+    vi.spyOn(api, 'me').mockResolvedValue({ id: 'u1', name: 'Ada', email: 'a@b.c', isAdmin: false } as never);
+    render(<ProjectSettingsView />);
+    fireEvent.click(await screen.findByRole('tab', { name: 'Agent instructions' }));
+    expect(await screen.findByLabelText('Additional instructions for Co-pilot')).toBeInTheDocument();
+    expect(api.getAgentInstructions).toHaveBeenCalledWith('p1');
+  });
+
   it('saves general settings with a full PUT body and shows a saved state', async () => {
     const update = vi.spyOn(api, 'replaceProject').mockResolvedValue(project);
     render(<ProjectSettingsView />);

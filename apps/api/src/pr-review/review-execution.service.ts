@@ -5,6 +5,8 @@ import { createTool } from '@mastra/core/tools';
 import { Repository } from 'typeorm';
 import { z } from 'zod';
 
+import { promptVersion } from '../agent-additions/agent-additions.render.js';
+import { AgentAdditionsService } from '../agent-additions/agent-additions.service.js';
 import { AgentRuntimeService } from '../agent/agent-runtime.service.js';
 import type { AgentRunHandle } from '../agent-run/agent-run.recorder.js';
 import { AgentRunRecorder } from '../agent-run/agent-run.recorder.js';
@@ -76,6 +78,7 @@ export class ReviewExecutionService {
         @Optional() private readonly runLog?: AgentRunRecorder,
         @Optional() private readonly usage?: UsageService,
         @Optional() @Inject(REVIEW_MODEL_RESOLVER) private readonly resolveModel?: ReviewModelResolver,
+        @Optional() private readonly additions?: AgentAdditionsService,
     ) { }
 
     /**
@@ -158,9 +161,13 @@ export class ReviewExecutionService {
         // 3. Complete input, sized against the whole input budget. A refusal here is final and costs no model call.
         const repo = await this.repos.findOneBy({ id: review.repoId });
         if (!repo) return { result: incomplete('context_unavailable', 'The repository no longer exists'), executedModel: false };
+        // The instructions of this review: the unchanged base, then the job's project addition when there is one. They count
+        // against the input budget like any other input; the run log gets their version.
+        const instructions = await this.reviewerInstructions(review.projectId);
+        log?.annotate({ additionVersion: instructions.additionVersion, promptVersion: instructions.promptVersion });
         const assembled = await this.inputs.assemble({
             jobId: review.jobId, prNumber: review.prNumber, headSha: review.headSha, baseSha: review.baseSha,
-            instructions: REVIEWER_INSTRUCTIONS, maxInputTokens: limits.data.maxInputTokens,
+            instructions: instructions.text, maxInputTokens: limits.data.maxInputTokens,
         }, count);
         if (!assembled.ok) return { result: refusalToResult(assembled.refusal), executedModel: false };
 
@@ -172,7 +179,7 @@ export class ReviewExecutionService {
             return { lostClaim: true };
         }
         const reader = this.inputs.contextReader(repo.fullName, review.headSha, count);
-        const run = await this.model(assembled.review, reader, limits.data, model, count, options);
+        const run = await this.model(assembled.review, reader, limits.data, model, count, options, instructions.text);
         setUsage(run.usage);
         return { result: run.result, executedModel: true };
     }
@@ -180,7 +187,7 @@ export class ReviewExecutionService {
     /** The bounded model loop. Returns the validated result and the usage actually spent. */
     private async model(
         assembled: AssembledReview, reader: ReviewContextReader, limits: ReviewLimits, modelId: string,
-        count: TokenCounter, options: RunOptions,
+        count: TokenCounter, options: RunOptions, instructions: string = REVIEWER_INSTRUCTIONS,
     ): Promise<{ result: ReviewResult; usage: Usage }> {
         const meter = new ReviewMeter(limits, assembled.inputTokens);
         const controller = new AbortController();
@@ -196,7 +203,7 @@ export class ReviewExecutionService {
         let thrown: unknown = null;
         try {
             const agent = new Agent({
-                id: 'reviewer', name: 'reviewer', instructions: REVIEWER_INSTRUCTIONS,
+                id: 'reviewer', name: 'reviewer', instructions,
                 model: (this.resolveModel ? this.resolveModel(modelId) : modelId) as never,
                 tools: toolSet as never,
             });
@@ -309,6 +316,14 @@ export class ReviewExecutionService {
                 },
             }),
         };
+    }
+
+    /** The reviewer's instructions for a job's project; the base alone when there is no addition or it cannot be read. */
+    private async reviewerInstructions(projectId: string | null) {
+        try {
+            if (this.additions) return await this.additions.apply(REVIEWER_INSTRUCTIONS, 'reviewer', projectId);
+        } catch { /* the base alone */ }
+        return { text: REVIEWER_INSTRUCTIONS, additionVersion: null, promptVersion: promptVersion(REVIEWER_INSTRUCTIONS) };
     }
 
     private startLog(review: PrReview): AgentRunHandle | undefined {

@@ -10,6 +10,7 @@ import { ModelRouterEmbeddingModel } from '@mastra/core/llm';
 import { Memory } from '@mastra/memory';
 import { PostgresStore } from '@mastra/pg';
 
+import { runInstructions } from '../agent-additions/agent-additions.service.js';
 import { ensureRun, recordTools, runLogProcessor, type RunLog } from '../agent-run/agent-run.mastra.js';
 import type { AgentRunAgent, AgentRunTrigger } from '../agent-run/agent-run.entity.js';
 import type { AgentRunInit } from '../agent-run/agent-run.recorder.js';
@@ -299,7 +300,7 @@ function createPlanAgent(plan: PlanSetup, services: CopilotServices, memoryInfra
         id: PLAN_AGENT_ID,
         name: PLAN_AGENT_ID,
         description: 'Werkmeester, the planner: turns one approved spec version into a draft feature with triage jobs. Runs unattended, bound to one spec version; not reachable over HTTP.',
-        instructions: WERKMEESTER_INSTRUCTIONS,
+        instructions: ({ requestContext }) => runInstructions(WERKMEESTER_INSTRUCTIONS, 'werkmeester', planBinding(requestContext)?.projectId, requestContext, services.additions),
         // Exactly its own allowlisted tools: no MCP tools, nothing else.
         tools: ({ requestContext }) => recordTools(planBinding(requestContext) ? own : {}) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
@@ -314,7 +315,7 @@ function createRefineAgent(refine: RefineSetup, services: CopilotServices, memor
         id: REFINE_AGENT_ID,
         name: REFINE_AGENT_ID,
         description: 'Verfijner, the refiner: turns one labelled GitHub issue into a draft spec. Runs unattended, bound to one intake item; not reachable over HTTP.',
-        instructions: VERFIJNER_INSTRUCTIONS,
+        instructions: ({ requestContext }) => runInstructions(VERFIJNER_INSTRUCTIONS, 'verfijner', refineBinding(requestContext)?.projectId, requestContext, services.additions),
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
         tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, refineBinding(requestContext)?.projectId, 'unattended')) as never,
         // One thread per attempt; thread-scoped memory like the scout's.
@@ -329,7 +330,7 @@ function createScoutAgent(scout: ScoutSetup, services: CopilotServices, memoryIn
         id: SCOUT_AGENT_ID,
         name: SCOUT_AGENT_ID,
         description: 'Verkenner, the scout: reads what happens in a project and suggests follow-up work. Runs unattended on notifications; not reachable over HTTP.',
-        instructions: VERKENNER_INSTRUCTIONS,
+        instructions: ({ requestContext }) => runInstructions(VERKENNER_INSTRUCTIONS, 'verkenner', scoutBinding(requestContext)?.projectId, requestContext, services.additions),
         // Plus the read tools of the bound project's MCP servers that were opted in for unattended agents (never write tools).
         tools: async ({ requestContext }) => recordTools(await withMcpTools(own, services.mcpTools, scoutBinding(requestContext)?.projectId, 'unattended')) as never,
         memory: createScoutMemory(memoryInfra, usage),
@@ -356,8 +357,10 @@ function createCopilotAgent(config: Extract<CopilotConfig, { enabled: true }>, s
         description: 'Gilde co-pilot: answers questions about projects, jobs, features, proposals, dispatching, metrics and lessons.',
         // The repos' AGENTS.md, stacks and test commands are appended per request (selected project, else the only one).
         instructions: async ({ requestContext }) => {
-            const reference = repoContext ? await repoContext.build(requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined) : '';
-            return copilotInstructions(reference);
+            const projectId = requestContext?.get(COPILOT_PROJECT_KEY) as string | undefined;
+            const reference = repoContext ? await repoContext.build(projectId) : '';
+            // The project's addition follows the whole base (instructions and repo reference material).
+            return runInstructions(copilotInstructions(reference), 'gilde', projectId, requestContext, services.additions);
         },
         // OpenAI through the Mastra model router; the provider is only chosen by the model setting.
         // Plus the allowed tools of the selected project's MCP servers; the write ones always ask for approval.

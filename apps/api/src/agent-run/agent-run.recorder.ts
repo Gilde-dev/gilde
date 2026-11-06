@@ -92,6 +92,16 @@ export class AgentRunHandle {
         }
     }
 
+    /** Records which instructions the run had (the addition version, null for none, and the prompt version hash) without ending it. */
+    annotate(prompt: { additionVersion: number | null; promptVersion: string }): void {
+        try {
+            const patch: Partial<AgentRun> = { instructionsAdditionVersion: prompt.additionVersion, promptVersion: prompt.promptVersion.slice(0, 16) };
+            this.enqueue('prompt version', () => this.runs.update({ id: this.id }, patch));
+        } catch (error) {
+            this.logger.warn(`Recording the prompt version failed: ${message(error)}`);
+        }
+    }
+
     /** Ends the run. A later call only adds the fields it carries (tokens arrive after the outcome, or the owner overrides it). */
     end(end: AgentRunEnd): void {
         try {
@@ -164,6 +174,8 @@ export class AgentRunRecorder {
                 costUsd: null,
                 linkedTable: init.linkedTable ?? null,
                 linkedId: init.linkedId ?? null,
+                instructionsAdditionVersion: null,
+                promptVersion: null,
             });
             return new AgentRunHandle(id, init.managed ?? false, this, this.runs, this.toolCalls, this.logger, row);
         } catch (error) {
@@ -216,6 +228,6 @@ export class AgentRunRecorder {
 }
 
 function noopHandle(id: string, managed: boolean): AgentRunHandle {
-    const noop = { toolCall: () => undefined, end: () => undefined, settled: () => Promise.resolve(), hasEnded: false, id, managed };
+    const noop = { toolCall: () => undefined, annotate: () => undefined, end: () => undefined, settled: () => Promise.resolve(), hasEnded: false, id, managed };
     return noop as unknown as AgentRunHandle;
 }

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { resolve } from 'node:path';
 
 import { Injectable, NotFoundException, Optional } from '@nestjs/common';
@@ -10,6 +9,9 @@ import { RepoContextService } from '../copilot/repo-context.service.js';
 import { refinePrompt, VERFIJNER_INSTRUCTIONS } from '../copilot/verfijner.instructions.js';
 import { VERKENNER_INSTRUCTIONS } from '../copilot/verkenner.instructions.js';
 import { planPrompt, WERKMEESTER_INSTRUCTIONS } from '../copilot/werkmeester.instructions.js';
+import { AgentAdditionsService } from '../agent-additions/agent-additions.service.js';
+import { isAdditionAgent, promptVersion, withAddition } from '../agent-additions/agent-additions.render.js';
+import { REVIEWER_INSTRUCTIONS } from '../pr-review/review-instructions.js';
 import { AgentInstructionsService } from '../execution/agent-instructions.service.js';
 import { ExecutionError } from '../execution/execution.error.js';
 import { describePromptAssembly } from '../execution/job-prompt.js';
@@ -30,6 +32,7 @@ export const PROMPT_SOURCE_FILES: Partial<Record<AgentId, string>> = {
     verkenner: 'apps/api/src/copilot/verkenner.instructions.ts',
     verfijner: 'apps/api/src/copilot/verfijner.instructions.ts',
     werkmeester: 'apps/api/src/copilot/werkmeester.instructions.ts',
+    reviewer: 'apps/api/src/pr-review/review-instructions.ts',
 };
 const CODING_FILE = 'docs/agent-instructions.md';
 
@@ -48,7 +51,7 @@ const EXAMPLE_NONCE = 'EXAMPLE-NONCE';
 const text = (label: string, value: string) => ({
     label,
     text: value,
-    version: createHash('sha256').update(value).digest('hex').slice(0, 12),
+    version: promptVersion(value),
     length: value.length,
 });
 
@@ -63,6 +66,7 @@ export class AgentPromptService {
         private readonly projects: ProjectService,
         private readonly instructions: AgentInstructionsService,
         @Optional() private readonly repoContext?: RepoContextService,
+        @Optional() private readonly additions?: AgentAdditionsService,
     ) { }
 
     async get(rawId: string, projectId?: string): Promise<AgentPromptDto> {
@@ -72,6 +76,19 @@ export class AgentPromptService {
         if (!isAgentId(rawId)) throw new NotFoundException(`Unknown agent ${rawId}`);
         const id = rawId;
         const settings = (await this.agentSettings.get(id)).settings;
+        const dto = await this.render(id, settings, projectId);
+        if (!projectId || !isAdditionAgent(id) || !dto.instructions) return dto;
+        // The full prompt as a run in this project receives it: the unchanged base, then the project's addition.
+        const addition = await this.additions?.resolve(projectId, id);
+        if (!addition) return dto;
+        return {
+            ...dto,
+            instructions: text(dto.instructions.label, withAddition(dto.instructions.text, addition.block)),
+            addition: { projectId, projectName: addition.projectName, version: addition.version, text: addition.text, block: addition.block },
+        };
+    }
+
+    private async render(id: AgentId, settings: AgentPromptDto['settings'], projectId?: string): Promise<AgentPromptDto> {
         switch (id) {
             case 'gilde': return this.copilot(settings, projectId);
             case 'verkenner':
@@ -84,7 +101,8 @@ export class AgentPromptService {
                 return this.llm(id, settings, text('Instructions', WERKMEESTER_INSTRUCTIONS), text('Run prompt', planPrompt(EXAMPLE_SPEC, EXAMPLE_NONCE)),
                     'Example binding: a made-up approved spec version. A real run uses the spec version of the queued planning run and a random nonce for the boundary lines.', null);
             case 'reviewer':
-                return this.none(id, 'The reviewer is configured here (model and limits), but its instructions are written by the review execution; they are not shown on this page yet.');
+                return this.llm(id, settings, text('Instructions', REVIEWER_INSTRUCTIONS), null, null,
+                    'The reviewer\'s run message is assembled per pull request (the job, the diff and the review inputs), so it has no fixed run prompt.');
             case 'mcp':
                 return this.none(id, 'The MCP server has no LLM and no prompt: operators\' own clients call its tools. See Tools for the tool descriptions.');
             case 'coding':
@@ -102,11 +120,11 @@ export class AgentPromptService {
     }
 
     private llm(id: AgentId, settings: AgentPromptDto['settings'], instructions: AgentPromptDto['instructions'], runPrompt: AgentPromptDto['runPrompt'], exampleBinding: string | null, note: string | null): AgentPromptDto {
-        return { agent: id, kind: 'instructions', exampleBinding, instructions, runPrompt, file: this.file(PROMPT_SOURCE_FILES[id]!), settings, coding: null, note };
+        return { agent: id, kind: 'instructions', exampleBinding, instructions, runPrompt, file: this.file(PROMPT_SOURCE_FILES[id]!), settings, coding: null, addition: null, note };
     }
 
     private none(agent: string, note: string): AgentPromptDto {
-        return { agent, kind: 'none', exampleBinding: null, instructions: null, runPrompt: null, file: null, settings: {}, coding: null, note };
+        return { agent, kind: 'none', exampleBinding: null, instructions: null, runPrompt: null, file: null, settings: {}, coding: null, addition: null, note };
     }
 
     private coding(settings: AgentPromptDto['settings']): AgentPromptDto {
@@ -125,6 +143,7 @@ export class AgentPromptService {
             // Only a file called docs/agent-instructions.md is linked: any other path is not a file of this repository.
             file: configured && resolve(configured).endsWith(`/${CODING_FILE}`) ? this.file(CODING_FILE) : null,
             settings,
+            addition: null,
             coding: { instructionsPath: configured, loadError, limit: assembly.limit, layout: assembly.layout, payloadKeys: assembly.payloadKeys, limits: assembly.limits, trimmingOrder: assembly.trimmingOrder },
             note: 'Every job run gets these instructions followed by the job payload. The routine itself is configured per executor; Gilde sends only this text.',
         };
