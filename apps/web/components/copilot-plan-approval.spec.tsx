@@ -218,8 +218,10 @@ describe('McpApprovalCard', () => {
     const onApprove = vi.fn();
     const onCancel = vi.fn();
     render(<McpApprovalCard call={{ server: 'Notion', tool: 'create_page', args: { title: 'Roadmap' } }} onApprove={onApprove} onCancel={onCancel} />);
-    expect(screen.getByText('Notion.create_page')).toBeInTheDocument();
-    expect(screen.getByText(/"title": "Roadmap"/)).toBeInTheDocument();
+    expect(screen.getByText('Notion · create_page')).toBeInTheDocument();
+    expect(screen.getByText('external')).toBeInTheDocument();
+    expect(screen.getByText('title')).toBeInTheDocument();
+    expect(screen.getByText('Roadmap')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Approve' }));
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(onApprove).toHaveBeenCalledTimes(1);
@@ -235,6 +237,6 @@ describe('McpApprovalCard', () => {
     const interrupt = { reason: 'mastra:tool_approval', metadata: { mastra: { toolName: 'mcp__Notion__create_page', args: {} } } };
     expect(enabled({ value: interrupt })).toBe(true);
     render(renderInterrupt({ interrupt, resolve: vi.fn(), cancel: vi.fn() }));
-    expect(screen.getByText('Notion.create_page')).toBeInTheDocument();
+    expect(screen.getByText('Notion · create_page')).toBeInTheDocument();
   });
 });
