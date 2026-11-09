@@ -1,5 +1,6 @@
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
+import { DataSource } from 'typeorm';
 import request from 'supertest';
 
 import { AppModule } from './../src/app.module.js';
@@ -7,6 +8,9 @@ import { REFINE_TOOL_NAMES } from './../src/copilot/verfijner.tools.js';
 import { SCOUT_TOOL_NAMES } from './../src/copilot/verkenner.tools.js';
 import { PLAN_TOOL_NAMES } from './../src/copilot/werkmeester.tools.js';
 import { MCP_TOOL_NAMES } from './../src/mcp/mcp.tools.js';
+import { AgentSettingsAudit } from './../src/agent/agent-settings-audit.entity.js';
+import { AgentSettings } from './../src/agent/agent-settings.entity.js';
+import { AgentSettingsService } from './../src/agent/agent-settings.service.js';
 import { AgentRuntimeService } from './../src/agent/agent-runtime.service.js';
 import { UserService } from './../src/user/user.service.js';
 import { createApiKey, createTestUser, tokenFor } from './helpers/auth.js';
@@ -35,6 +39,11 @@ describe('Agent settings (e2e)', () => {
     app = (await Test.createTestingModule({ imports: [AppModule] }).compile()).createNestApplication();
     app.setGlobalPrefix('/api');
     await app.init();
+    // db.sqlite is shared by all e2e specs and survives between runs: start from the defaults.
+    const ds = app.get(DataSource);
+    await ds.getRepository(AgentSettingsAudit).delete({ agent: 'reviewer' });
+    await ds.getRepository(AgentSettings).delete({ id: 'reviewer' });
+    await app.get(AgentSettingsService).seed();
     human = await createTestUser(app, { name: 'Operator' });
     await app.get(UserService).makeAdmin(human.email);
     token = tokenFor(app, human);
